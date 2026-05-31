@@ -1355,6 +1355,8 @@ Exit criteria:
 - Implement continuation prompt generation.
 - Implement compaction prompt generation.
 - Implement lesson injection.
+- Implement dead-end-to-avoid rendering.
+- Implement file-memory hint rendering.
 - Store prompt optimization results.
 - Add unit tests.
 
@@ -1363,18 +1365,21 @@ Exit criteria:
 - Vague prompt fixtures produce compact task contracts.
 - Validation-missing `Stop` fixtures produce short continuation prompts.
 - Approved relevant lessons can be injected while disabled lessons are ignored.
+- High-confidence dead-end patterns render as short avoidance hints.
 - Prompt optimization results are persisted and queryable by event.
 
 ### Milestone 6: Hard Rule Engine
 
 - Implement policy loader.
 - Implement initial deterministic hard rules.
+- Implement redundant fetch, repeated read, and repeated search tool-supervision rules.
+- Implement dead-end redirect rule.
 - Add rule unit tests and fixture coverage.
 - Compose decisions from rule outputs.
 
 Exit criteria:
 
-- Dangerous command, protected path, repeat command, validation, and broad-change scenarios produce expected decisions without model calls.
+- Dangerous command, protected path, repeat command, redundant fetch, repeated read, repeated search, dead-end redirect, validation, and broad-change scenarios produce expected decisions without model calls.
 
 ### Milestone 7: Dashboard MVP
 
@@ -1383,47 +1388,68 @@ Exit criteria:
 - Add trace replay.
 - Add decision detail cards.
 - Add prompt optimization cards.
-- Add basic policies, lessons, analytics, and feedback pages.
+- Add basic policies, lessons, file memory, tool supervision, analytics, and feedback pages.
 
 Exit criteria:
 
-- A user can inspect a run, see optimized prompts and why AgentGuard intervened, and mark feedback locally.
+- A user can inspect a run, see optimized prompts, pattern matches, file-memory hints, tool-supervision events, and why AgentGuard intervened, then mark feedback locally.
 
 ### Milestone 8: Lessons
 
 - Implement lesson repository.
+- Implement situation/dead-end/unlock lesson fields.
 - Implement lesson candidate creation from feedback.
 - Implement approval, disable, and expiration flows.
 - Implement approved lesson matching.
+- Implement confidence-gated pattern matching.
 - Add prompt optimizer lesson injection support.
 
 Exit criteria:
 
-- Approved lessons can be matched and injected into future matching runs.
+- Approved lessons can be matched, confidence-gated, and injected into future matching runs.
+- Low-confidence matches are logged but not injected.
 
-### Milestone 9: Steering Model Interface
+### Milestone 9: Semantic File Memory and Tool Supervision
+
+- Add `packages/file-memory`.
+- Add file-memory repository and hash-based staleness tracking.
+- Add compact file summary matching by repo, path, symbols, and task terms.
+- Add `packages/tool-supervisor`.
+- Add redundant fetch, repeated read/search, repeated failed command, and dead-end revisit detection.
+- Add dashboard APIs for file memory, pattern matches, and tool-supervision events.
+
+Exit criteria:
+
+- Repeated unchanged file reads can be replaced by compact file-memory hints.
+- Stale file memory is not injected after content hash changes.
+- Redundant fetch/search fixtures produce explainable tool-supervision events.
+
+### Milestone 10: Steering Model Interface
 
 - Add no-op and local HTTP steering providers.
 - Add strict request and response schemas.
 - Add call budget enforcement.
-- Add semantic loop, stale evidence, premature final, broad edit, prompt optimization, lesson selection, and failure category purposes.
+- Add semantic loop, stale evidence, dead-end match, premature final, broad edit, prompt optimization, lesson selection, difficulty state, context pruning, and failure category purposes.
 
 Exit criteria:
 
 - Ambiguous fixture scenarios can call a fake steering provider, validate output, and persist model decision records.
 
-### Milestone 10: Analytics
+### Milestone 11: Analytics and Evaluation
 
 - Add token and cost rollups.
 - Add success feedback model.
-- Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, rule/model decision counts, accepted/rejected interventions, and repeated tool calls avoided.
+- Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, rule/model decision counts, accepted/rejected interventions, pattern match metrics, file-memory metrics, tool-supervision metrics, and repeated tool calls avoided.
+- Add local synthetic benchmark fixtures for repeated reads, repeated searches, dead-end redirects, prompt optimization, and validation blocks.
 - Label prompt optimization outcome comparisons as correlation unless an A/B evaluation exists.
+- Label pattern and file-memory outcome comparisons as correlation unless an explicit controlled evaluation exists.
 
 Exit criteria:
 
 - Dashboard analytics update from local synthetic and real runs.
+- Evaluation reports distinguish correlation from controlled comparisons.
 
-### Milestone 11: Packaging and Real Agent Trials
+### Milestone 12: Packaging and Real Agent Trials
 
 - Package CLI.
 - Document Codex and Claude Code hook setup.
@@ -1506,4 +1532,22 @@ Mitigation: Keep the first install path local and explicit, use one CLI entry po
 
 Risk: Lessons can become generic advice that pollutes future runs.
 
-Mitigation: Require structured triggers, approval, scoped evidence, confidence, expiration, and usage analytics.
+Mitigation: Require situation/dead-end/unlock fields, structured triggers, approval, scoped evidence, confidence gates, expiration, and usage analytics.
+
+### Pattern Over-Injection
+
+Risk: AgentGuard could inject too many patterns and bloat prompts or bias the agent toward the wrong prior solution.
+
+Mitigation: Inject at most 1-3 lessons, require confidence thresholds, log non-injected matches, show provenance, and track helpful/unhelpful feedback.
+
+### Stale File Memory
+
+Risk: File summaries can become inaccurate after source changes.
+
+Mitigation: Store content hashes when available, mark memory stale on mismatch, down-rank old summaries, and require refresh before injection.
+
+### Evaluation Overclaiming
+
+Risk: Analytics can imply causality when they only show correlation.
+
+Mitigation: Label uncontrolled comparisons as correlation, add explicit benchmark modes for controlled comparisons, and keep raw evaluation inputs local.
