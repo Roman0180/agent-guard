@@ -2,9 +2,11 @@
 
 ## 1. Product Summary
 
-AgentGuard is a local-first runtime reliability layer for AI coding agents such as Codex and Claude Code. It runs as a sidecar beside existing agents instead of replacing them. AgentGuard receives hook events from agent runtimes, normalizes and stores those events locally, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject lessons, or require validation.
+AgentGuard is a local-first runtime reliability layer for AI coding agents such as Codex and Claude Code. It runs as a sidecar beside existing agents instead of replacing them. AgentGuard receives hook events from agent runtimes, normalizes and stores those events locally, retrieves approved reliability patterns, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
 
 AgentGuard also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before hard rules and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving deterministic runtime enforcement.
+
+AgentGuard's reuse layer is inspired by the observation that coding agents often waste cost by re-exploring the same dead ends. AgentGuard should capture approved local lessons in a structured operational format: the situation encountered, the dead ends to avoid, and the unlock that worked. Injection must be confidence-gated, short, and explainable.
 
 The dashboard is the control plane and replay UI, but the core product is the runtime decision pipeline. The MVP should prove that AgentGuard can observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task.
 
@@ -28,6 +30,11 @@ The MVP should include:
 - Hook adapters for Codex and Claude Code, starting with a generic JSON hook protocol and thin provider-specific normalization.
 - Deterministic hard rule engine for low-cost decisions.
 - Prompt optimization layer for task contracts, continuation prompts, compaction prompts, and approved lesson injection.
+- Confidence-gated reasoning reuse with approved local patterns that capture situation, dead ends, and unlock.
+- Semantic file memory with compact per-file summaries, validation notes, and last-observed hashes.
+- Tool supervision for redundant fetches, repeated reads, repeated searches, and risky tool calls.
+- Reasoning-aware context pruning that preserves constraints, validation evidence, and dead-end history.
+- Lightweight difficulty-state tracking to decide whether to inject context, ask steering, require validation, or stay quiet.
 - Optional small steering model interface for ambiguous decisions, disabled by default or configured explicitly.
 - Local dashboard with runs, trace replay, policies, lessons, analytics, and feedback pages.
 - Lesson memory with candidate, approved, disabled, and expired states.
@@ -47,6 +54,9 @@ Initial steering model use cases:
 - Ambiguous prompt optimization cases.
 - Semantic loop detection.
 - Stale evidence detection.
+- Dead-end pattern matching when deterministic lesson triggers are insufficient.
+- Difficulty-state classification.
+- Reasoning-aware pruning classification.
 - Premature final answer detection.
 - Broad edit classification.
 - Approved lesson selection.
@@ -59,6 +69,8 @@ The MVP should not attempt to:
 - Replace Codex, Claude Code, or any other coding agent.
 - Build a fully remote SaaS control plane.
 - Store traces in cloud services by default.
+- Use a shared cloud pattern library by default.
+- Upload raw traces, raw prompts, source files, tool outputs, or chain-of-thought for pattern creation by default.
 - Require an LLM call for every event or decision.
 - Analyze complete raw conversations with a model by default.
 - Guarantee secret redaction in v1.
@@ -95,6 +107,11 @@ The MVP should not attempt to:
 │         │          ┌──────────────┐                  │
 │         │          │ lessons      │                  │
 │         │          │ retrieval    │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         │          │ semantic     │                  │
+│         │          │ file memory  │                  │
 │         │          └──────┬───────┘                  │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
@@ -140,7 +157,11 @@ Update run state
   ↓
 Retrieve approved matching lessons
   ↓
+Retrieve semantic file memory
+  ↓
 Prompt optimization layer
+  ↓
+Tool supervision + context pruning
   ↓
 Hard rule engine
   ↓
@@ -158,14 +179,16 @@ Detailed runtime flow:
 3. Store raw and normalized event.
 4. Load or update run state.
 5. Load repo policy.
-6. Retrieve approved matching lessons.
-7. If the event is `UserPromptSubmit`, `Stop`, `PreCompact`, or `PostCompact`, run prompt optimization.
-8. Evaluate deterministic hard rules.
-9. If a hard rule blocks or requires continuation, return immediately. If applicable, include the optimized continuation prompt.
-10. If needed, call the small steering model with compact structured features.
-11. Compose final decision.
-12. Store the event, prompt optimization result, decision, and state snapshot.
-13. Show events, prompt optimizations, decisions, state, lessons, and analytics in the dashboard.
+6. Retrieve approved matching lessons and confidence-gated reasoning patterns.
+7. Retrieve compact semantic file memory for touched or relevant files.
+8. If the event is `UserPromptSubmit`, `Stop`, `PreCompact`, or `PostCompact`, run prompt optimization.
+9. Run deterministic tool supervision and context-pruning checks.
+10. Evaluate deterministic hard rules.
+11. If a hard rule blocks or requires continuation, return immediately. If applicable, include the optimized continuation prompt.
+12. If needed, call the small steering model with compact structured features.
+13. Compose final decision.
+14. Store the event, prompt optimization result, decision, state snapshot, file-memory update, and analytics features.
+15. Show events, prompt optimizations, decisions, state, lessons, file memory, and analytics in the dashboard.
 
 ## 5. Monorepo Structure
 
@@ -231,6 +254,18 @@ agent-guard/
         candidates.ts
         repository.ts
       package.json
+    file-memory/
+      src/
+        summaries.ts
+        matcher.ts
+        repository.ts
+      package.json
+    tool-supervisor/
+      src/
+        redundant-fetches.ts
+        repeated-reads.ts
+        pruning.ts
+      package.json
     prompt-optimizer/
       src/
         contracts.ts
@@ -262,6 +297,9 @@ Recommended stack:
 New prompt optimization package:
 
 - `packages/prompt-optimizer`: prompt rewriting, task contracts, continuation prompts, compaction prompts, lesson injection, and prompt optimization evaluation metadata.
+- `packages/file-memory`: compact per-file semantic summaries, matching, invalidation by content hash, and file-memory repository helpers.
+- `packages/tool-supervisor`: redundant tool-call detection, repeated read/search tracking, context-pruning signals, and tool-cost avoidance metrics.
+- `packages/evaluation`: local benchmark fixtures, A/B-style comparison harnesses, cost-per-success calculations, and correlation/causality labeling helpers.
 
 ## 6. Core Data Models
 
@@ -373,15 +411,85 @@ type Lesson = {
   id: string;
   trigger: LessonTrigger;
   text: string;
+  situation: string;
+  deadEnds: string[];
+  unlock: string;
+  injectionFormat: "operational_lesson_v1";
   confidence: number;
   evidence: LessonEvidence[];
   scope: LessonScope;
   status: "candidate" | "approved" | "disabled" | "expired";
+  usageStats: LessonUsageStats;
   createdAt: string;
   updatedAt: string;
   expiresAt?: string;
 };
 ```
+
+Lesson fields must remain operational and compact:
+
+- `situation`: the compact scenario where the lesson applies.
+- `deadEnds`: specific approaches, commands, assumptions, or files that wasted effort or caused failure.
+- `unlock`: the action or insight that resolved the issue.
+- `text`: a short rendered lesson derived from the structured fields for injection.
+
+This structure is intentionally not raw chain-of-thought. It captures reusable operational guidance, not hidden reasoning traces.
+
+### Semantic File Memory
+
+```ts
+type FileMemory = {
+  id: string;
+  repoRoot: string;
+  path: string;
+  contentHash?: string;
+  language?: string;
+  summary: string;
+  exportedSymbols: string[];
+  responsibilities: string[];
+  validationNotes: string[];
+  lastObservedAt: string;
+  sourceRunIds: string[];
+  confidence: number;
+};
+```
+
+Semantic file memory should help the agent avoid repeatedly reading unchanged files. It stores compact, local, per-file operational summaries and must not store full file contents by default.
+
+### Pattern Match
+
+```ts
+type PatternMatch = {
+  id: string;
+  runId: string;
+  eventId: string;
+  lessonId?: string;
+  fileMemoryId?: string;
+  matchKind: "lesson" | "file_memory" | "dead_end" | "tool_pattern";
+  confidence: number;
+  triggerSummary: string;
+  shouldInject: boolean;
+  injected: boolean;
+  reasonCode: string;
+  createdAt: string;
+};
+```
+
+Pattern injection must be confidence-gated. The runtime should store matches even when `shouldInject` is false so the dashboard can explain why AgentGuard stayed quiet.
+
+### Difficulty State
+
+```ts
+type DifficultyState = {
+  runId: string;
+  state: "fast" | "normal" | "slow" | "skip";
+  confidence: number;
+  reasons: string[];
+  updatedAt: string;
+};
+```
+
+Difficulty state is a compact runtime signal, not an orchestration system. It helps AgentGuard decide whether to inject context, ask steering, require validation, or suppress low-confidence interventions.
 
 ### Prompt Optimization
 
@@ -400,6 +508,8 @@ type TaskContract = {
   constraints: string[];
   validation_requirements: string[];
   relevant_lessons: string[];
+  dead_ends_to_avoid: string[];
+  file_memory: string[];
   risk_notes: string[];
 };
 
@@ -426,6 +536,8 @@ type PromptOptimizationResult = {
   constraints: string[];
   validationRequirements: string[];
   relevantLessons: Lesson[];
+  patternMatches: PatternMatch[];
+  fileMemory: FileMemory[];
   riskNotes: string[];
   estimatedTokenDelta: number;
   rewriteReason: string;
