@@ -4,6 +4,8 @@
 
 AgentGuard is a local-first runtime reliability layer for AI coding agents such as Codex and Claude Code. It runs as a sidecar beside existing agents instead of replacing them. AgentGuard receives hook events from agent runtimes, normalizes and stores those events locally, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject lessons, or require validation.
 
+AgentGuard also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before hard rules and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving deterministic runtime enforcement.
+
 The dashboard is the control plane and replay UI, but the core product is the runtime decision pipeline. The MVP should prove that AgentGuard can observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task.
 
 Primary user workflow:
@@ -25,6 +27,7 @@ The MVP should include:
 - Shared event schemas for raw events, normalized events, decisions, run state, policies, lessons, and analytics.
 - Hook adapters for Codex and Claude Code, starting with a generic JSON hook protocol and thin provider-specific normalization.
 - Deterministic hard rule engine for low-cost decisions.
+- Prompt optimization layer for task contracts, continuation prompts, compaction prompts, and approved lesson injection.
 - Optional small steering model interface for ambiguous decisions, disabled by default or configured explicitly.
 - Local dashboard with runs, trace replay, policies, lessons, analytics, and feedback pages.
 - Lesson memory with candidate, approved, disabled, and expired states.
@@ -41,6 +44,7 @@ Initial hard rules:
 
 Initial steering model use cases:
 
+- Ambiguous prompt optimization cases.
 - Semantic loop detection.
 - Stale evidence detection.
 - Premature final answer detection.
@@ -89,6 +93,16 @@ The MVP should not attempt to:
 │  └──────┬───────┘   └──────┬───────┘                 │
 │         │                  ▼                         │
 │         │          ┌──────────────┐                  │
+│         │          │ lessons      │                  │
+│         │          │ retrieval    │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         │          │ prompt       │                  │
+│         │          │ optimizer    │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
 │         │          │ hard rules   │                  │
 │         │          └──────┬───────┘                  │
 │         │                 │ unresolved ambiguous case │
@@ -114,6 +128,44 @@ The MVP should not attempt to:
 │ Next.js local UI   │          │ SQLite-backed      │
 └────────────────────┘          └────────────────────┘
 ```
+
+Runtime pipeline:
+
+```text
+Hook event
+  ↓
+Normalize event
+  ↓
+Update run state
+  ↓
+Retrieve approved matching lessons
+  ↓
+Prompt optimization layer
+  ↓
+Hard rule engine
+  ↓
+Optional small steering model
+  ↓
+Decision composer
+  ↓
+Trace store + dashboard + lesson memory + analytics
+```
+
+Detailed runtime flow:
+
+1. Receive raw hook event.
+2. Normalize the event.
+3. Store raw and normalized event.
+4. Load or update run state.
+5. Load repo policy.
+6. Retrieve approved matching lessons.
+7. If the event is `UserPromptSubmit`, `Stop`, `PreCompact`, or `PostCompact`, run prompt optimization.
+8. Evaluate deterministic hard rules.
+9. If a hard rule blocks or requires continuation, return immediately. If applicable, include the optimized continuation prompt.
+10. If needed, call the small steering model with compact structured features.
+11. Compose final decision.
+12. Store the event, prompt optimization result, decision, and state snapshot.
+13. Show events, prompt optimizations, decisions, state, lessons, and analytics in the dashboard.
 
 ## 5. Monorepo Structure
 
@@ -179,6 +231,14 @@ agent-guard/
         candidates.ts
         repository.ts
       package.json
+    prompt-optimizer/
+      src/
+        contracts.ts
+        templates.ts
+        continuation.ts
+        compaction.ts
+        evaluation.ts
+      package.json
   docs/
     IMPLEMENTATION_PLAN.md
     CONFIGURATION.md
@@ -198,6 +258,10 @@ Recommended stack:
 - Runtime validation: Zod.
 - Tests: Vitest for packages, Playwright for dashboard smoke tests.
 - Lint/format: ESLint and Prettier.
+
+New prompt optimization package:
+
+- `packages/prompt-optimizer`: prompt rewriting, task contracts, continuation prompts, compaction prompts, lesson injection, and prompt optimization evaluation metadata.
 
 ## 6. Core Data Models
 
@@ -234,6 +298,7 @@ type NormalizedEvent = {
     | "file_edit"
     | "validation"
     | "final_attempt"
+    | "compaction"
     | "run_finished"
     | "error";
   timestamp: string;
@@ -248,6 +313,8 @@ type NormalizedEvent = {
 };
 ```
 
+Provider events should map into these stable event types. For example, `UserPromptSubmit` maps to `prompt`, `Stop` maps to `final_attempt`, and `PreCompact` or `PostCompact` maps to `compaction` with the provider lifecycle phase preserved in metadata.
+
 ### Decision
 
 ```ts
@@ -257,7 +324,14 @@ type RuntimeDecision = {
   eventId: string;
   createdAt: string;
   source: "hard_rule" | "steering_model" | "manual" | "system";
-  action: "allow" | "warn" | "block" | "require_continue" | "require_approval" | "inject_lesson";
+  action:
+    | "allow"
+    | "warn"
+    | "block"
+    | "block_continue"
+    | "require_continue"
+    | "require_approval"
+    | "inject_lesson";
   severity: "info" | "warning" | "error";
   reasonCode: string;
   message: string;
@@ -307,6 +381,75 @@ type Lesson = {
   updatedAt: string;
   expiresAt?: string;
 };
+```
+
+### Prompt Optimization
+
+Prompt optimization schemas live in `packages/core` because the daemon, dashboard, storage, steering, and prompt optimizer all need the same contract.
+
+```ts
+type PromptRewriteMode =
+  | "initial_task"
+  | "continuation"
+  | "compaction"
+  | "lesson_injection";
+
+type TaskContract = {
+  task: string;
+  scope: string[];
+  constraints: string[];
+  validation_requirements: string[];
+  relevant_lessons: string[];
+  risk_notes: string[];
+};
+
+type PromptOptimizationInput = {
+  runId: string;
+  eventId: string;
+  mode: PromptRewriteMode;
+  provider: AgentProvider;
+  originalPrompt?: string;
+  normalizedEvent: NormalizedEvent;
+  runState: RunState;
+  policy: PolicyConfig;
+  approvedLessons: Lesson[];
+  maxPromptLength: number;
+};
+
+type PromptOptimizationResult = {
+  id: string;
+  runId: string;
+  eventId: string;
+  mode: PromptRewriteMode;
+  optimizedPrompt: string;
+  taskContract: TaskContract;
+  constraints: string[];
+  validationRequirements: string[];
+  relevantLessons: Lesson[];
+  riskNotes: string[];
+  estimatedTokenDelta: number;
+  rewriteReason: string;
+  shouldInject: boolean;
+  injected: boolean;
+  deterministicOrModel: "deterministic" | "model_assisted";
+  createdAt: string;
+};
+```
+
+The wire format and storage metadata should expose prompt optimization fields as `optimized_prompt`, `task_contract`, `validation_requirements`, `relevant_lessons`, `risk_notes`, `estimated_token_delta`, `rewrite_reason`, and `should_inject`. TypeScript implementations can use local naming conventions internally if adapters serialize the documented field names.
+
+Example optimization:
+
+```text
+Original prompt:
+Fix the logger issue in Queue Service 2.
+
+Optimized prompt:
+Task: Fix the Queue Service 2 logger issue.
+Scope: Inspect current logging setup, dependency injection registration, configuration, and tests before editing.
+Constraints: Keep changes minimal. Do not refactor unrelated services.
+Validation: Run targeted Queue Service 2 build/tests after edits.
+Relevant lesson: For C# DI/logging failures, inspect service registration before constructor or test changes.
 ```
 
 ## 7. Hook Integration Strategy
@@ -397,9 +540,68 @@ State update rules:
 - Final attempts check whether validation is required.
 - Decisions update intervention counters and pending approval state.
 
-## 10. Hard Rule Engine Design
+## 10. Prompt Optimization Layer Design
+
+The prompt optimization layer runs after run state and lesson retrieval, but before hard rules and optional steering. It improves prompt structure so the coding agent wastes fewer steps and tokens. It must not weaken or bypass hard-rule enforcement.
+
+Primary purposes:
+
+- Rewrite vague user prompts into compact task contracts.
+- Add repo-specific constraints from policy and run context.
+- Add validation expectations before edits begin.
+- Inject only relevant approved lessons.
+- Generate continuation prompts when the agent tries to stop too early.
+- Generate compaction summaries for `PreCompact` and `PostCompact` events.
+- Reduce downstream token usage by giving Codex or Claude Code a clearer task structure.
+- Prefer deterministic and template-based rewriting first.
+- Use the small steering model only for ambiguous prompt optimization cases.
+
+The optimizer should run mainly on:
+
+- `UserPromptSubmit`: create an initial task contract and optimized prompt.
+- `Stop` or `block_continue`: create a short continuation prompt when the agent attempts to stop prematurely.
+- `PreCompact`: create a compact summary of durable state, open decisions, validation requirements, and relevant lessons.
+- `PostCompact`: verify or repair the compacted continuation context.
+
+Output fields:
+
+- `optimized_prompt`
+- `task_contract`
+- `constraints`
+- `validation_requirements`
+- `relevant_lessons`
+- `risk_notes`
+- `estimated_token_delta`
+- `rewrite_reason`
+- `should_inject`
+
+Implementation approach:
+
+1. Classify the event into a `PromptRewriteMode`.
+2. Build compact features from normalized event, run state, repo policy, and approved matching lessons.
+3. Apply deterministic templates for task contracts, validation requirements, continuation prompts, and compaction prompts.
+4. Inject at most 1-3 short approved lessons when their structured triggers match the current run.
+5. Estimate token delta by comparing original prompt length with optimized prompt length and expected avoided repeated context.
+6. Reject or truncate rewrites that exceed the configured maximum length.
+7. Store the result even when `shouldInject` is false so the dashboard can explain the decision.
+8. For ambiguous cases only, optionally ask the steering model to choose or refine a rewrite using compact structured prompt metadata.
+9. Ignore invalid model rewrites and fall back to deterministic output.
+
+Package ownership:
+
+- `packages/prompt-optimizer/contracts.ts`: task contract builders and validation helpers.
+- `packages/prompt-optimizer/templates.ts`: deterministic prompt templates.
+- `packages/prompt-optimizer/continuation.ts`: short continuation prompt generation.
+- `packages/prompt-optimizer/compaction.ts`: `PreCompact` and `PostCompact` summaries.
+- `packages/prompt-optimizer/evaluation.ts`: length limits, token delta estimates, and rewrite metadata.
+
+Prompt optimization is an assistive input-shaping layer. Hard rules still decide whether a run is allowed, blocked, or required to continue.
+
+## 11. Hard Rule Engine Design
 
 The hard rule engine should be deterministic, fast, and model-free. It receives a normalized event, current run state, loaded policy config, and repository metadata. It returns zero or more decisions.
+
+Hard rules run after prompt optimization so they can include optimized continuation prompts in their responses, but they remain deterministic and zero-token. Prompt optimization must never weaken hard-rule enforcement or convert a block into an allow decision.
 
 Rule interface:
 
@@ -425,12 +627,13 @@ Design principles:
 - Rules should return structured reason codes, not free-form-only text.
 - Rules should be separately testable with fixture events.
 - Block and require decisions should short-circuit steering model calls.
+- If validation is missing on `Stop`, the validation rule should produce `block_continue` and use the prompt optimizer to attach a short continuation prompt.
 - Warn decisions can be accumulated and shown without preventing later evaluation.
 - Rule config should come from layered policy loading: defaults, global user config, repo config, then runtime overrides.
 
-## 11. Small Steering Model Design
+## 12. Small Steering Model Design
 
-The steering model should be optional and used only when deterministic rules are insufficient. It should receive compact structured features, not raw transcripts.
+The steering model should be optional and used only when deterministic rules or deterministic prompt templates are insufficient. It should receive compact structured features, not raw transcripts or full raw prompt history.
 
 Model request:
 
@@ -443,7 +646,8 @@ type SteeringRequest = {
     | "premature_final"
     | "broad_edit"
     | "lesson_selection"
-    | "failure_category";
+    | "failure_category"
+    | "prompt_optimization";
   features: Record<string, unknown>;
   allowedActions: RuntimeDecision["action"][];
   candidateLessons?: Lesson[];
@@ -471,6 +675,9 @@ Guardrails:
 - Log model inputs and outputs as structured records.
 - Fall back to allow or warn when the model provider fails, depending on policy.
 - Do not include raw chain-of-thought, full prompts, or full logs in requests.
+- For prompt optimization, send compact prompt metadata, task hints, policy constraints, validation state, and candidate lesson summaries only.
+- Ignore invalid model rewrites.
+- Reject or truncate long generated rewrites before they can be injected.
 
 Initial provider strategy:
 
@@ -479,7 +686,7 @@ Initial provider strategy:
 - Add configurable local HTTP provider for users running a small local model.
 - Add later cloud provider support behind explicit configuration.
 
-## 12. Lesson Memory Design
+## 13. Lesson Memory Design
 
 Lessons are structured memory items that require approval before runtime injection. They should help avoid repeated mistakes without storing raw reasoning.
 
@@ -489,8 +696,9 @@ Lesson lifecycle:
 2. User reviews candidate in dashboard.
 3. User approves, disables, edits, or expires the lesson.
 4. Runtime matches approved lessons against compact run features.
-5. Hard rules or steering model decide whether to inject one or more matching lessons.
-6. Dashboard tracks accepted, ignored, and stale lessons.
+5. Prompt optimizer injects at most 1-3 short approved matching lessons into task contracts or continuation prompts.
+6. Hard rules or steering model may still decide whether lesson injection should be suppressed for a specific event.
+7. Dashboard tracks accepted, ignored, and stale lessons.
 
 Matching inputs:
 
@@ -506,22 +714,38 @@ Storage constraints:
 - `text` should be short and directly actionable.
 - `trigger` should be structured.
 - `evidence` should reference run IDs, event IDs, and compact summaries.
+- Approved lessons can be injected by the prompt optimizer, but only when relevant.
+- Inject no more than 1-3 lessons per prompt optimization.
+- Lesson text must be short and scoped.
+- Disabled, expired, or candidate lessons must never be injected automatically.
 - No raw chain-of-thought.
+- Never inject raw trace history.
 - No full logs unless the user explicitly adds them later.
 
-## 13. Dashboard Design
+## 14. Dashboard Design
 
 The dashboard should be a local Next.js app served either by its own dev server in development or by the daemon in packaged mode.
 
 Pages:
 
 - Runs: searchable list of recent runs with provider, status, cost, tokens, success signal, loop count, validation status, and intervention count.
-- Trace replay: chronological raw and normalized event timeline, decisions, state snapshots, and feedback controls.
+- Trace replay: chronological raw and normalized event timeline, prompt optimizations, decisions, state snapshots, and feedback controls.
 - Failure modes: grouped failures by category, repeated loop signatures, stale evidence signals, and validation misses.
 - Policies: current effective policy, repo overrides, protected paths, dangerous command patterns, and rule test fixtures.
 - Lessons: candidate review queue, approved lessons, disabled lessons, lesson usage, and lesson effectiveness.
-- Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, rule decision count, model decision count, accepted/rejected interventions, and repeated tool calls avoided.
+- Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, prompt optimization count, continuation prompt count, compaction prompt count, average optimized prompt length, rule decision count, model decision count, accepted/rejected interventions, and repeated tool calls avoided.
 - Feedback: mark run success/failure, accept/reject intervention usefulness, and create lesson candidates.
+
+Prompt optimization UI should show:
+
+- Original prompt when raw prompt storage is enabled.
+- Optimized prompt.
+- Task contract.
+- Rewrite reason.
+- Whether the rewrite was injected.
+- Deterministic or model-assisted rewrite badge.
+- Relevant approved lessons injected.
+- Estimated token delta.
 
 Dashboard API endpoints should read from daemon APIs rather than accessing SQLite directly. This keeps storage ownership in one process.
 
@@ -530,11 +754,33 @@ MVP UI priorities:
 - Fast local run list.
 - Clear trace timeline.
 - Explainable decision cards with reason codes.
+- Prompt optimization cards in trace replay.
 - Simple policy editor or read-only policy viewer with file path to edit.
 - Lesson approval workflow.
-- Analytics summary cards and trend table.
+- Analytics summary cards and trend table, including prompt optimization metrics.
 
-## 14. Storage Schema
+Analytics should include:
+
+- Cost per successful task when cost data exists.
+- Estimated tokens per successful task.
+- Success rate.
+- Loop rate.
+- Validation block rate.
+- Rule decision count.
+- Model decision count.
+- Prompt optimizations count.
+- Continuation prompts count.
+- Compaction prompts count.
+- Average optimized prompt length.
+- Runs with prompt optimization vs without.
+- Repeated tool-call rate after prompt optimization.
+- Validation block rate after prompt optimization.
+- Interventions accepted and rejected.
+- Repeated tool calls avoided.
+
+Prompt optimization analytics should clearly label correlation as correlation unless an explicit A/B evaluation exists. For example, "runs with prompt optimization had lower repeated tool-call rate" must not be presented as causal unless controlled evaluation is implemented.
+
+## 15. Storage Schema
 
 SQLite should be the durable source for local traces and configuration state.
 
@@ -588,6 +834,24 @@ CREATE TABLE run_state_snapshots (
   event_id TEXT NOT NULL,
   created_at TEXT NOT NULL,
   state_json TEXT NOT NULL,
+  FOREIGN KEY (run_id) REFERENCES runs(id),
+  FOREIGN KEY (event_id) REFERENCES normalized_events(id)
+);
+
+CREATE TABLE prompt_optimizations (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  original_prompt TEXT,
+  optimized_prompt TEXT NOT NULL,
+  task_contract_json TEXT NOT NULL,
+  rewrite_reason TEXT NOT NULL,
+  should_inject INTEGER NOT NULL,
+  injected INTEGER NOT NULL,
+  deterministic_or_model TEXT NOT NULL,
+  estimated_token_delta INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
   FOREIGN KEY (run_id) REFERENCES runs(id),
   FOREIGN KEY (event_id) REFERENCES normalized_events(id)
 );
@@ -663,12 +927,15 @@ Important indexes:
 - `runs(provider, updated_at)`
 - `raw_events(run_id, received_at)`
 - `normalized_events(run_id, timestamp)`
+- `prompt_optimizations(run_id, created_at)`
+- `prompt_optimizations(event_id)`
+- `prompt_optimizations(mode, created_at)`
 - `decisions(run_id, created_at)`
 - `decisions(reason_code, created_at)`
 - `lessons(status, updated_at)`
 - `intervention_feedback(run_id, created_at)`
 
-## 15. Testing Strategy
+## 16. Testing Strategy
 
 Package-level tests:
 
@@ -680,6 +947,12 @@ Package-level tests:
 - Exact repeated command detection.
 - Validation-after-edit state transitions.
 - Broad-change threshold decisions.
+- Prompt optimizer converts vague prompts into structured task contracts.
+- Validation-missing `Stop` creates a short continuation prompt.
+- Approved lessons are injected only when relevant.
+- Disabled, candidate, and expired lessons are ignored by prompt optimization.
+- Prompt optimization never injects raw trace history.
+- Prompt rewrites stay under configured maximum length.
 - Steering response validation and invalid response handling.
 - Lesson matching and status filtering.
 - Storage migrations and repository methods.
@@ -688,10 +961,12 @@ Integration tests:
 
 - CLI hook command posts to daemon and returns expected allow decision.
 - Daemon stores raw event, normalized event, run state, and decision in one request.
+- Daemon stores prompt optimization results linked to `event_id`.
 - Hard rule block short-circuits steering.
+- Validation block uses the prompt optimizer result when returning a continuation prompt.
 - Fail-open behavior when daemon is unavailable.
 - Fail-closed behavior when configured.
-- Dashboard API returns run list and trace replay data.
+- Dashboard API returns run list, trace replay data, and prompt optimization detail.
 
 End-to-end smoke tests:
 
@@ -700,10 +975,11 @@ End-to-end smoke tests:
 - Confirm dashboard APIs show run, events, decisions, and analytics.
 - Send run with edit and no validation before final attempt.
 - Confirm validation block decision.
+- Send prompt optimization fixture and confirm dashboard can display original prompt, optimized prompt, task contract, rewrite reason, injection status, deterministic/model badge, and injected lessons.
 
 Test fixtures should be compact, synthetic, and scrubbed of secrets. Avoid depending on live model providers in automated tests.
 
-## 16. Privacy and Security Considerations
+## 17. Privacy and Security Considerations
 
 Default posture:
 
@@ -712,10 +988,12 @@ Default posture:
 - Steering model disabled or local-only by default.
 - Fail open if daemon is unavailable, unless fail-closed is configured.
 - Raw payloads stored locally because replay and future migration need fidelity.
+- Raw prompt storage is configurable.
+- Prompt optimization storage is local-only by default.
 
 Security risks:
 
-- Raw traces may contain source code, secrets, prompts, credentials, and internal business context.
+- Raw traces and raw prompts may contain source code, secrets, credentials, prompts, and internal business context.
 - Shell command classification can miss dangerous command variants.
 - Protected path policies can be too broad or too narrow.
 - A steering model could produce malformed or unsafe decisions.
@@ -730,11 +1008,13 @@ Mitigations:
 - Store policy audit history.
 - Add configurable retention limits.
 - Add redaction support after MVP foundation.
+- Add future redaction support for raw prompts before any non-local export features.
 - Add dashboard warning for raw trace sensitivity.
 - Never send raw trace data to steering providers by default.
+- Never send raw full prompts or raw trace history to steering providers for prompt optimization.
 - Sanitize command summaries used for analytics and model features.
 
-## 17. Build Milestones
+## 18. Build Milestones
 
 ### Milestone 1: Monorepo Foundation
 
@@ -781,7 +1061,25 @@ Exit criteria:
 
 - Synthetic multi-event run produces coherent run state.
 
-### Milestone 5: Hard Rule Engine
+### Milestone 5: Prompt Optimization Layer
+
+- Add `packages/prompt-optimizer`.
+- Add prompt optimization schemas.
+- Implement deterministic task-contract templates.
+- Implement continuation prompt generation.
+- Implement compaction prompt generation.
+- Implement lesson injection.
+- Store prompt optimization results.
+- Add unit tests.
+
+Exit criteria:
+
+- Vague prompt fixtures produce compact task contracts.
+- Validation-missing `Stop` fixtures produce short continuation prompts.
+- Approved relevant lessons can be injected while disabled lessons are ignored.
+- Prompt optimization results are persisted and queryable by event.
+
+### Milestone 6: Hard Rule Engine
 
 - Implement policy loader.
 - Implement initial deterministic hard rules.
@@ -792,52 +1090,54 @@ Exit criteria:
 
 - Dangerous command, protected path, repeat command, validation, and broad-change scenarios produce expected decisions without model calls.
 
-### Milestone 6: Dashboard MVP
+### Milestone 7: Dashboard MVP
 
 - Build local dashboard shell.
 - Add runs list.
 - Add trace replay.
 - Add decision detail cards.
+- Add prompt optimization cards.
 - Add basic policies, lessons, analytics, and feedback pages.
 
 Exit criteria:
 
-- A user can inspect a run, see why AgentGuard intervened, and mark feedback locally.
+- A user can inspect a run, see optimized prompts and why AgentGuard intervened, and mark feedback locally.
 
-### Milestone 7: Lessons
+### Milestone 8: Lessons
 
 - Implement lesson repository.
 - Implement lesson candidate creation from feedback.
 - Implement approval, disable, and expiration flows.
 - Implement approved lesson matching.
-- Add lesson injection decision support.
+- Add prompt optimizer lesson injection support.
 
 Exit criteria:
 
 - Approved lessons can be matched and injected into future matching runs.
 
-### Milestone 8: Steering Model Interface
+### Milestone 9: Steering Model Interface
 
 - Add no-op and local HTTP steering providers.
 - Add strict request and response schemas.
 - Add call budget enforcement.
-- Add semantic loop, stale evidence, premature final, broad edit, lesson selection, and failure category purposes.
+- Add semantic loop, stale evidence, premature final, broad edit, prompt optimization, lesson selection, and failure category purposes.
 
 Exit criteria:
 
 - Ambiguous fixture scenarios can call a fake steering provider, validate output, and persist model decision records.
 
-### Milestone 9: Analytics
+### Milestone 10: Analytics
 
 - Add token and cost rollups.
 - Add success feedback model.
-- Add cost-per-success, loop rate, validation block rate, rule/model decision counts, accepted/rejected interventions, and repeated tool calls avoided.
+- Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, rule/model decision counts, accepted/rejected interventions, and repeated tool calls avoided.
+- Label prompt optimization outcome comparisons as correlation unless an A/B evaluation exists.
 
 Exit criteria:
 
 - Dashboard analytics update from local synthetic and real runs.
 
-### Milestone 10: Packaging and Real Agent Trials
+### Milestone 11: Packaging and Real Agent Trials
 
 - Package CLI.
 - Document Codex and Claude Code hook setup.
@@ -848,7 +1148,7 @@ Exit criteria:
 
 - A user can install AgentGuard locally, configure at least one agent, run a real task, and review the run in the dashboard.
 
-## 18. Risks and Mitigations
+## 19. Risks and Mitigations
 
 ### Provider Hook Instability
 
@@ -866,7 +1166,19 @@ Mitigation: Start with conservative hard blocks, make warnings visible but non-b
 
 Risk: Steering model calls could undermine the low-token product promise.
 
-Mitigation: Hard rules run first, model calls are budgeted per run, inputs are compact structured features, and steering is optional.
+Mitigation: Deterministic prompt templates and hard rules run first, model calls are budgeted per run, inputs are compact structured features, and steering is optional.
+
+### Prompt Rewrite Overreach
+
+Risk: Prompt optimization could distort user intent, add unrelated scope, or make the agent overconfident.
+
+Mitigation: Use conservative deterministic templates, preserve the original task, keep constraints explicit, show rewrite reasons in the dashboard, store optimization metadata, and allow prompt injection to be disabled by policy.
+
+### Prompt Optimization Privacy
+
+Risk: Original prompts may contain secrets, private code, or internal details.
+
+Mitigation: Keep prompt storage local-only by default, make raw prompt storage configurable, never inject raw trace history, avoid sending full prompts to steering providers, and add redaction support before non-local export.
 
 ### Sensitive Trace Storage
 
