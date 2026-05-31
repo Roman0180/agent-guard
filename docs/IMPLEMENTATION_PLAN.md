@@ -1221,6 +1221,12 @@ Package-level tests:
 - Disabled, candidate, and expired lessons are ignored by prompt optimization.
 - Prompt optimization never injects raw trace history.
 - Prompt rewrites stay under configured maximum length.
+- Three-field lesson rendering includes situation, dead ends, and unlock without raw reasoning.
+- Confidence gates suppress low-confidence pattern injection and log the non-injection reason.
+- Semantic file memory retrieval ignores stale hashes and never injects full file contents by default.
+- Tool supervision detects repeated reads, repeated searches, redundant fetches, and repeated failed commands.
+- Context pruning preserves active constraints, validation requirements, and dead ends to avoid.
+- Difficulty-state classification transitions are stable and respect hysteresis.
 - Steering response validation and invalid response handling.
 - Lesson matching and status filtering.
 - Storage migrations and repository methods.
@@ -1230,6 +1236,8 @@ Integration tests:
 - CLI hook command posts to daemon and returns expected allow decision.
 - Daemon stores raw event, normalized event, run state, and decision in one request.
 - Daemon stores prompt optimization results linked to `event_id`.
+- Daemon stores file-memory updates and pattern-match records linked to events.
+- Redundant tool supervision events are visible through dashboard APIs.
 - Hard rule block short-circuits steering.
 - Validation block uses the prompt optimizer result when returning a continuation prompt.
 - Fail-open behavior when daemon is unavailable.
@@ -1244,6 +1252,9 @@ End-to-end smoke tests:
 - Send run with edit and no validation before final attempt.
 - Confirm validation block decision.
 - Send prompt optimization fixture and confirm dashboard can display original prompt, optimized prompt, task contract, rewrite reason, injection status, deterministic/model badge, and injected lessons.
+- Send repeated file-read and repeated-search fixtures and confirm tool supervision records are created.
+- Send matching lesson fixtures and confirm only high-confidence approved patterns are injected.
+- Run a local synthetic baseline/treatment comparison and confirm analytics label it as correlation unless the fixture is explicitly configured as controlled.
 
 Test fixtures should be compact, synthetic, and scrubbed of secrets. Avoid depending on live model providers in automated tests.
 
@@ -1258,6 +1269,8 @@ Default posture:
 - Raw payloads stored locally because replay and future migration need fidelity.
 - Raw prompt storage is configurable.
 - Prompt optimization storage is local-only by default.
+- File memory and pattern matches are local-only by default.
+- Any future shared pattern library is opt-in and must use scrubbed, approved operational lessons.
 
 Security risks:
 
@@ -1265,6 +1278,8 @@ Security risks:
 - Shell command classification can miss dangerous command variants.
 - Protected path policies can be too broad or too narrow.
 - A steering model could produce malformed or unsafe decisions.
+- File memory could become stale and mislead the agent after source changes.
+- Pattern injection could overfit to a superficially similar but semantically different task.
 - Dashboard APIs could expose sensitive local traces.
 
 Mitigations:
@@ -1280,6 +1295,9 @@ Mitigations:
 - Add dashboard warning for raw trace sensitivity.
 - Never send raw trace data to steering providers by default.
 - Never send raw full prompts or raw trace history to steering providers for prompt optimization.
+- Never send full file contents to steering providers for file-memory matching by default.
+- Apply confidence thresholds and provenance display before injecting lessons or file-memory hints.
+- Mark file memory stale when hashes change or validation contradicts the summary.
 - Sanitize command summaries used for analytics and model features.
 
 ## 18. Build Milestones
