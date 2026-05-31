@@ -662,6 +662,8 @@ Primary purposes:
 - Add repo-specific constraints from policy and run context.
 - Add validation expectations before edits begin.
 - Inject only relevant approved lessons.
+- Inject dead ends to avoid and the unlock that worked when a high-confidence approved pattern matches.
+- Inject compact semantic file memory for relevant unchanged files instead of encouraging repeated reads.
 - Generate continuation prompts when the agent tries to stop too early.
 - Generate compaction summaries for `PreCompact` and `PostCompact` events.
 - Reduce downstream token usage by giving Codex or Claude Code a clearer task structure.
@@ -682,6 +684,9 @@ Output fields:
 - `constraints`
 - `validation_requirements`
 - `relevant_lessons`
+- `dead_ends_to_avoid`
+- `file_memory`
+- `pattern_matches`
 - `risk_notes`
 - `estimated_token_delta`
 - `rewrite_reason`
@@ -691,13 +696,14 @@ Implementation approach:
 
 1. Classify the event into a `PromptRewriteMode`.
 2. Build compact features from normalized event, run state, repo policy, and approved matching lessons.
-3. Apply deterministic templates for task contracts, validation requirements, continuation prompts, and compaction prompts.
-4. Inject at most 1-3 short approved lessons when their structured triggers match the current run.
-5. Estimate token delta by comparing original prompt length with optimized prompt length and expected avoided repeated context.
-6. Reject or truncate rewrites that exceed the configured maximum length.
-7. Store the result even when `shouldInject` is false so the dashboard can explain the decision.
-8. For ambiguous cases only, optionally ask the steering model to choose or refine a rewrite using compact structured prompt metadata.
-9. Ignore invalid model rewrites and fall back to deterministic output.
+3. Retrieve high-confidence pattern matches and relevant file-memory summaries.
+4. Apply deterministic templates for task contracts, validation requirements, continuation prompts, compaction prompts, dead-end avoidance, and file-memory insertion.
+5. Inject at most 1-3 short approved lessons when their structured triggers and confidence gate match the current run.
+6. Estimate token delta by comparing original prompt length with optimized prompt length and expected avoided repeated context, repeated reads, and repeated tool calls.
+7. Reject or truncate rewrites that exceed the configured maximum length.
+8. Store the result even when `shouldInject` is false so the dashboard can explain the decision.
+9. For ambiguous cases only, optionally ask the steering model to choose or refine a rewrite using compact structured prompt metadata.
+10. Ignore invalid model rewrites and fall back to deterministic output.
 
 Package ownership:
 
@@ -706,6 +712,8 @@ Package ownership:
 - `packages/prompt-optimizer/continuation.ts`: short continuation prompt generation.
 - `packages/prompt-optimizer/compaction.ts`: `PreCompact` and `PostCompact` summaries.
 - `packages/prompt-optimizer/evaluation.ts`: length limits, token delta estimates, and rewrite metadata.
+- `packages/prompt-optimizer/patterns.ts`: confidence-gated lesson and dead-end rendering.
+- `packages/prompt-optimizer/file-memory.ts`: rendering compact file-memory hints.
 
 Prompt optimization is an assistive input-shaping layer. Hard rules still decide whether a run is allowed, blocked, or required to continue.
 
@@ -731,6 +739,9 @@ Initial rules:
 - `dangerous_command.block`: block shell commands matching denylisted patterns such as recursive deletion, disk formatting, credential exfiltration, or known destructive git operations.
 - `protected_path.block`: block edits to protected paths such as `.env`, secrets, lockfiles, or configured production files unless explicitly allowed.
 - `exact_command_repeat.warn`: warn when the same normalized command repeats beyond a threshold in a short window.
+- `redundant_fetch.warn`: warn when the same URL, file, or search query is fetched repeatedly without new evidence.
+- `repeated_read.prune`: suggest file-memory or compact summaries when unchanged files are read repeatedly.
+- `dead_end_redirect.require_continue`: require continuation with a redirect prompt when the current trajectory matches an approved dead-end pattern.
 - `validation_after_edit.require`: require continuation instead of final answer when code was edited and no accepted validation has run.
 - `broad_change.require_approval`: require approval when changed file or changed line thresholds are exceeded.
 
@@ -755,14 +766,18 @@ type SteeringRequest = {
   purpose:
     | "semantic_loop"
     | "stale_evidence"
+    | "dead_end_match"
     | "premature_final"
     | "broad_edit"
     | "lesson_selection"
+    | "difficulty_state"
+    | "context_pruning"
     | "failure_category"
     | "prompt_optimization";
   features: Record<string, unknown>;
   allowedActions: RuntimeDecision["action"][];
   candidateLessons?: Lesson[];
+  candidateFileMemory?: FileMemory[];
 };
 ```
 
@@ -775,6 +790,9 @@ type SteeringResponse = {
   reasonCode: string;
   message: string;
   lessonIds?: string[];
+  fileMemoryIds?: string[];
+  difficultyState?: DifficultyState["state"];
+  pruneHints?: string[];
   failureCategory?: string;
 };
 ```
@@ -788,6 +806,8 @@ Guardrails:
 - Fall back to allow or warn when the model provider fails, depending on policy.
 - Do not include raw chain-of-thought, full prompts, or full logs in requests.
 - For prompt optimization, send compact prompt metadata, task hints, policy constraints, validation state, and candidate lesson summaries only.
+- For dead-end matching, send only compact summaries of recent events, command signatures, failure categories, and approved candidate lesson summaries.
+- For file memory, send only file paths, hashes, compact summaries, and relevance features; never send full file contents by default.
 - Ignore invalid model rewrites.
 - Reject or truncate long generated rewrites before they can be injected.
 
@@ -802,15 +822,24 @@ Initial provider strategy:
 
 Lessons are structured memory items that require approval before runtime injection. They should help avoid repeated mistakes without storing raw reasoning.
 
+AgentGuard lessons should use a compact three-part operational format:
+
+- Situation: when this lesson applies.
+- Dead ends: specific approaches, commands, assumptions, or files that wasted work.
+- Unlock: the action or insight that led to a correct solution.
+
+The rendered injection should be short and may combine these fields into a single block. The stored lesson remains structured so matching, filtering, and evaluation can inspect each field separately.
+
 Lesson lifecycle:
 
-1. Candidate generated from successful run, repeated failure pattern, or user feedback.
+1. Candidate generated from successful run, repeated failure pattern, explicit dead-end redirect, or user feedback.
 2. User reviews candidate in dashboard.
 3. User approves, disables, edits, or expires the lesson.
 4. Runtime matches approved lessons against compact run features.
-5. Prompt optimizer injects at most 1-3 short approved matching lessons into task contracts or continuation prompts.
-6. Hard rules or steering model may still decide whether lesson injection should be suppressed for a specific event.
-7. Dashboard tracks accepted, ignored, and stale lessons.
+5. A confidence gate decides whether the lesson is injected, logged as a non-injected match, or ignored.
+6. Prompt optimizer injects at most 1-3 short approved matching lessons into task contracts or continuation prompts.
+7. Hard rules or steering model may still decide whether lesson injection should be suppressed for a specific event.
+8. Dashboard tracks accepted, ignored, stale, injected, non-injected, and helpful/unhelpful lessons.
 
 Matching inputs:
 
@@ -824,15 +853,59 @@ Matching inputs:
 Storage constraints:
 
 - `text` should be short and directly actionable.
+- `situation`, `deadEnds`, and `unlock` should be structured and separately stored.
 - `trigger` should be structured.
 - `evidence` should reference run IDs, event IDs, and compact summaries.
 - Approved lessons can be injected by the prompt optimizer, but only when relevant.
 - Inject no more than 1-3 lessons per prompt optimization.
+- Apply a configurable confidence threshold before injection.
 - Lesson text must be short and scoped.
 - Disabled, expired, or candidate lessons must never be injected automatically.
 - No raw chain-of-thought.
 - Never inject raw trace history.
 - No full logs unless the user explicitly adds them later.
+
+## 13A. Semantic File Memory Design
+
+Semantic file memory stores compact local summaries of files the agent has already inspected. Its purpose is to reduce repeated file reads and preserve repository understanding across runs without storing full file contents by default.
+
+Lifecycle:
+
+1. File read, search, edit, or validation events identify candidate files.
+2. AgentGuard records path, hash when available, language hints, exported symbols, responsibilities, and validation notes.
+3. If the file changes, the memory is marked stale until refreshed.
+4. Future runs retrieve matching file memory by repo, path, symbols, task terms, and confidence.
+5. Prompt optimizer injects only compact file-memory hints when relevant.
+
+Constraints:
+
+- Store local file memory only by default.
+- Do not store full source file contents by default.
+- Invalidate or down-rank memory when content hash changes.
+- Show file-memory provenance in the dashboard.
+- Track repeated reads avoided as an analytics metric.
+
+## 13B. Tool Supervision and Context Pruning
+
+Tool supervision detects wasteful or risky tool behavior before it compounds cost.
+
+Minimum detections:
+
+- Repeated reads of the same unchanged file.
+- Repeated searches with equivalent queries.
+- Repeated fetches of the same URL or dependency metadata.
+- Repeated failed commands without changed inputs.
+- Tool calls that revisit a known dead end from an approved lesson.
+
+Context pruning should be reasoning-aware. It should preserve active task constraints, validation requirements, failed approaches, file-memory hints, policy decisions, and user-approved lessons while pruning stale logs, duplicate tool output, and already-resolved branches.
+
+The pruning layer should emit explainable metadata:
+
+- what was kept
+- what was pruned
+- why it was pruned
+- estimated token delta
+- whether pruning was deterministic or model-assisted
 
 ## 14. Dashboard Design
 
@@ -844,8 +917,10 @@ Pages:
 - Trace replay: chronological raw and normalized event timeline, prompt optimizations, decisions, state snapshots, and feedback controls.
 - Failure modes: grouped failures by category, repeated loop signatures, stale evidence signals, and validation misses.
 - Policies: current effective policy, repo overrides, protected paths, dangerous command patterns, and rule test fixtures.
-- Lessons: candidate review queue, approved lessons, disabled lessons, lesson usage, and lesson effectiveness.
-- Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, prompt optimization count, continuation prompt count, compaction prompt count, average optimized prompt length, rule decision count, model decision count, accepted/rejected interventions, and repeated tool calls avoided.
+- Lessons and patterns: candidate review queue, approved lessons, disabled lessons, situation/dead-end/unlock fields, confidence gates, pattern matches, lesson usage, and lesson effectiveness.
+- File memory: per-repo file summaries, stale/hash status, provenance, injected file-memory hints, and repeated reads avoided.
+- Tool supervision: redundant fetches, repeated reads/searches, repeated failed commands, and dead-end redirects.
+- Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, prompt optimization count, continuation prompt count, compaction prompt count, average optimized prompt length, rule decision count, model decision count, accepted/rejected interventions, pattern match rate, high-confidence injection rate, repeated reads avoided, repeated fetches avoided, and repeated tool calls avoided.
 - Feedback: mark run success/failure, accept/reject intervention usefulness, and create lesson candidates.
 
 Prompt optimization UI should show:
@@ -857,6 +932,9 @@ Prompt optimization UI should show:
 - Whether the rewrite was injected.
 - Deterministic or model-assisted rewrite badge.
 - Relevant approved lessons injected.
+- Dead ends to avoid.
+- File-memory hints injected.
+- Pattern match confidence and gate result.
 - Estimated token delta.
 
 Dashboard API endpoints should read from daemon APIs rather than accessing SQLite directly. This keeps storage ownership in one process.
@@ -869,6 +947,8 @@ MVP UI priorities:
 - Prompt optimization cards in trace replay.
 - Simple policy editor or read-only policy viewer with file path to edit.
 - Lesson approval workflow.
+- File-memory review and stale-memory inspection.
+- Tool-supervision event list.
 - Analytics summary cards and trend table, including prompt optimization metrics.
 
 Analytics should include:
@@ -885,7 +965,13 @@ Analytics should include:
 - Compaction prompts count.
 - Average optimized prompt length.
 - Runs with prompt optimization vs without.
+- High-confidence pattern match rate.
+- Injection rate after confidence gating.
+- Runs with pattern injection vs without.
+- Runs with file-memory injection vs without.
 - Repeated tool-call rate after prompt optimization.
+- Repeated file-read rate after file-memory injection.
+- Redundant fetch/search rate after tool supervision.
 - Validation block rate after prompt optimization.
 - Interventions accepted and rejected.
 - Repeated tool calls avoided.
@@ -1004,12 +1090,77 @@ CREATE TABLE lessons (
   status TEXT NOT NULL,
   trigger_json TEXT NOT NULL,
   text TEXT NOT NULL,
+  situation TEXT NOT NULL,
+  dead_ends_json TEXT NOT NULL,
+  unlock TEXT NOT NULL,
+  injection_format TEXT NOT NULL,
   confidence REAL NOT NULL,
   scope_json TEXT NOT NULL,
   evidence_json TEXT NOT NULL,
+  usage_stats_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   expires_at TEXT
+);
+
+CREATE TABLE file_memory (
+  id TEXT PRIMARY KEY,
+  repo_root TEXT NOT NULL,
+  path TEXT NOT NULL,
+  content_hash TEXT,
+  language TEXT,
+  summary TEXT NOT NULL,
+  exported_symbols_json TEXT NOT NULL,
+  responsibilities_json TEXT NOT NULL,
+  validation_notes_json TEXT NOT NULL,
+  source_run_ids_json TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  last_observed_at TEXT NOT NULL,
+  stale INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE pattern_matches (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  lesson_id TEXT,
+  file_memory_id TEXT,
+  match_kind TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  trigger_summary TEXT NOT NULL,
+  should_inject INTEGER NOT NULL,
+  injected INTEGER NOT NULL,
+  reason_code TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (run_id) REFERENCES runs(id),
+  FOREIGN KEY (event_id) REFERENCES normalized_events(id),
+  FOREIGN KEY (lesson_id) REFERENCES lessons(id),
+  FOREIGN KEY (file_memory_id) REFERENCES file_memory(id)
+);
+
+CREATE TABLE tool_supervision_events (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  supervision_type TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  action TEXT NOT NULL,
+  message TEXT NOT NULL,
+  estimated_token_delta INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  data_json TEXT NOT NULL,
+  FOREIGN KEY (run_id) REFERENCES runs(id),
+  FOREIGN KEY (event_id) REFERENCES normalized_events(id)
+);
+
+CREATE TABLE evaluation_runs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  eval_name TEXT NOT NULL,
+  baseline_run_ids_json TEXT NOT NULL,
+  treatment_run_ids_json TEXT NOT NULL,
+  metrics_json TEXT NOT NULL,
+  causal_claim_allowed INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE intervention_feedback (
@@ -1045,6 +1196,11 @@ Important indexes:
 - `decisions(run_id, created_at)`
 - `decisions(reason_code, created_at)`
 - `lessons(status, updated_at)`
+- `file_memory(repo_root, path)`
+- `file_memory(repo_root, content_hash)`
+- `pattern_matches(run_id, created_at)`
+- `pattern_matches(match_kind, confidence)`
+- `tool_supervision_events(run_id, created_at)`
 - `intervention_feedback(run_id, created_at)`
 
 ## 16. Testing Strategy
