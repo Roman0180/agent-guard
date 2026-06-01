@@ -1,0 +1,1915 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>IMPLEMENTATION_PLAN.md</title>
+    <meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+    
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+html,footer,header{
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	border: 0;
+	height: 2px;
+	border-bottom: 2px solid;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Custom MD PDF CSS
+ */
+html,footer,header{
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+
+ }
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #C9AE75; /* Change the old color so it seems less like an error */
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+<link rel="stylesheet" href="file:///Users/roman/Desktop/agent-guard/R%3A%5C2.Travail%5C1.Enseignement%5CCours%5C_1.Outils%5C2.Developpement%5C1.SCSS%5Cmain.css" type="text/css"><link rel="stylesheet" href="file:///Users/roman/Desktop/agent-guard/D%3A%5Crdaros%5CCours%5C_1.Outils%5C2.Developpement%5C1.SCSS%5Cmain.css" type="text/css">
+</head>
+
+<body>
+    <h1 id="agent-sidecar-implementation-plan">Agent Sidecar Implementation Plan</h1>
+<h2 id="1-product-summary">1. Product Summary</h2>
+<p>Agent Sidecar is a terminal-run runtime reliability layer for AI coding agents such as Codex and Claude Code. Users install it with <code>pip</code>, start the sidecar daemon from their terminal, and configure agent hooks to call the sidecar command. The sidecar receives hook events from agent runtimes, normalizes and stores those events, retrieves approved reliability patterns and repo-map entries, evaluates runtime monitors and tool-cost guardrail checks, optionally asks an ensemble of cheaper steering models for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.</p>
+<p>Agent Sidecar should make agent runs observable, correctable, cheaper to operate, and measurable. Each run should stream structured telemetry into the sidecar dashboard: hook events, normalized steps, monitor hits, difficulty state, decision reason codes, token and cost signals, validation evidence, and final outcome. The product should not only intervene; it should make the impact of each intervention auditable.</p>
+<p>The runtime should detect common long-running agent failures while the run is still active: semantic loops, repeated tool calls, skipped verification, silent topic drift, stale evidence, hedging/backtracking, and unbounded context growth. These detections should feed a lightweight difficulty state machine that helps decide whether Agent Sidecar should stay quiet, inject approved guidance, require validation, ask the steering ensemble, or stop wasteful continuation.</p>
+<p>Agent Sidecar also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before monitor evaluation and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving runtime monitoring, tool-cost guardrails, and steering controls.</p>
+<h3 id="business-framing">Business Framing</h3>
+<p>The landing page should keep the business message simple: AI coding agents are useful, but unmanaged agent runs can become expensive when loops, stale context, repeated reads, and skipped validation compound across teams. The public website cites Fortune coverage of enterprise AI coding-tool budget pressure, then positions Agent Sidecar as the Codex and Claude Code runtime layer that reduces repeated loops, stale context, and wasted tokens so builders spend less per successful task.</p>
+<p>The implementation must support that claim with auditable product data rather than marketing-only assertions: per-step token and cost rollups, matched guarded-versus-unguarded baselines, total cost saved, and clear labels for controlled, estimated, or correlated comparisons.</p>
+<ul>
+<li>Runtime monitor and tool-cost guardrail engine for low-cost decisions.</li>
+<li>Repo map cache with compact per-file summaries, validation notes, and last-observed hashes.<br>
+Initial monitor and tool-cost guardrail actions:</li>
+</ul>
+<ol start="4">
+<li>
+<p><strong>Tool-cost guardrails</strong>: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first tool-cost guardrail checks should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.</p>
+</li>
+<li>
+<p>Install the package with <code>python -m pip install agent-sidecar</code>.</p>
+</li>
+<li>
+<p>Start the sidecar from the user’s terminal with <code>agent-sidecar daemon start</code>.</p>
+</li>
+<li>
+<p>Configure Codex or Claude Code hooks to call Agent Sidecar.</p>
+</li>
+<li>
+<p>Run the coding agent normally.</p>
+</li>
+<li>
+<p>Review traces, decisions, monitors, lessons, and analytics in the sidecar dashboard.</p>
+</li>
+</ol>
+<p>Install path:</p>
+<pre class="hljs"><code><div>python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+</div></code></pre>
+<h3 id="runtime-lifecycle">Runtime Lifecycle</h3>
+<p>The runtime pipeline runs between agent steps. It should keep the agent’s working history clean and return only the decision or short injected guidance required for the next step.</p>
+<ol>
+<li><code>run_start</code>: create a run record with provider, model, repo, task, pricing profile, and config snapshot.</li>
+<li><code>event_received</code>: persist the raw hook payload and attach provider metadata.</li>
+<li><code>normalize</code>: convert provider-specific payloads into stable command, read, edit, validation, tool, usage, finalization, and error events.</li>
+<li><code>state_update</code>: update run state, edited paths, validation freshness, repeated-tool counters, token/cost totals, and difficulty state.</li>
+<li><code>trajectory_assessment</code>: run deterministic monitors for loops, skipped validation, drift, stale evidence, risky tools, and cost pressure.</li>
+<li><code>memory_gate</code>: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.</li>
+<li><code>prompt_optimization</code>: create a task contract, continuation prompt, validation prompt, compaction output, or short injected context when useful.</li>
+<li><code>decision_steering</code>: compose monitor outputs, confidence gates, prompt optimization results, and optional cheaper-model ensemble guidance into one response.</li>
+<li><code>record</code>: store monitor results, decision source, cost rollup, injected context, and outcome labels.</li>
+<li><code>respond</code>: return a provider-compatible action before the agent continues.</li>
+</ol>
+<h3 id="cost-calculation">Cost Calculation</h3>
+<p>Every cost number shown in the dashboard must be explainable from recorded usage and pricing data.</p>
+<pre class="hljs"><code><div>step_cost =
+  input_tokens * input_price_per_token
+  + output_tokens * output_price_per_token
+  + cache_write_tokens * cache_write_price_per_token
+  + cache_read_tokens * cache_read_price_per_token
+
+run_cost = sum(step_cost for each step)
+savings_for_run = baseline_run_cost - guarded_run_cost
+total_cost_saved = sum(savings_for_run for matched runs)
+</div></code></pre>
+<p>Controlled A/B arms can be labeled as controlled evidence. Historical matching, synthetic replay, or heuristic baselines must be labeled as estimated or correlated. Negative savings should remain visible so regressions are not hidden behind positive totals.</p>
+<h2 id="2-mvp-scope">2. MVP Scope</h2>
+<p>The MVP should include:</p>
+<ul>
+<li>Pip-installable <code>agent-sidecar</code> package that exposes the terminal CLI.</li>
+<li>Packaged daemon that exposes hook ingestion and dashboard APIs after <code>agent-sidecar daemon start</code>.</li>
+<li>Hook installer commands for Codex, Claude Code, and generic JSON hooks.</li>
+<li>Internal TypeScript or Python services may be used behind the CLI, but the user-facing install path should be <code>pip</code>.</li>
+<li>SQLite-backed local storage.</li>
+<li>Shared event schemas for raw events, normalized events, decisions, run state, policies, lessons, and analytics.</li>
+<li>Hook adapters for Codex and Claude Code, starting with a generic JSON hook protocol and thin provider-specific normalization.</li>
+<li>Runtime monitor and tool-supervision engine for low-cost decisions.</li>
+<li>Runtime trajectory monitors for semantic loops, repeated tools, skipped verification, topic drift, stale evidence, hedging/backtracking, and context bloat.</li>
+<li>Lightweight difficulty state machine for classifying run health and deciding whether to stay quiet, steer, validate, or stop waste.</li>
+<li>Prompt optimization layer for task contracts, continuation prompts, compaction prompts, and approved lesson injection.</li>
+<li>Confidence-gated reasoning reuse with approved local patterns that capture situation, dead ends, and unlock.</li>
+<li>Semantic file memory with compact per-file summaries, validation notes, and last-observed hashes.</li>
+<li>Tool-cost guardrails for redundant fetches, repeated reads, repeated searches, and risky tool calls.</li>
+<li>Reasoning-aware context pruning that preserves constraints, validation evidence, and dead-end history.</li>
+<li>Optional cheaper-model steering ensemble for ambiguous decisions, disabled by default or configured explicitly.</li>
+<li>Local dashboard with runs, trace replay, policies, lessons, analytics, and feedback pages.</li>
+<li>Per-step observability in the dashboard: run health, fired monitors, decisions, tokens, cost estimates, validation evidence, and final outcome.</li>
+<li>Baseline comparison or A/B evaluation scaffolding so guarded and unguarded runs can be compared later.</li>
+<li>Lesson memory with candidate, approved, disabled, and expired states.</li>
+<li>Basic cost and token accounting using event metadata, provider pricing profiles, baseline links, and explicit controlled/correlated labels.</li>
+<li>Fail-open daemon unavailable behavior by default, with fail-closed configuration.</li>
+</ul>
+<p>Initial runtime supervision actions:</p>
+<ul>
+<li>Block dangerous shell commands.</li>
+<li>Block protected files and paths.</li>
+<li>Warn on exact repeated commands.</li>
+<li>Require validation after code edits before final answers.</li>
+<li>Require approval for broad file changes.</li>
+</ul>
+<p>Initial steering ensemble use cases:</p>
+<ul>
+<li>Ambiguous prompt optimization cases.</li>
+<li>Semantic loop detection.</li>
+<li>Stale evidence detection.</li>
+<li>Dead-end pattern matching when deterministic lesson triggers are insufficient.</li>
+<li>Difficulty-state classification.</li>
+<li>Reasoning-aware pruning classification.</li>
+<li>Premature final answer detection.</li>
+<li>Broad edit classification.</li>
+<li>Approved lesson selection.</li>
+<li>Failure category classification.</li>
+</ul>
+<p>Initial runtime monitor categories:</p>
+<ul>
+<li>Semantic loop monitor: detects repeated attempts with no new evidence.</li>
+<li>Verification monitor: detects finalization attempts after edits without accepted validation.</li>
+<li>Drift monitor: detects movement away from the original task contract.</li>
+<li>Tool repetition monitor: detects repeated reads, searches, fetches, and commands.</li>
+<li>Stale evidence monitor: detects conclusions based on superseded files or old command output.</li>
+<li>Cost pressure monitor: detects long runs with low progress and high token accumulation.</li>
+</ul>
+<p>Initial capability modules:</p>
+<ol>
+<li><strong>Runbook memory</strong>: convert reviewed successful traces into compact operational notes with a situation, approaches to avoid, and the unlock that worked. A note may be injected only when repo scope, task shape, failure signal, confidence, provenance, and cooldown checks pass.</li>
+<li><strong>Repo map cache</strong>: maintain hash-checked per-file summaries, ownership hints, exported symbols, validation notes, and last-observed hashes. The sidecar should prefer these notes when files are unchanged, and should explain why a repo-map hint was safe to reuse.</li>
+<li><strong>Trajectory watchdogs</strong>: detect exact command repetition, repeated file reads, stale searches, semantic retries, old evidence, drift, and low-progress high-cost runs. Watchdogs should return supporting evidence, cooldown state, and a narrow recovery suggestion.</li>
+<li><strong>Tool-cost guardrails</strong>: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first supervision checks should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.</li>
+<li><strong>Prompt shaping and compaction</strong>: turn vague prompts into compact task briefs, preserve active constraints, validation evidence, accepted notes, and unresolved risks, and prune stale tool output and low-value turns. Compaction should record what was kept, what was dropped, and estimated token delta.</li>
+<li><strong>Ensemble steering</strong>: when monitor signals or prompt optimization metadata indicate ambiguity, send compact structured features to an ensemble of cheaper configured models and request a narrow next-step recommendation. Store the steering reason code, confidence, participating model ids, prompt version, budget impact, and fallback action. Steering must remain off or local/configured by default and must not receive raw traces unless the user explicitly enables that mode.</li>
+</ol>
+<h2 id="3-non-goals">3. Non-Goals</h2>
+<p>The MVP should not attempt to:</p>
+<ul>
+<li>Replace Codex, Claude Code, or any other coding agent.</li>
+<li>Build a fully remote SaaS control plane.</li>
+<li>Store traces in cloud services by default.</li>
+<li>Use a shared cloud pattern library by default.</li>
+<li>Upload raw traces, raw prompts, source files, tool outputs, or chain-of-thought for pattern creation by default.</li>
+<li>Require an LLM call for every event or decision.</li>
+<li>Analyze complete raw conversations with a model by default.</li>
+<li>Guarantee secret redaction in v1.</li>
+<li>Implement enterprise policy distribution, teams, SSO, or role-based access control.</li>
+<li>Support every possible agent hook format before the core pipeline is proven.</li>
+<li>Automatically approve or reject lessons without user review.</li>
+<li>Optimize for distributed multi-user deployments.</li>
+</ul>
+<h2 id="4-architecture-diagram">4. Architecture Diagram</h2>
+<pre class="hljs"><code><div>┌────────────────────┐
+│ Codex / Claude Code│
+└─────────┬──────────┘
+          │ hook event JSON
+          ▼
+┌────────────────────┐
+│ agent-sidecar CLI  │
+│ hook adapter       │
+└─────────┬──────────┘
+          │ daemon request
+          ▼
+┌──────────────────────────────────────────────────────┐
+│ apps/daemon                                           │
+│                                                      │
+│  ┌──────────────┐   ┌──────────────┐                 │
+│  │ raw ingest   │──▶│ normalize    │                 │
+│  └──────────────┘   └──────┬───────┘                 │
+│                            ▼                         │
+│  ┌──────────────┐   ┌──────────────┐                 │
+│  │ storage      │◀──│ run state    │                 │
+│  └──────┬───────┘   └──────┬───────┘                 │
+│         │                  ▼                         │
+│         │          ┌──────────────┐                  │
+│         │          │ lessons      │                  │
+│         │          │ retrieval    │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         │          │ repo map     │                  │
+│         │          │ cache        │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         │          │ prompt       │                  │
+│         │          │ optimizer    │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         │          │ runtime      │                  │
+│         │          │ monitors     │                  │
+│         │          └──────┬───────┘                  │
+│         │                 │ unresolved ambiguous case │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         │          │ steering     │                  │
+│         │          │ ensemble     │                  │
+│         │          └──────┬───────┘                  │
+│         │                 ▼                          │
+│         │          ┌──────────────┐                  │
+│         └─────────▶│ decision log │                  │
+│                    └──────┬───────┘                  │
+└───────────────────────────┼──────────────────────────┘
+                            │ decision JSON
+                            ▼
+                  ┌──────────────────┐
+                  │ agent hook       │
+                  │ allow/warn/block │
+                  └──────────────────┘
+
+┌────────────────────┐          ┌────────────────────┐
+│ apps/dashboard     │─────────▶│ daemon API         │
+│ Next.js local UI   │          │ SQLite-backed      │
+└────────────────────┘          └────────────────────┘
+</div></code></pre>
+<p>Runtime pipeline:</p>
+<pre class="hljs"><code><div>Hook event
+  ↓
+Normalize event
+  ↓
+Update run state
+  ↓
+Retrieve approved matching lessons
+  ↓
+Retrieve semantic file memory
+  ↓
+Prompt optimization layer
+  ↓
+Tool-cost guardrails + context pruning
+  ↓
+Runtime monitors
+  ↓
+Optional cheaper steering model ensemble
+  ↓
+Decision composer
+  ↓
+Trace store + dashboard + lesson memory + analytics 
+</div></code></pre>
+<p>Detailed runtime flow:</p>
+<ol>
+<li>Receive raw hook event.</li>
+<li>Normalize the event.</li>
+<li>Store raw and normalized event.</li>
+<li>Load or update run state.</li>
+<li>Load repo policy.</li>
+<li>Retrieve approved matching lessons and confidence-gated reasoning patterns.</li>
+<li>Retrieve compact semantic file memory for touched or relevant files.</li>
+<li>If the event is <code>UserPromptSubmit</code>, <code>Stop</code>, <code>PreCompact</code>, or <code>PostCompact</code>, run prompt optimization.</li>
+<li>Run deterministic tool supervision and context-pruning checks.</li>
+<li>Evaluate runtime monitors and tool-supervision signals.</li>
+<li>If the monitor result is confident enough to warn, block, require continuation, or inject context, compose that response immediately. If applicable, include the optimized continuation prompt.</li>
+<li>If needed, call the cheaper steering model ensemble with compact structured features.</li>
+<li>Compose final decision.</li>
+<li>Store the event, prompt optimization result, decision, state snapshot, file-memory update, and analytics features.</li>
+<li>Show events, prompt optimizations, decisions, state, lessons, file memory, and analytics in the dashboard.</li>
+</ol>
+<h2 id="5-monorepo-structure">5. Monorepo Structure</h2>
+<pre class="hljs"><code><div>agent-guard/
+  apps/
+    daemon/
+      src/
+        api/
+        ingest/
+        normalization/
+        runtime/
+        analytics/
+        config/
+      package.json
+    dashboard/
+      app/
+      components/
+      lib/
+      package.json
+  packages/
+    cli/
+      src/
+        commands/
+        hooks/
+        config/
+      package.json
+    core/
+      src/
+        schemas/
+        types/
+        errors/
+        protocol/
+      package.json
+    storage/
+      src/
+        migrations/
+        repositories/
+        sqlite.ts
+      package.json
+    policies/
+      src/
+        loader.ts
+        settings.ts
+        supervision.ts
+      package.json
+    detectors/
+      src/
+        commands/
+        loops/
+        validation/
+        edits/
+      package.json
+    steering/
+      src/
+        client.ts
+        schemas.ts
+        providers/
+      package.json
+    lessons/
+      src/
+        matcher.ts
+        candidates.ts
+        repository.ts
+      package.json
+    file-memory/
+      src/
+        summaries.ts
+        matcher.ts
+        repository.ts
+      package.json
+    tool-supervisor/
+      src/
+        redundant-fetches.ts
+        repeated-reads.ts
+        pruning.ts
+      package.json
+    prompt-optimizer/
+      src/
+        contracts.ts
+        templates.ts
+        continuation.ts
+        compaction.ts
+        evaluation.ts
+      package.json
+  docs/
+    IMPLEMENTATION_PLAN.md
+    CONFIGURATION.md
+    HOOKS.md
+  package.json
+  pnpm-workspace.yaml
+  tsconfig.base.json
+</div></code></pre>
+<p>Recommended stack:</p>
+<ul>
+<li>Package manager: <code>pnpm</code>.</li>
+<li>Language: TypeScript.</li>
+<li>API server: Fastify.</li>
+<li>Dashboard: Next.js.</li>
+<li>Database: SQLite through <code>better-sqlite3</code> or <code>sqlite</code>.</li>
+<li>Runtime validation: Zod.</li>
+<li>Tests: Vitest for packages, Playwright for dashboard smoke tests.</li>
+<li>Lint/format: ESLint and Prettier.</li>
+</ul>
+<p>New prompt optimization package:</p>
+<ul>
+<li><code>packages/prompt-optimizer</code>: prompt rewriting, task contracts, continuation prompts, compaction prompts, lesson injection, and prompt optimization evaluation metadata.</li>
+<li><code>packages/file-memory</code>: compact per-file semantic summaries, matching, invalidation by content hash, and file-memory repository helpers.</li>
+<li><code>packages/tool-supervisor</code>: redundant tool-call detection, repeated read/search tracking, context-pruning signals, and tool-cost avoidance metrics.</li>
+<li><code>packages/steering</code>: low-cost model ensemble routing, budget tracking, response validation, and fallback handling.</li>
+<li><code>packages/evaluation</code>: local benchmark fixtures, A/B-style comparison harnesses, cost-per-success calculations, and correlation/causality labeling helpers.</li>
+</ul>
+<h2 id="6-core-data-models">6. Core Data Models</h2>
+<p>Core schemas should live in <code>packages/core</code> and be validated at all process boundaries.</p>
+<h3 id="raw-hook-event">Raw Hook Event</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> RawHookEvent = {
+  id: <span class="hljs-built_in">string</span>;
+  provider: <span class="hljs-string">"codex"</span> | <span class="hljs-string">"claude-code"</span> | <span class="hljs-string">"generic"</span>;
+  providerEventType: <span class="hljs-built_in">string</span>;
+  runExternalId?: <span class="hljs-built_in">string</span>;
+  sessionExternalId?: <span class="hljs-built_in">string</span>;
+  receivedAt: <span class="hljs-built_in">string</span>;
+  payload: unknown;
+  payloadHash: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<h3 id="normalized-event">Normalized Event</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> NormalizedEvent = {
+  id: <span class="hljs-built_in">string</span>;
+  rawEventId: <span class="hljs-built_in">string</span>;
+  runId: <span class="hljs-built_in">string</span>;
+  provider: AgentProvider;
+  eventType:
+    | <span class="hljs-string">"run_started"</span>
+    | <span class="hljs-string">"prompt"</span>
+    | <span class="hljs-string">"tool_call"</span>
+    | <span class="hljs-string">"tool_result"</span>
+    | <span class="hljs-string">"file_edit"</span>
+    | <span class="hljs-string">"validation"</span>
+    | <span class="hljs-string">"final_attempt"</span>
+    | <span class="hljs-string">"compaction"</span>
+    | <span class="hljs-string">"run_finished"</span>
+    | <span class="hljs-string">"error"</span>;
+  timestamp: <span class="hljs-built_in">string</span>;
+  actor: <span class="hljs-string">"agent"</span> | <span class="hljs-string">"user"</span> | <span class="hljs-string">"tool"</span> | <span class="hljs-string">"system"</span>;
+  summary: <span class="hljs-built_in">string</span>;
+  command?: NormalizedCommand;
+  fileEdit?: NormalizedFileEdit;
+  validation?: ValidationSignal;
+  tokenUsage?: TokenUsage;
+  costEstimate?: CostEstimate;
+  metadata: Record&lt;<span class="hljs-built_in">string</span>, unknown&gt;;
+};
+</div></code></pre>
+<p>Provider events should map into these stable event types. For example, <code>UserPromptSubmit</code> maps to <code>prompt</code>, <code>Stop</code> maps to <code>final_attempt</code>, and <code>PreCompact</code> or <code>PostCompact</code> maps to <code>compaction</code> with the provider lifecycle phase preserved in metadata.</p>
+<h3 id="decision">Decision</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> RuntimeDecision = {
+  id: <span class="hljs-built_in">string</span>;
+  runId: <span class="hljs-built_in">string</span>;
+  eventId: <span class="hljs-built_in">string</span>;
+  createdAt: <span class="hljs-built_in">string</span>;
+  source: <span class="hljs-string">"runtime_monitor"</span> | <span class="hljs-string">"steering_ensemble"</span> | <span class="hljs-string">"manual"</span> | <span class="hljs-string">"system"</span>;
+  action:
+    | <span class="hljs-string">"allow"</span>
+    | <span class="hljs-string">"warn"</span>
+    | <span class="hljs-string">"block"</span>
+    | <span class="hljs-string">"block_continue"</span>
+    | <span class="hljs-string">"require_continue"</span>
+    | <span class="hljs-string">"require_approval"</span>
+    | <span class="hljs-string">"inject_lesson"</span>;
+  severity: <span class="hljs-string">"info"</span> | <span class="hljs-string">"warning"</span> | <span class="hljs-string">"error"</span>;
+  reasonCode: <span class="hljs-built_in">string</span>;
+  message: <span class="hljs-built_in">string</span>;
+  monitorId?: <span class="hljs-built_in">string</span>;
+  lessonIds?: <span class="hljs-built_in">string</span>[];
+  steeringDecisionId?: <span class="hljs-built_in">string</span>;
+  expiresAt?: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<h3 id="policy">Policy</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> PolicyConfig = {
+  version: <span class="hljs-number">1</span>;
+  failMode: <span class="hljs-string">"open"</span> | <span class="hljs-string">"closed"</span>;
+  protectedPaths: <span class="hljs-built_in">string</span>[];
+  dangerousCommands: <span class="hljs-built_in">string</span>[];
+  broadChangeThreshold: {
+    maxFilesChanged: <span class="hljs-built_in">number</span>;
+    maxLinesChanged: <span class="hljs-built_in">number</span>;
+  };
+  validation: {
+    requireAfterEdit: <span class="hljs-built_in">boolean</span>;
+    acceptedCommands: <span class="hljs-built_in">string</span>[];
+  };
+  steering: {
+    enabled: <span class="hljs-built_in">boolean</span>;
+    providers: <span class="hljs-built_in">string</span>[];
+    maxCallsPerRun: <span class="hljs-built_in">number</span>;
+    maxCostUsdPerRun: <span class="hljs-built_in">number</span>;
+  };
+};
+</div></code></pre>
+<h3 id="lesson">Lesson</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> Lesson = {
+  id: <span class="hljs-built_in">string</span>;
+  trigger: LessonTrigger;
+  text: <span class="hljs-built_in">string</span>;
+  situation: <span class="hljs-built_in">string</span>;
+  deadEnds: <span class="hljs-built_in">string</span>[];
+  unlock: <span class="hljs-built_in">string</span>;
+  injectionFormat: <span class="hljs-string">"operational_lesson_v1"</span>;
+  confidence: <span class="hljs-built_in">number</span>;
+  evidence: LessonEvidence[];
+  scope: LessonScope;
+  status: <span class="hljs-string">"candidate"</span> | <span class="hljs-string">"approved"</span> | <span class="hljs-string">"disabled"</span> | <span class="hljs-string">"expired"</span>;
+  usageStats: LessonUsageStats;
+  createdAt: <span class="hljs-built_in">string</span>;
+  updatedAt: <span class="hljs-built_in">string</span>;
+  expiresAt?: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<p>Lesson fields must remain operational and compact:</p>
+<ul>
+<li><code>situation</code>: the compact scenario where the lesson applies.</li>
+<li><code>deadEnds</code>: specific approaches, commands, assumptions, or files that wasted effort or caused failure.</li>
+<li><code>unlock</code>: the action or insight that resolved the issue.</li>
+<li><code>text</code>: a short rendered lesson derived from the structured fields for injection.</li>
+</ul>
+<p>This structure is intentionally not raw chain-of-thought. It captures reusable operational guidance, not hidden reasoning traces.</p>
+<h3 id="repo-map-cache">Repo Map Cache</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> RepoMapEntry = {
+  id: <span class="hljs-built_in">string</span>;
+  repoRoot: <span class="hljs-built_in">string</span>;
+  path: <span class="hljs-built_in">string</span>;
+  contentHash?: <span class="hljs-built_in">string</span>;
+  language?: <span class="hljs-built_in">string</span>;
+  summary: <span class="hljs-built_in">string</span>;
+  exportedSymbols: <span class="hljs-built_in">string</span>[];
+  responsibilities: <span class="hljs-built_in">string</span>[];
+  validationNotes: <span class="hljs-built_in">string</span>[];
+  lastObservedAt: <span class="hljs-built_in">string</span>;
+  sourceRunIds: <span class="hljs-built_in">string</span>[];
+  confidence: <span class="hljs-built_in">number</span>;
+};
+</div></code></pre>
+<p>Repo map cache should help the agent avoid repeatedly reading unchanged files. It stores compact, local, per-file operational summaries and must not store full file contents by default.</p>
+<h3 id="pattern-match">Pattern Match</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> PatternMatch = {
+  id: <span class="hljs-built_in">string</span>;
+  runId: <span class="hljs-built_in">string</span>;
+  eventId: <span class="hljs-built_in">string</span>;
+  lessonId?: <span class="hljs-built_in">string</span>;
+  repoMapEntryId?: <span class="hljs-built_in">string</span>;
+  matchKind: <span class="hljs-string">"lesson"</span> | <span class="hljs-string">"repo_map_entry"</span> | <span class="hljs-string">"dead_end"</span> | <span class="hljs-string">"tool_pattern"</span>;
+  confidence: <span class="hljs-built_in">number</span>;
+  triggerSummary: <span class="hljs-built_in">string</span>;
+  shouldInject: <span class="hljs-built_in">boolean</span>;
+  injected: <span class="hljs-built_in">boolean</span>;
+  reasonCode: <span class="hljs-built_in">string</span>;
+  createdAt: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<p>Pattern injection must be confidence-gated. The runtime should store matches even when <code>shouldInject</code> is false so the dashboard can explain why Agent Sidecar stayed quiet.</p>
+<h3 id="difficulty-state">Difficulty State</h3>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> DifficultyState = {
+  runId: <span class="hljs-built_in">string</span>;
+  state: <span class="hljs-string">"fast"</span> | <span class="hljs-string">"normal"</span> | <span class="hljs-string">"slow"</span> | <span class="hljs-string">"skip"</span>;
+  confidence: <span class="hljs-built_in">number</span>;
+  reasons: <span class="hljs-built_in">string</span>[];
+  updatedAt: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<p>Difficulty state is a compact runtime signal, not an orchestration system. It helps Agent Sidecar decide whether to inject context, ask steering, require validation, or suppress low-confidence interventions.</p>
+<h3 id="prompt-optimization">Prompt Optimization</h3>
+<p>Prompt optimization schemas live in <code>packages/core</code> because the daemon, dashboard, storage, steering, and prompt optimizer all need the same contract.</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> PromptRewriteMode =
+  | <span class="hljs-string">"initial_task"</span>
+  | <span class="hljs-string">"continuation"</span>
+  | <span class="hljs-string">"compaction"</span>
+  | <span class="hljs-string">"lesson_injection"</span>;
+
+<span class="hljs-keyword">type</span> TaskContract = {
+  task: <span class="hljs-built_in">string</span>;
+  scope: <span class="hljs-built_in">string</span>[];
+  constraints: <span class="hljs-built_in">string</span>[];
+  validation_requirements: <span class="hljs-built_in">string</span>[];
+  relevant_lessons: <span class="hljs-built_in">string</span>[];
+  dead_ends_to_avoid: <span class="hljs-built_in">string</span>[];
+  repo_map_hints: <span class="hljs-built_in">string</span>[];
+  risk_notes: <span class="hljs-built_in">string</span>[];
+};
+
+<span class="hljs-keyword">type</span> PromptOptimizationInput = {
+  runId: <span class="hljs-built_in">string</span>;
+  eventId: <span class="hljs-built_in">string</span>;
+  mode: PromptRewriteMode;
+  provider: AgentProvider;
+  originalPrompt?: <span class="hljs-built_in">string</span>;
+  normalizedEvent: NormalizedEvent;
+  runState: RunState;
+  policy: PolicyConfig;
+  approvedLessons: Lesson[];
+  maxPromptLength: <span class="hljs-built_in">number</span>;
+};
+
+<span class="hljs-keyword">type</span> PromptOptimizationResult = {
+  id: <span class="hljs-built_in">string</span>;
+  runId: <span class="hljs-built_in">string</span>;
+  eventId: <span class="hljs-built_in">string</span>;
+  mode: PromptRewriteMode;
+  optimizedPrompt: <span class="hljs-built_in">string</span>;
+  taskContract: TaskContract;
+  constraints: <span class="hljs-built_in">string</span>[];
+  validationRequirements: <span class="hljs-built_in">string</span>[];
+  relevantLessons: Lesson[];
+  patternMatches: PatternMatch[];
+  repoMapEntries: RepoMapEntry[];
+  riskNotes: <span class="hljs-built_in">string</span>[];
+  estimatedTokenDelta: <span class="hljs-built_in">number</span>;
+  rewriteReason: <span class="hljs-built_in">string</span>;
+  shouldInject: <span class="hljs-built_in">boolean</span>;
+  injected: <span class="hljs-built_in">boolean</span>;
+  deterministicOrModel: <span class="hljs-string">"deterministic"</span> | <span class="hljs-string">"model_assisted"</span>;
+  createdAt: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<p>The wire format and storage metadata should expose prompt optimization fields as <code>optimized_prompt</code>, <code>task_contract</code>, <code>validation_requirements</code>, <code>relevant_lessons</code>, <code>risk_notes</code>, <code>estimated_token_delta</code>, <code>rewrite_reason</code>, and <code>should_inject</code>. TypeScript implementations can use local naming conventions internally if adapters serialize the documented field names.</p>
+<p>Example optimization:</p>
+<pre class="hljs"><code><div>Original prompt:
+Fix the logger issue in the worker service.
+
+Optimized prompt:
+Task: Fix the worker service logger issue.
+Scope: Inspect current logging setup, service registration, configuration, and tests before editing.
+Constraints: Keep changes minimal. Do not refactor unrelated services.
+Validation: Run targeted worker service build/tests after edits.
+Relevant lesson: For service logger failures, inspect registration and config binding before changing tests.
+</div></code></pre>
+<h2 id="7-hook-integration-strategy">7. Hook Integration Strategy</h2>
+<p>The pip-installed CLI should expose stable terminal commands:</p>
+<pre class="hljs"><code><div>python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+agent-sidecar hook --provider generic
+</div></code></pre>
+<p>The hook command should:</p>
+<ol>
+<li>Read JSON from stdin.</li>
+<li>Add provider and local metadata.</li>
+<li>Send the event to the running sidecar daemon.</li>
+<li>Print a provider-compatible response.</li>
+<li>Fail open if the daemon is unavailable and policy is fail-open.</li>
+<li>Fail closed if explicitly configured.</li>
+</ol>
+<p>Provider adapters should be thin. Provider-specific differences belong in parser modules that convert raw hook payloads into <code>RawHookEvent</code> plus normalization hints. The daemon owns durable storage, run state, configuration evaluation, and final decision composition.</p>
+<p>Codex integration should start with documented hook event shapes available in the local environment. Claude Code integration should start with its hook lifecycle events. If either provider changes hook formats, only the adapter and normalizer should need updates.</p>
+<h2 id="8-event-normalization-strategy">8. Event Normalization Strategy</h2>
+<p>Normalization converts provider-specific events into stable Agent Sidecar events.</p>
+<p>Normalization goals:</p>
+<ul>
+<li>Preserve raw payloads for replay and future migration.</li>
+<li>Store compact normalized events for monitors, analytics, and dashboard queries.</li>
+<li>Normalize commands into executable, args, cwd, environment presence, and risk features.</li>
+<li>Normalize file edits into paths, counts, operation type, and protected path matches.</li>
+<li>Normalize validation into command type, pass/fail status, and evidence.</li>
+<li>Avoid sending raw logs or full conversations into the steering ensemble.</li>
+</ul>
+<p>Implementation approach:</p>
+<ol>
+<li>Validate raw event envelope.</li>
+<li>Persist raw event before deeper parsing.</li>
+<li>Select provider normalizer.</li>
+<li>Extract or create stable <code>runId</code>.</li>
+<li>Derive event type and compact summary.</li>
+<li>Attach normalized command, edit, validation, usage, and cost features when present.</li>
+<li>Persist normalized event.</li>
+<li>Emit normalization warnings for unknown but accepted provider payloads.</li>
+</ol>
+<p>Unknown event types should be stored and displayed, but ignored by runtime monitors until explicit support is added.</p>
+<h2 id="9-run-state-model">9. Run State Model</h2>
+<p>Run state is a compact derived snapshot updated after each normalized event.</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> RunState = {
+  runId: <span class="hljs-built_in">string</span>;
+  status: <span class="hljs-string">"active"</span> | <span class="hljs-string">"blocked"</span> | <span class="hljs-string">"completed"</span> | <span class="hljs-string">"failed"</span>;
+  startedAt: <span class="hljs-built_in">string</span>;
+  updatedAt: <span class="hljs-built_in">string</span>;
+  provider: AgentProvider;
+  repoRoot?: <span class="hljs-built_in">string</span>;
+  branch?: <span class="hljs-built_in">string</span>;
+  taskSummary?: <span class="hljs-built_in">string</span>;
+  eventCounts: Record&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">number</span>&gt;;
+  recentCommands: NormalizedCommand[];
+  commandFrequency: Record&lt;<span class="hljs-built_in">string</span>, <span class="hljs-built_in">number</span>&gt;;
+  editedFiles: <span class="hljs-built_in">string</span>[];
+  changedFileCount: <span class="hljs-built_in">number</span>;
+  estimatedChangedLines: <span class="hljs-built_in">number</span>;
+  validationSinceLastEdit: <span class="hljs-built_in">boolean</span>;
+  lastValidation?: ValidationSignal;
+  pendingApprovals: PendingApproval[];
+  interventions: InterventionSummary;
+  tokenUsage: TokenUsage;
+  costEstimate: CostEstimate;
+};
+</div></code></pre>
+<p>The run state should be recomputable from normalized events. Persist snapshots for performance and trace replay, but treat event history as the source of truth.</p>
+<p>State update logic:</p>
+<ul>
+<li>Inject compact repo map cache for relevant unchanged files instead of encouraging repeated reads.</li>
+<li><code>repo_map_hints</code></li>
+</ul>
+<ol start="3">
+<li>Retrieve high-confidence pattern matches and relevant repo-map summaries.</li>
+<li>Apply deterministic templates for task contracts, validation requirements, continuation prompts, compaction prompts, dead-end avoidance, and repo-map insertion.</li>
+</ol>
+<ul>
+<li><code>packages/prompt-optimizer/repo-map.ts</code>: rendering compact repo-map hints.</li>
+</ul>
+<p>Prompt optimization is an assistive input-shaping layer. Runtime monitors, tool-cost guardrails, and steering decisions still decide whether a run is allowed, warned, blocked, or required to continue.</p>
+<p>The prompt optimization layer runs after run state and lesson retrieval, but before monitor evaluation and optional ensemble steering. It improves prompt structure so the coding agent wastes fewer steps and tokens. It must not weaken or bypass runtime monitors, tool-cost guardrails, or validation requirements.</p>
+<h2 id="11-runtime-monitor-and-tool-cost-guardrail-design">11. Runtime Monitor and Tool-Cost Guardrail Design</h2>
+<p>The runtime monitor and tool-cost guardrail layer should be fast, explainable, and cheap enough to run between agent steps. It receives a normalized event, current run state, loaded configuration, repository metadata, prompt optimization output, repo map cache, and approved lesson matches. It returns zero or more candidate decisions with confidence, evidence, and expected cost impact.</p>
+<p>Monitor checks run after prompt optimization so they can include optimized continuation prompts in their responses. Prompt optimization must never weaken tool-cost guardrails or convert a high-confidence block into an allow decision.<br>
+Initial monitor and tool-cost guardrail checks:</p>
+<ul>
+<li><code>repeated_read.prune</code>: suggest repo-map or compact summaries when unchanged files are read repeatedly.</li>
+<li>Guardrail configuration should come from layered loading: defaults, global user config, repo config, then runtime overrides.<br>
+candidateRepoMapEntries?: RepoMapEntry[];<br>
+repoMapEntryIds?: string[];</li>
+<li>For repo map cache, send only file paths, hashes, compact summaries, and relevance features; never send full file contents by default.</li>
+<li>Generate compaction summaries for <code>PreCompact</code> and <code>PostCompact</code> events.</li>
+<li>Reduce downstream token usage by giving Codex or Claude Code a clearer task structure.</li>
+<li>Prefer deterministic and template-based rewriting when they are sufficient.</li>
+<li>Use the cheaper steering model ensemble only for ambiguous prompt optimization cases where the expected avoided agent cost justifies the steering call.</li>
+</ul>
+<p>The optimizer should run mainly on:</p>
+<ul>
+<li><code>UserPromptSubmit</code>: create an initial task contract and optimized prompt.</li>
+<li><code>Stop</code> or <code>block_continue</code>: create a short continuation prompt when the agent attempts to stop prematurely.</li>
+<li><code>PreCompact</code>: create a compact summary of durable state, open decisions, validation requirements, and relevant lessons.</li>
+<li><code>PostCompact</code>: verify or repair the compacted continuation context.</li>
+</ul>
+<p>Output fields:</p>
+<ul>
+<li><code>optimized_prompt</code></li>
+<li><code>task_contract</code></li>
+<li><code>constraints</code></li>
+<li><code>validation_requirements</code></li>
+<li><code>relevant_lessons</code></li>
+<li><code>dead_ends_to_avoid</code></li>
+<li><code>file_memory</code></li>
+<li><code>pattern_matches</code></li>
+<li><code>risk_notes</code></li>
+<li><code>estimated_token_delta</code></li>
+<li><code>rewrite_reason</code></li>
+<li><code>should_inject</code></li>
+</ul>
+<p>Implementation approach:</p>
+<ol>
+<li>Classify the event into a <code>PromptRewriteMode</code>.</li>
+<li>Build compact features from normalized event, run state, repo policy, and approved matching lessons.</li>
+<li>Retrieve high-confidence pattern matches and relevant file-memory summaries.</li>
+<li>Apply deterministic templates for task contracts, validation requirements, continuation prompts, compaction prompts, dead-end avoidance, and file-memory insertion.</li>
+<li>Inject at most 1-3 short approved lessons when their structured triggers and confidence gate match the current run.</li>
+<li>Estimate token delta by comparing original prompt length with optimized prompt length and expected avoided repeated context, repeated reads, and repeated tool calls.</li>
+<li>Reject or truncate rewrites that exceed the configured maximum length.</li>
+<li>Store the result even when <code>shouldInject</code> is false so the dashboard can explain the decision.</li>
+<li>For ambiguous cases only, optionally ask the steering ensemble to choose or refine a rewrite using compact structured prompt metadata.</li>
+<li>Ignore invalid model rewrites and fall back to deterministic output.</li>
+</ol>
+<p>Package ownership:</p>
+<ul>
+<li><code>packages/prompt-optimizer/contracts.ts</code>: task contract builders and validation helpers.</li>
+<li><code>packages/prompt-optimizer/templates.ts</code>: deterministic prompt templates.</li>
+<li><code>packages/prompt-optimizer/continuation.ts</code>: short continuation prompt generation.</li>
+<li><code>packages/prompt-optimizer/compaction.ts</code>: <code>PreCompact</code> and <code>PostCompact</code> summaries.</li>
+<li><code>packages/prompt-optimizer/evaluation.ts</code>: length limits, token delta estimates, and rewrite metadata.</li>
+<li><code>packages/prompt-optimizer/patterns.ts</code>: confidence-gated lesson and dead-end rendering.</li>
+<li><code>packages/prompt-optimizer/file-memory.ts</code>: rendering compact file-memory hints.</li>
+</ul>
+<p>Prompt optimization is an assistive input-shaping layer. Runtime monitors and steering decisions still decide whether a run is allowed, warned, blocked, or required to continue.</p>
+<h2 id="11-runtime-monitor-and-supervision-design">11. Runtime Monitor and Supervision Design</h2>
+<p>The runtime monitor and supervision layer should be fast, explainable, and cheap enough to run between agent steps. It receives a normalized event, current run state, loaded configuration, repository metadata, prompt optimization output, file memory, and approved lesson matches. It returns zero or more candidate decisions with confidence, evidence, and expected cost impact.</p>
+<p>Monitor checks run after prompt optimization so they can include optimized continuation prompts in their responses. Prompt optimization must never weaken supervision or convert a high-confidence block into an allow decision.</p>
+<p>Monitor interface:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> RuntimeMonitor = {
+  id: <span class="hljs-built_in">string</span>;
+  description: <span class="hljs-built_in">string</span>;
+  appliesTo: NormalizedEvent[<span class="hljs-string">"eventType"</span>][];
+  evaluate(input: MonitorInput): MonitorDecision[];
+};
+</div></code></pre>
+<p>Initial monitor and supervision checks:</p>
+<ul>
+<li><code>dangerous_command.block</code>: block shell commands matching denylisted patterns such as recursive deletion, disk formatting, credential exfiltration, or known destructive git operations.</li>
+<li><code>protected_path.block</code>: block edits to protected paths such as <code>.env</code>, secrets, lockfiles, or configured production files unless explicitly allowed.</li>
+<li><code>exact_command_repeat.warn</code>: warn when the same normalized command repeats beyond a threshold in a short window.</li>
+<li><code>redundant_fetch.warn</code>: warn when the same URL, file, or search query is fetched repeatedly without new evidence.</li>
+<li><code>repeated_read.prune</code>: suggest file-memory or compact summaries when unchanged files are read repeatedly.</li>
+<li><code>dead_end_redirect.require_continue</code>: require continuation with a redirect prompt when the current trajectory matches an approved dead-end pattern.</li>
+<li><code>validation_after_edit.require</code>: require continuation instead of final answer when code was edited and no accepted validation has run.</li>
+<li><code>broad_change.require_approval</code>: require approval when changed file or changed line thresholds are exceeded.</li>
+</ul>
+<p>Design principles:</p>
+<ul>
+<li>Monitors should return structured reason codes, not free-form-only text.</li>
+<li>Monitors should be separately testable with fixture events.</li>
+<li>High-confidence block and require decisions should avoid unnecessary steering calls.</li>
+<li>If validation is missing on <code>Stop</code>, the validation monitor should produce <code>block_continue</code> and use the prompt optimizer to attach a short continuation prompt.</li>
+<li>Warn decisions can be accumulated and shown without preventing later evaluation.</li>
+<li>Supervision configuration should come from layered loading: defaults, global user config, repo config, then runtime overrides.</li>
+</ul>
+<h2 id="12-steering-ensemble-design">12. Steering Ensemble Design</h2>
+<p>The steering ensemble should be optional and used only when runtime monitors, confidence gates, or prompt templates cannot classify the next step confidently. It should route compact structured features to one or more cheaper configured models, compare or vote on their recommendations, and only spend that extra steering cost when the expected avoided Codex or Claude Code spend is larger than the ensemble call cost. It should receive compact structured features, not raw transcripts or full raw prompt history.</p>
+<p>Ensemble request:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> SteeringEnsembleRequest = {
+  runId: <span class="hljs-built_in">string</span>;
+  purpose:
+    | <span class="hljs-string">"semantic_loop"</span>
+    | <span class="hljs-string">"stale_evidence"</span>
+    | <span class="hljs-string">"dead_end_match"</span>
+    | <span class="hljs-string">"premature_final"</span>
+    | <span class="hljs-string">"broad_edit"</span>
+    | <span class="hljs-string">"lesson_selection"</span>
+    | <span class="hljs-string">"difficulty_state"</span>
+    | <span class="hljs-string">"context_pruning"</span>
+    | <span class="hljs-string">"failure_category"</span>
+    | <span class="hljs-string">"prompt_optimization"</span>;
+  features: Record&lt;<span class="hljs-built_in">string</span>, unknown&gt;;
+  allowedActions: RuntimeDecision[<span class="hljs-string">"action"</span>][];
+  candidateLessons?: Lesson[];
+  candidateFileMemory?: FileMemory[];
+  maxCostUsd: <span class="hljs-built_in">number</span>;
+  candidateProviders: <span class="hljs-built_in">string</span>[];
+};
+</div></code></pre>
+<p>Ensemble response:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">type</span> SteeringEnsembleResponse = {
+  action: RuntimeDecision[<span class="hljs-string">"action"</span>];
+  confidence: <span class="hljs-built_in">number</span>;
+  reasonCode: <span class="hljs-built_in">string</span>;
+  message: <span class="hljs-built_in">string</span>;
+  participatingModels: <span class="hljs-built_in">string</span>[];
+  lessonIds?: <span class="hljs-built_in">string</span>[];
+  fileMemoryIds?: <span class="hljs-built_in">string</span>[];
+  difficultyState?: DifficultyState[<span class="hljs-string">"state"</span>];
+  pruneHints?: <span class="hljs-built_in">string</span>[];
+  failureCategory?: <span class="hljs-built_in">string</span>;
+};
+</div></code></pre>
+<p>Guardrails:</p>
+<ul>
+<li>Validate strict JSON with Zod.</li>
+<li>Reject unknown actions, reason codes, lesson IDs, or categories.</li>
+<li>Enforce per-run model call and cost budgets.</li>
+<li>Log ensemble inputs, individual model outputs, and final aggregate outputs as structured records.</li>
+<li>Fall back to allow or warn when steering providers fail, depending on configuration.</li>
+<li>Do not include raw chain-of-thought, full prompts, or full logs in requests.</li>
+<li>For prompt optimization, send compact prompt metadata, task hints, policy constraints, validation state, and candidate lesson summaries only.</li>
+<li>For dead-end matching, send only compact summaries of recent events, command signatures, failure categories, and approved candidate lesson summaries.</li>
+<li>For file memory, send only file paths, hashes, compact summaries, and relevance features; never send full file contents by default.</li>
+<li>Ignore invalid model rewrites.</li>
+<li>Reject or truncate long generated rewrites before they can be injected.</li>
+</ul>
+<p>Initial provider strategy:</p>
+<ul>
+<li>Define provider-agnostic interface in <code>packages/steering</code>.</li>
+<li>Support a no-op provider for tests and default installs.</li>
+<li>Add configurable local HTTP providers for users running cheaper local or hosted models.</li>
+<li>Add later cloud provider support behind explicit configuration.</li>
+<li>Track estimated steering cost and avoided downstream agent cost for every ensemble call.</li>
+</ul>
+<h2 id="13-lesson-memory-design">13. Lesson Memory Design</h2>
+<p>Lessons are structured memory items that require approval before runtime injection. They should help avoid repeated mistakes without storing raw reasoning.</p>
+<p>Agent Sidecar lessons should use a compact three-part operational format:</p>
+<ul>
+<li>Situation: when this lesson applies.</li>
+<li>Dead ends: specific approaches, commands, assumptions, or files that wasted work.</li>
+<li>Unlock: the action or insight that led to a correct solution.</li>
+</ul>
+<p>The rendered injection should be short and may combine these fields into a single block. The stored lesson remains structured so matching, filtering, and evaluation can inspect each field separately.</p>
+<p>Lesson lifecycle:</p>
+<ol>
+<li>Candidate generated from successful run, repeated failure pattern, explicit dead-end redirect, or user feedback.</li>
+<li>User reviews candidate in dashboard.</li>
+<li>User approves, disables, edits, or expires the lesson.</li>
+<li>Runtime matches approved lessons against compact run features.</li>
+<li>A confidence gate decides whether the lesson is injected, logged as a non-injected match, or ignored.</li>
+<li>Prompt optimizer injects at most 1-3 short approved matching lessons into task contracts or continuation prompts.</li>
+<li>Runtime monitors or the steering ensemble may still decide whether lesson injection should be suppressed for a specific event.</li>
+<li>Dashboard tracks accepted, ignored, stale, injected, non-injected, and helpful/unhelpful lessons.</li>
+</ol>
+<p>Matching inputs:</p>
+<ul>
+<li>Repo language and framework hints.</li>
+<li>Error category and command output summary.</li>
+<li>File paths and file extensions.</li>
+<li>Tool call pattern.</li>
+<li>Failure mode.</li>
+<li>User-provided tags.</li>
+</ul>
+<p>Storage constraints:</p>
+<ul>
+<li><code>text</code> should be short and directly actionable.</li>
+<li><code>situation</code>, <code>deadEnds</code>, and <code>unlock</code> should be structured and separately stored.</li>
+<li><code>trigger</code> should be structured.</li>
+<li><code>evidence</code> should reference run IDs, event IDs, and compact summaries.</li>
+<li>Approved lessons can be injected by the prompt optimizer, but only when relevant.</li>
+<li>Inject no more than 1-3 lessons per prompt optimization.</li>
+<li>Apply a configurable confidence threshold before injection.</li>
+<li>Lesson text must be short and scoped.</li>
+<li>Disabled, expired, or candidate lessons must never be injected automatically.</li>
+<li>No raw chain-of-thought.</li>
+<li>Never inject raw trace history.</li>
+<li>No full logs unless the user explicitly adds them later.</li>
+</ul>
+<h2 id="13a-repo-map-cache-design">13A. Repo Map Cache Design</h2>
+<p>Repo map cache stores compact local summaries of files the agent has already inspected. Its purpose is to reduce repeated file reads and preserve repository understanding across runs without storing full file contents by default.</p>
+<p>Lifecycle:</p>
+<ol>
+<li>File read, search, edit, or validation events identify candidate files.</li>
+<li>Agent Sidecar records path, hash when available, language hints, exported symbols, responsibilities, and validation notes.</li>
+<li>If the file changes, the cache entry is marked stale until refreshed.</li>
+<li>Future runs retrieve matching repo map cache entries by repo, path, symbols, task terms, and confidence.</li>
+<li>Prompt optimizer injects only compact repo-map hints when relevant.</li>
+</ol>
+<p>Constraints:</p>
+<ul>
+<li>Store local repo map cache entries only by default.</li>
+<li>Do not store full source file contents by default.</li>
+<li>Invalidate or down-rank memory when content hash changes.</li>
+<li>Show repo-map provenance in the dashboard.</li>
+<li>Track repeated reads avoided as an analytics metric.</li>
+</ul>
+<h2 id="13b-tool-cost-guardrails-and-context-pruning">13B. Tool-Cost Guardrails and Context Pruning</h2>
+<p>Tool-cost guardrails detect wasteful or risky tool behavior before it compounds cost.</p>
+<p>Context pruning should be reasoning-aware. It should preserve active task constraints, validation requirements, failed approaches, repo-map hints, policy decisions, and user-approved lessons while pruning stale logs, duplicate tool output, and already-resolved branches.</p>
+<ul>
+<li>
+<p>Policies: current effective configuration, repo overrides, protected paths, dangerous command patterns, and tool-cost guardrail fixtures.</p>
+</li>
+<li>
+<p>Repo-map hints injected.</p>
+</li>
+<li>
+<p>Repo-map review and stale-memory inspection.</p>
+</li>
+<li>
+<p>Tool-tool-cost guardrail event list.</p>
+</li>
+<li>
+<p>Runs with repo-map injection vs without.</p>
+</li>
+<li>
+<p>Repeated file-read rate after repo-map injection.</p>
+</li>
+<li>
+<p>Redundant fetch/search rate after tool-cost guardrails.</p>
+</li>
+</ul>
+<p>Context pruning should be reasoning-aware. It should preserve active task constraints, validation requirements, failed approaches, file-memory hints, policy decisions, and user-approved lessons while pruning stale logs, duplicate tool output, and already-resolved branches.</p>
+<p>The pruning layer should emit explainable metadata:</p>
+<ul>
+<li>what was kept</li>
+<li>what was pruned</li>
+<li>why it was pruned</li>
+<li>estimated token delta</li>
+<li>whether pruning was deterministic or model-assisted</li>
+</ul>
+<h2 id="14-dashboard-design">14. Dashboard Design</h2>
+<p>The dashboard should be served by the sidecar in packaged mode and by its own dev server only during development. Customers should not need to clone the repository or start a Node dev server.</p>
+<p>Pages:</p>
+<ul>
+<li>Runs: searchable list of recent runs with provider, status, cost, tokens, success signal, loop count, validation status, and intervention count.</li>
+<li>Trace replay: chronological raw and normalized event timeline, prompt optimizations, decisions, state snapshots, and feedback controls.</li>
+<li>Failure modes: grouped failures by category, repeated loop signatures, stale evidence signals, and validation misses.</li>
+<li>Policies: current effective configuration, repo overrides, protected paths, dangerous command patterns, and supervision fixtures.</li>
+<li>Lessons and patterns: candidate review queue, approved lessons, disabled lessons, situation/dead-end/unlock fields, confidence gates, pattern matches, lesson usage, and lesson effectiveness.</li>
+<li>Repo map cache: per-repo file summaries, stale/hash status, provenance, injected repo-map hints, and repeated reads avoided.</li>
+<li>Tool-cost guardrails: redundant fetches, repeated reads/searches, repeated failed commands, and dead-end redirects.</li>
+<li>Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, prompt optimization count, continuation prompt count, compaction prompt count, average optimized prompt length, monitor decision count, steering ensemble decision count, accepted/rejected interventions, pattern match rate, high-confidence injection rate, repeated reads avoided, repeated fetches avoided, and repeated tool calls avoided.</li>
+<li>Feedback: mark run success/failure, accept/reject intervention usefulness, and create lesson candidates.</li>
+</ul>
+<p>Prompt optimization UI should show:</p>
+<ul>
+<li>Original prompt when raw prompt storage is enabled.</li>
+<li>Optimized prompt.</li>
+<li>Task contract.</li>
+<li>Rewrite reason.</li>
+<li>Whether the rewrite was injected.</li>
+<li>Deterministic or model-assisted rewrite badge.</li>
+<li>Relevant approved lessons injected.</li>
+<li>Dead ends to avoid.</li>
+<li>File-memory hints injected.</li>
+<li>Pattern match confidence and gate result.</li>
+<li>Estimated token delta.</li>
+</ul>
+<p>Dashboard API endpoints should read from daemon APIs rather than accessing SQLite directly. This keeps storage ownership in one process.</p>
+<p>MVP UI priorities:</p>
+<ul>
+<li>Fast local run list.</li>
+<li>Clear trace timeline.</li>
+<li>Explainable decision cards with reason codes.</li>
+<li>Prompt optimization cards in trace replay.</li>
+<li>Simple policy editor or read-only policy viewer with file path to edit.</li>
+<li>Lesson approval workflow.</li>
+<li>File-memory review and stale-memory inspection.</li>
+<li>Tool-supervision event list.</li>
+<li>Analytics summary cards and trend table, including prompt optimization metrics.</li>
+</ul>
+<p>Analytics should include:</p>
+<ul>
+<li>Total cost saved, with the baseline method clearly labeled.</li>
+<li>Cost per successful task when cost data exists.</li>
+<li>Estimated tokens per successful task.</li>
+<li>Success rate.</li>
+<li>Loop rate.</li>
+<li>Validation block rate.</li>
+<li>Monitor decision count.</li>
+<li>Model decision count.</li>
+<li>Prompt optimizations count.</li>
+<li>Continuation prompts count.</li>
+<li>Compaction prompts count.</li>
+<li>Average optimized prompt length.</li>
+<li>Runs with prompt optimization vs without.</li>
+<li>High-confidence pattern match rate.</li>
+<li>Injection rate after confidence gating.</li>
+<li>Runs with pattern injection vs without.</li>
+<li>Runs with file-memory injection vs without.</li>
+<li>Repeated tool-call rate after prompt optimization.</li>
+<li>Repeated file-read rate after file-memory injection.</li>
+<li>Redundant fetch/search rate after tool supervision.</li>
+<li>Validation block rate after prompt optimization.</li>
+<li>Interventions accepted and rejected.</li>
+<li>Repeated tool calls avoided.</li>
+</ul>
+<p>Prompt optimization analytics should clearly label correlation as correlation unless an explicit A/B evaluation exists. For example, &quot;runs with prompt optimization had lower repeated tool-call rate&quot; must not be presented as causal unless controlled evaluation is implemented.</p>
+<p>Cost analytics should be computed from per-step usage metadata and a versioned price table. When a provider does not return complete usage metadata, the dashboard should mark the affected costs as estimated. The cost report should store <code>baseline_run_id</code>, <code>baseline_method</code>, <code>guarded_cost_usd</code>, <code>baseline_cost_usd</code>, <code>savings_usd</code>, <code>token_delta</code>, and <code>evidence_label</code> so every “total cost saved” number can be traced back to individual runs.</p>
+<h2 id="15-storage-schema">15. Storage Schema</h2>
+<p>SQLite should be the durable source for local traces and configuration state.</p>
+<p>Initial tables:</p>
+<pre class="hljs"><code><div><span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> runs (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  provider <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  external_id <span class="hljs-built_in">TEXT</span>,
+  repo_root <span class="hljs-built_in">TEXT</span>,
+  branch <span class="hljs-built_in">TEXT</span>,
+  task_summary <span class="hljs-built_in">TEXT</span>,
+  <span class="hljs-keyword">status</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  started_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  updated_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  completed_at <span class="hljs-built_in">TEXT</span>,
+  success_status <span class="hljs-built_in">TEXT</span>,
+  total_input_tokens <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">0</span>,
+  total_output_tokens <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">0</span>,
+  total_estimated_cost_usd <span class="hljs-built_in">REAL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">0</span>
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> raw_events (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span>,
+  provider <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  provider_event_type <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  received_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  payload_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  payload_hash <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> normalized_events (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  raw_event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_type <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  actor <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-built_in">timestamp</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  summary <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  data_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (raw_event_id) <span class="hljs-keyword">REFERENCES</span> raw_events(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> run_state_snapshots (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  state_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (event_id) <span class="hljs-keyword">REFERENCES</span> normalized_events(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> prompt_optimizations (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">mode</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  original_prompt <span class="hljs-built_in">TEXT</span>,
+  optimized_prompt <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  task_contract_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  rewrite_reason <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  should_inject <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  injected <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  deterministic_or_model <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  estimated_token_delta <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (event_id) <span class="hljs-keyword">REFERENCES</span> normalized_events(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> decisions (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">source</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">action</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  severity <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  reason_code <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  message <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  monitor_id <span class="hljs-built_in">TEXT</span>,
+  steering_decision_id <span class="hljs-built_in">TEXT</span>,
+  data_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (event_id) <span class="hljs-keyword">REFERENCES</span> normalized_events(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> steering_decisions (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  purpose <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  request_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  response_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  valid <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">error</span> <span class="hljs-built_in">TEXT</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (event_id) <span class="hljs-keyword">REFERENCES</span> normalized_events(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> lessons (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  <span class="hljs-keyword">status</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  trigger_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-built_in">text</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  situation <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  dead_ends_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">unlock</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  injection_format <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  confidence <span class="hljs-built_in">REAL</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  scope_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  evidence_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  usage_stats_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  updated_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  expires_at <span class="hljs-built_in">TEXT</span>
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> repo_map_entries (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  repo_root <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">path</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  content_hash <span class="hljs-built_in">TEXT</span>,
+  <span class="hljs-keyword">language</span> <span class="hljs-built_in">TEXT</span>,
+  summary <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  exported_symbols_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  responsibilities_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  validation_notes_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  source_run_ids_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  confidence <span class="hljs-built_in">REAL</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  last_observed_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  stale <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">0</span>
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> pattern_matches (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  lesson_id <span class="hljs-built_in">TEXT</span>,
+  repo_map_entry_id <span class="hljs-built_in">TEXT</span>,
+  match_kind <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  confidence <span class="hljs-built_in">REAL</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  trigger_summary <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  should_inject <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  injected <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  reason_code <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (event_id) <span class="hljs-keyword">REFERENCES</span> normalized_events(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (lesson_id) <span class="hljs-keyword">REFERENCES</span> lessons(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (repo_map_entry_id) <span class="hljs-keyword">REFERENCES</span> repo_map_entries(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> tool_cost_guardrail_events (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  event_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  guardrail_type <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  signature <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">action</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  message <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  estimated_token_delta <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  data_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (event_id) <span class="hljs-keyword">REFERENCES</span> normalized_events(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> evaluation_runs (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  eval_name <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  baseline_run_ids_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  treatment_run_ids_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  metrics_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  causal_claim_allowed <span class="hljs-built_in">INTEGER</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">0</span>
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> intervention_feedback (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  run_id <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  decision_id <span class="hljs-built_in">TEXT</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  feedback_type <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">value</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  note <span class="hljs-built_in">TEXT</span>,
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (run_id) <span class="hljs-keyword">REFERENCES</span> runs(<span class="hljs-keyword">id</span>),
+  <span class="hljs-keyword">FOREIGN</span> <span class="hljs-keyword">KEY</span> (decision_id) <span class="hljs-keyword">REFERENCES</span> decisions(<span class="hljs-keyword">id</span>)
+);
+
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> policy_audit_log (
+  <span class="hljs-keyword">id</span> <span class="hljs-built_in">TEXT</span> PRIMARY <span class="hljs-keyword">KEY</span>,
+  created_at <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  <span class="hljs-keyword">source</span> <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  policy_hash <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>,
+  policy_json <span class="hljs-built_in">TEXT</span> <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span>
+);
+</div></code></pre>
+<p>Important indexes:</p>
+<ul>
+<li><code>runs(updated_at)</code></li>
+<li><code>runs(provider, updated_at)</code></li>
+<li><code>raw_events(run_id, received_at)</code></li>
+<li><code>normalized_events(run_id, timestamp)</code></li>
+<li><code>prompt_optimizations(run_id, created_at)</code></li>
+<li><code>prompt_optimizations(event_id)</code></li>
+<li><code>prompt_optimizations(mode, created_at)</code></li>
+<li><code>decisions(run_id, created_at)</code></li>
+<li><code>decisions(reason_code, created_at)</code></li>
+<li><code>lessons(status, updated_at)</code></li>
+<li><code>repo_map_entries(repo_root, path)</code></li>
+<li><code>repo_map_entries(repo_root, content_hash)</code></li>
+<li><code>pattern_matches(run_id, created_at)</code></li>
+<li><code>pattern_matches(match_kind, confidence)</code></li>
+<li><code>tool_cost_guardrail_events(run_id, created_at)</code></li>
+<li><code>intervention_feedback(run_id, created_at)</code></li>
+</ul>
+<h2 id="16-testing-strategy">16. Testing Strategy</h2>
+<p>Package-level tests:</p>
+<ul>
+<li>Core schema validation for all public payloads.</li>
+<li>Provider normalizer fixtures for Codex, Claude Code, and generic events.</li>
+<li>Command normalization fixtures for common shell commands.</li>
+<li>Dangerous command detection.</li>
+<li>Protected path matching.</li>
+<li>Exact repeated command detection.</li>
+<li>Validation-after-edit state transitions.</li>
+<li>Broad-change threshold decisions.</li>
+<li>Prompt optimizer converts vague prompts into structured task contracts.</li>
+<li>Validation-missing <code>Stop</code> creates a short continuation prompt.</li>
+<li>Approved lessons are injected only when relevant.</li>
+<li>Disabled, candidate, and expired lessons are ignored by prompt optimization.</li>
+<li>Prompt optimization never injects raw trace history.</li>
+<li>Prompt rewrites stay under configured maximum length.</li>
+<li>Three-field lesson rendering includes situation, dead ends, and unlock without raw reasoning.</li>
+<li>Confidence gates suppress low-confidence pattern injection and log the non-injection reason.</li>
+<li>Semantic file memory retrieval ignores stale hashes and never injects full file contents by default.</li>
+<li>Tool-cost guardrails detect repeated reads, repeated searches, redundant fetches, and repeated failed commands.</li>
+<li>Context pruning preserves active constraints, validation requirements, and dead ends to avoid.</li>
+<li>Difficulty-state classification transitions are stable and respect hysteresis.</li>
+<li>Steering response validation and invalid response handling.</li>
+<li>Lesson matching and status filtering.</li>
+<li>Storage migrations and repository methods.</li>
+<li>Repo map cache retrieval ignores stale hashes and never injects full file contents by default.</li>
+<li>Daemon stores repo-map updates and pattern-match records linked to events.</li>
+<li>Redundant tool-cost guardrail events are visible through dashboard APIs.</li>
+<li>Send repeated file-read and repeated-search fixtures and confirm tool-cost guardrail records are created.</li>
+<li>Keep high-confidence interventions explainable and test-backed.</li>
+<li>Never send full file contents to steering providers for repo-map matching by default.</li>
+<li>Apply confidence thresholds and provenance display before injecting lessons or repo-map hints.</li>
+<li>Mark repo map cache entries stale when hashes change or validation contradicts the summary.</li>
+</ul>
+<p>Integration tests:</p>
+<ul>
+<li>CLI hook command posts to daemon and returns expected allow decision.</li>
+<li>Daemon stores raw event, normalized event, run state, and decision in one request.</li>
+<li>Daemon stores prompt optimization results linked to <code>event_id</code>.</li>
+<li>Daemon stores file-memory updates and pattern-match records linked to events.</li>
+<li>Redundant tool supervision events are visible through dashboard APIs.</li>
+<li>High-confidence monitor block avoids steering.</li>
+<li>Validation block uses the prompt optimizer result when returning a continuation prompt.</li>
+<li>Fail-open behavior when daemon is unavailable.</li>
+<li>Fail-closed behavior when configured.</li>
+<li>Dashboard API returns run list, trace replay data, and prompt optimization detail.</li>
+</ul>
+<p>End-to-end smoke tests:</p>
+<ul>
+<li>Start daemon with temporary SQLite database.</li>
+<li>Send synthetic run with tool call, edit, validation, and final attempt.</li>
+<li>Confirm dashboard APIs show run, events, decisions, and analytics.</li>
+<li>Send run with edit and no validation before final attempt.</li>
+<li>Confirm validation block decision.</li>
+<li>Send prompt optimization fixture and confirm dashboard can display original prompt, optimized prompt, task contract, rewrite reason, injection status, deterministic/model badge, and injected lessons.</li>
+<li>Send repeated file-read and repeated-search fixtures and confirm tool supervision records are created.</li>
+<li>Send matching lesson fixtures and confirm only high-confidence approved patterns are injected.</li>
+<li>Run a local synthetic baseline/treatment comparison and confirm analytics label it as correlation unless the fixture is explicitly configured as controlled.</li>
+</ul>
+<p>Test fixtures should be compact, synthetic, and scrubbed of secrets. Avoid depending on live model providers in automated tests.</p>
+<h2 id="17-privacy-and-security-considerations">17. Privacy and Security Considerations</h2>
+<p>Default posture:</p>
+<ul>
+<li>Local-first storage.</li>
+<li>No outbound network calls unless explicitly configured.</li>
+<li>Steering ensemble disabled or local-only by default.</li>
+<li>Fail open if daemon is unavailable, unless fail-closed is configured.</li>
+<li>Raw payloads stored locally because replay and future migration need fidelity.</li>
+<li>Raw prompt storage is configurable.</li>
+<li>Prompt optimization storage is local-only by default.</li>
+<li>Repo map cache and pattern matches are local-only by default.</li>
+<li>Any future shared pattern library is opt-in and must use scrubbed, approved operational lessons.</li>
+</ul>
+<p>Security risks:</p>
+<ul>
+<li>Raw traces and raw prompts may contain source code, secrets, credentials, prompts, and internal business context.</li>
+<li>Shell command classification can miss dangerous command variants.</li>
+<li>Protected path policies can be too broad or too narrow.</li>
+<li>A steering model in the ensemble could produce malformed or unsafe decisions.</li>
+<li>Repo map cache entries could become stale and mislead the agent after source changes.</li>
+<li>Pattern injection could overfit to a superficially similar but semantically different task.</li>
+<li>Dashboard APIs could expose sensitive local traces.</li>
+</ul>
+<p>Mitigations:</p>
+<ul>
+<li>Bind daemon to localhost by default.</li>
+<li>Require explicit configuration for non-local listeners.</li>
+<li>Validate every request and response with schemas.</li>
+<li>Keep high-confidence blocks explainable and test-backed.</li>
+<li>Store policy audit history.</li>
+<li>Add configurable retention limits.</li>
+<li>Add redaction support after MVP foundation.</li>
+<li>Add future redaction support for raw prompts before any non-local export features.</li>
+<li>Add dashboard warning for raw trace sensitivity.</li>
+<li>Never send raw trace data to steering providers by default.</li>
+<li>Never send raw full prompts or raw trace history to steering providers for prompt optimization.</li>
+<li>Never send full file contents to steering providers for file-memory matching by default.</li>
+<li>Apply confidence thresholds and provenance display before injecting lessons or file-memory hints.</li>
+<li>Mark file memory stale when hashes change or validation contradicts the summary.</li>
+<li>Sanitize command summaries used for analytics and model features.</li>
+</ul>
+<h2 id="18-build-milestones">18. Build Milestones</h2>
+<h3 id="milestone-1-monorepo-foundation">Milestone 1: Monorepo Foundation</h3>
+<ul>
+<li>Create pnpm workspace.</li>
+<li>Add TypeScript, lint, format, and test setup.</li>
+<li>Add <code>packages/core</code> with schemas and shared types.</li>
+<li>Add initial docs for configuration and hook protocol.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li><code>pnpm test</code> runs.</li>
+<li>Core schemas compile and validate fixture payloads.</li>
+</ul>
+<h3 id="milestone-2-storage-and-daemon-ingest">Milestone 2: Storage and Daemon Ingest</h3>
+<ul>
+<li>Add SQLite migration runner.</li>
+<li>Implement raw event, normalized event, run, decision, and state repositories.</li>
+<li>Create Fastify daemon with health check and hook ingest endpoint.</li>
+<li>Persist raw events before normalization.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Synthetic hook event is stored and visible through a local API.</li>
+</ul>
+<h3 id="milestone-3-cli-and-generic-hook-adapter">Milestone 3: CLI and Generic Hook Adapter</h3>
+<ul>
+<li>Implement <code>agent-sidecar status</code>.</li>
+<li>Implement <code>agent-sidecar daemon start</code>.</li>
+<li>Implement <code>agent-sidecar hook --provider generic</code>.</li>
+<li>Add fail-open and fail-closed behavior.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>JSON sent to CLI stdin reaches daemon and receives a decision response.</li>
+</ul>
+<h3 id="milestone-4-normalization-and-run-state">Milestone 4: Normalization and Run State</h3>
+<ul>
+<li>Implement provider normalizer interface.</li>
+<li>Add generic, Codex, and Claude Code normalizers.</li>
+<li>Implement run state updater.</li>
+<li>Persist state snapshots.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Synthetic multi-event run produces coherent run state.</li>
+</ul>
+<h3 id="milestone-5-prompt-optimization-layer">Milestone 5: Prompt Optimization Layer</h3>
+<ul>
+<li>Add <code>packages/prompt-optimizer</code>.</li>
+<li>Add prompt optimization schemas.</li>
+<li>Implement deterministic task-contract templates.</li>
+<li>Implement continuation prompt generation.</li>
+<li>Implement compaction prompt generation.</li>
+<li>Implement lesson injection.</li>
+<li>Implement dead-end-to-avoid rendering.</li>
+<li>Implement repo-map hint rendering.</li>
+<li>Store prompt optimization results.</li>
+<li>Add unit tests.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Vague prompt fixtures produce compact task contracts.</li>
+<li>Validation-missing <code>Stop</code> fixtures produce short continuation prompts.</li>
+<li>Approved relevant lessons can be injected while disabled lessons are ignored.</li>
+<li>High-confidence dead-end patterns render as short avoidance hints.</li>
+<li>Prompt optimization results are persisted and queryable by event.</li>
+</ul>
+<h3 id="milestone-6-runtime-monitor-and-tool-cost-guardrail-engine">Milestone 6: Runtime Monitor and Tool-Cost Guardrail Engine</h3>
+<ul>
+<li>Implement policy loader.</li>
+<li>Implement initial runtime monitors and tool-cost guardrail checks.</li>
+<li>Implement redundant fetch, repeated read, and repeated search tool-cost guardrail checks.</li>
+<li>Implement dead-end redirect monitor.</li>
+<li>Add monitor unit tests and fixture coverage.</li>
+<li>Compose decisions from monitor outputs.</li>
+<li>Add basic policies, lessons, repo map cache, tool-cost guardrails, analytics, and feedback pages.</li>
+<li>A user can inspect a run, see optimized prompts, pattern matches, repo-map hints, tool-cost guardrail events, and why Agent Sidecar intervened, then mark feedback locally.</li>
+</ul>
+<h3 id="milestone-9-repo-map-cache-and-tool-cost-guardrails">Milestone 9: Repo Map Cache and Tool-Cost Guardrails</h3>
+<ul>
+<li>Add <code>packages/repo-map</code>.</li>
+<li>Add repo-map repository and hash-based staleness tracking.</li>
+<li>Add <code>packages/tool-cost-guardrails</code>.</li>
+<li>Add dashboard APIs for repo map cache, pattern matches, and tool-cost guardrail events.</li>
+<li>Repeated unchanged file reads can be replaced by compact repo-map hints.</li>
+<li>Stale repo map cache entries are not injected after content hash changes.</li>
+<li>Redundant fetch/search fixtures produce explainable tool-cost guardrail events.</li>
+<li>Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, monitor/ensemble decision counts, accepted/rejected interventions, pattern match metrics, repo-map metrics, tool-cost guardrail metrics, and repeated tool calls avoided.</li>
+<li>Label pattern and repo-map outcome comparisons as correlation unless an explicit controlled evaluation exists.</li>
+<li>Dangerous command, protected path, repeat command, redundant fetch, repeated read, repeated search, dead-end redirect, validation, and broad-change scenarios produce expected decisions without ensemble calls.</li>
+</ul>
+<h2 id="19-website-and-docs-alignment">19. Website And Docs Alignment</h2>
+<p>The current website and docs present the product in this order: business problem, six sidecar controls, demo, how to use, and deeper architecture on the docs page. The implementation plan should remain aligned with that public model.</p>
+<p>Website-facing controls:</p>
+<ol>
+<li>Runbook memory.</li>
+<li>Repo map cache.</li>
+<li>Trajectory watchdogs.</li>
+<li>Tool-cost guardrails.</li>
+<li>Prompt shaping and compaction.</li>
+<li>Ensemble steering.</li>
+</ol>
+<p>The landing demo should model the same runtime flow the product implements:</p>
+<ol>
+<li>User installs Agent Sidecar, starts the daemon, and attaches Codex hooks.</li>
+<li>User enters a vague Codex prompt that benefits from prompt shaping.</li>
+<li>Agent Sidecar converts the prompt into a compact task brief before Codex continues.</li>
+<li>The six controls run against the prompt, repo state, monitors, and budget signals.</li>
+<li>Codex edits code using the optimized prompt and ensemble steering output.</li>
+<li>The dashboard records the decision, validation requirement, guarded run cost, baseline cost, and total cost saved.</li>
+</ol>
+<p>The docs page should stay higher level than this plan. It should explain install, how it works, architecture, decisions, and cost math without exposing every internal package or schema detail.</p>
+<h2 id="20-risks-and-mitigations">20. Risks and Mitigations</h2>
+<p>Mitigation: Start with conservative high-confidence interventions, make warnings visible but non-blocking, expose configuration overrides, and track intervention feedback.</p>
+<ul>
+<li>Add basic policies, lessons, file memory, tool supervision, analytics, and feedback pages.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>A user can inspect a run, see optimized prompts, pattern matches, file-memory hints, tool-supervision events, and why Agent Sidecar intervened, then mark feedback locally.</li>
+</ul>
+<h3 id="milestone-8-lessons">Milestone 8: Lessons</h3>
+<ul>
+<li>Implement lesson repository.</li>
+<li>Implement situation/dead-end/unlock lesson fields.</li>
+<li>Implement lesson candidate creation from feedback.</li>
+<li>Implement approval, disable, and expiration flows.</li>
+<li>Implement approved lesson matching.</li>
+<li>Implement confidence-gated pattern matching.</li>
+<li>Add prompt optimizer lesson injection support.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Approved lessons can be matched, confidence-gated, and injected into future matching runs.</li>
+<li>Low-confidence matches are logged but not injected.</li>
+</ul>
+<h3 id="milestone-9-semantic-file-memory-and-tool-supervision">Milestone 9: Semantic File Memory and Tool Supervision</h3>
+<ul>
+<li>Add <code>packages/file-memory</code>.</li>
+<li>Add file-memory repository and hash-based staleness tracking.</li>
+<li>Add compact file summary matching by repo, path, symbols, and task terms.</li>
+<li>Add <code>packages/tool-supervisor</code>.</li>
+<li>Add redundant fetch, repeated read/search, repeated failed command, and dead-end revisit detection.</li>
+<li>Add dashboard APIs for file memory, pattern matches, and tool-supervision events.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Repeated unchanged file reads can be replaced by compact file-memory hints.</li>
+<li>Stale file memory is not injected after content hash changes.</li>
+<li>Redundant fetch/search fixtures produce explainable tool-supervision events.</li>
+</ul>
+<h3 id="milestone-10-steering-model-interface">Milestone 10: Steering Model Interface</h3>
+<ul>
+<li>Add no-op and local HTTP steering providers.</li>
+<li>Add strict request and response schemas.</li>
+<li>Add call budget enforcement.</li>
+<li>Add semantic loop, stale evidence, dead-end match, premature final, broad edit, prompt optimization, lesson selection, difficulty state, context pruning, and failure category purposes.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Ambiguous fixture scenarios can call fake steering providers, validate aggregate output, and persist ensemble decision records.</li>
+</ul>
+<h3 id="milestone-11-analytics-and-evaluation">Milestone 11: Analytics and Evaluation</h3>
+<ul>
+<li>Add token and cost rollups.</li>
+<li>Add success feedback model.</li>
+<li>Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, monitor/ensemble decision counts, accepted/rejected interventions, pattern match metrics, file-memory metrics, tool-supervision metrics, and repeated tool calls avoided.</li>
+<li>Add local synthetic benchmark fixtures for repeated reads, repeated searches, dead-end redirects, prompt optimization, and validation blocks.</li>
+<li>Label prompt optimization outcome comparisons as correlation unless an A/B evaluation exists.</li>
+<li>Label pattern and file-memory outcome comparisons as correlation unless an explicit controlled evaluation exists.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>Dashboard analytics update from local synthetic and real runs.</li>
+<li>Evaluation reports distinguish correlation from controlled comparisons.</li>
+</ul>
+<h3 id="milestone-12-packaging-and-real-agent-trials">Milestone 12: Packaging and Real Agent Trials</h3>
+<ul>
+<li>Package CLI.</li>
+<li>Document Codex and Claude Code hook setup.</li>
+<li>Run real local trials.</li>
+<li>Tune default monitors and policy examples.</li>
+</ul>
+<p>Exit criteria:</p>
+<ul>
+<li>A user can install Agent Sidecar locally, configure at least one agent, run a real task, and review the run in the dashboard.</li>
+</ul>
+<h2 id="19-risks-and-mitigations">19. Risks and Mitigations</h2>
+<h3 id="provider-hook-instability">Provider Hook Instability</h3>
+<p>Risk: Codex or Claude Code hook formats may change or expose different data than expected.</p>
+<p>Mitigation: Keep raw payloads, isolate provider adapters, support generic events, and make normalizers tolerant of unknown fields.</p>
+<h3 id="too-many-false-positives">Too Many False Positives</h3>
+<p>Risk: Runtime intervention can annoy users if warnings and blocks are noisy.</p>
+<p>Mitigation: Start with conservative high-confidence blocks, make warnings visible but non-blocking, expose policy overrides, and track intervention feedback.</p>
+<h3 id="model-cost-and-latency">Model Cost and Latency</h3>
+<p>Risk: Steering ensemble calls could undermine the low-token product promise.</p>
+<p>Mitigation: Prompt templates and runtime monitors run first, ensemble calls are budgeted per run, inputs are compact structured features, and steering is optional.</p>
+<h3 id="prompt-rewrite-overreach">Prompt Rewrite Overreach</h3>
+<p>Risk: Prompt optimization could distort user intent, add unrelated scope, or make the agent overconfident.</p>
+<p>Mitigation: Use conservative deterministic templates, preserve the original task, keep constraints explicit, show rewrite reasons in the dashboard, store optimization metadata, and allow prompt injection to be disabled by policy.</p>
+<h3 id="prompt-optimization-privacy">Prompt Optimization Privacy</h3>
+<p>Risk: Original prompts may contain secrets, private code, or internal details.</p>
+<p>Mitigation: Keep prompt storage local-only by default, make raw prompt storage configurable, never inject raw trace history, avoid sending full prompts to steering providers, and add redaction support before non-local export.</p>
+<h3 id="sensitive-trace-storage">Sensitive Trace Storage</h3>
+<p>Risk: Local traces can contain secrets and proprietary code.</p>
+<p>Mitigation: Local-only default, localhost binding, retention settings, clear UI warnings, future redaction, and no raw cloud upload by default.</p>
+<h3 id="weak-success-measurement">Weak Success Measurement</h3>
+<p>Risk: Cost-per-success depends on knowing whether a task succeeded.</p>
+<p>Mitigation: Use explicit user feedback first, supplement with validation signals, and label inferred success separately from confirmed success.</p>
+<h3 id="command-detection-evasion">Command Detection Evasion</h3>
+<p>Risk: Dangerous command matching can miss obfuscated or multi-step commands.</p>
+<p>Mitigation: Normalize commands, match executable and arguments, add tests for variants, and keep policy configurable.</p>
+<h3 id="broad-edit-detection-accuracy">Broad Edit Detection Accuracy</h3>
+<p>Risk: File and line counts may be unavailable from some hooks.</p>
+<p>Mitigation: Use best available metadata, derive from tool outputs where possible, and mark confidence on broad-change decisions.</p>
+<h3 id="dashboard-scope-creep">Dashboard Scope Creep</h3>
+<p>Risk: The dashboard can consume time before runtime value is proven.</p>
+<p>Mitigation: Build the dashboard around replay, decision explanation, feedback, and analytics first. Defer advanced visualizations.</p>
+<h3 id="packaging-complexity">Packaging Complexity</h3>
+<p>Risk: Running daemon, CLI, dashboard, and SQLite together can complicate installation.</p>
+<p>Mitigation: Keep the first install path local and explicit, use one CLI entry point, and document dev and packaged modes separately.</p>
+<h3 id="lessons-becoming-vague-memory">Lessons Becoming Vague Memory</h3>
+<p>Risk: Lessons can become generic advice that pollutes future runs.</p>
+<p>Mitigation: Require situation/dead-end/unlock fields, structured triggers, approval, scoped evidence, confidence gates, expiration, and usage analytics.</p>
+<h3 id="pattern-over-injection">Pattern Over-Injection</h3>
+<p>Risk: Agent Sidecar could inject too many patterns and bloat prompts or bias the agent toward the wrong prior solution.</p>
+<p>Mitigation: Inject at most 1-3 lessons, require confidence thresholds, log non-injected matches, show provenance, and track helpful/unhelpful feedback.</p>
+<h3 id="stale-repo-map-cache">Stale Repo Map Cache</h3>
+<p>Risk: Repo map summaries can become inaccurate after source changes.</p>
+<p>Mitigation: Store content hashes when available, mark cache entries stale on mismatch, down-rank old summaries, and require refresh before injection.</p>
+<h3 id="evaluation-overclaiming">Evaluation Overclaiming</h3>
+<p>Risk: Analytics can imply causality when they only show correlation.</p>
+<p>Mitigation: Label uncontrolled comparisons as correlation, add explicit benchmark modes for controlled comparisons, and keep raw evaluation inputs local.</p>
+
+</body>
+
+</html>

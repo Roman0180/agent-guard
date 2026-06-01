@@ -245,7 +245,7 @@ Optional cheaper steering model ensemble
   ↓
 Decision composer
   ↓
-Trace store + dashboard + lesson memory + analytics
+Trace store + dashboard + lesson memory + analytics 
 ```
 
 Detailed runtime flow:
