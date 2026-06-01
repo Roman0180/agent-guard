@@ -212,14 +212,14 @@ export const Decision = z
     runId: Identifier,
     eventId: Identifier,
     createdAt: IsoDateTime,
-    source: z.enum(["hard_rule", "steering_model", "manual", "system"]),
+    source: z.enum(["runtime_monitor", "steering_ensemble", "manual", "system"]),
     action: InterventionAction,
     severity: z.enum(["info", "warning", "error"]),
     reasonCode: Identifier,
     message: ShortText,
-    ruleId: Identifier.optional(),
+    monitorId: Identifier.optional(),
     lessonIds: z.array(Identifier).max(10).optional(),
-    modelDecisionId: Identifier.optional(),
+    steeringDecisionId: Identifier.optional(),
     continuationPrompt: z.string().max(4_000).optional(),
     expiresAt: IsoDateTime.optional(),
     compactMetadata: CompactRecord.default({})
@@ -248,8 +248,9 @@ export const Policy = z
     steering: z
       .object({
         enabled: z.boolean(),
-        provider: z.string().max(100).optional(),
-        maxCallsPerRun: z.number().int().nonnegative()
+        providers: z.array(z.string().max(100)).max(10).default([]),
+        maxCallsPerRun: z.number().int().nonnegative(),
+        maxCostUsdPerRun: z.number().nonnegative().default(0)
       })
       .strict()
   })
@@ -301,7 +302,7 @@ export const Lesson = z
   .strict();
 export type Lesson = z.infer<typeof Lesson>;
 
-export const SteeringModelInput = z
+export const SteeringEnsembleInput = z
   .object({
     runId: Identifier,
     eventId: Identifier.optional(),
@@ -321,22 +322,25 @@ export const SteeringModelInput = z
     state: CompactRecord.default({}),
     features: CompactRecord.default({}),
     allowedActions: z.array(InterventionAction).min(1).max(10),
-    candidateLessons: z.array(Lesson).max(10).default([])
+    candidateLessons: z.array(Lesson).max(10).default([]),
+    maxCostUsd: z.number().nonnegative().default(0),
+    candidateProviders: z.array(z.string().max(100)).max(10).default([])
   })
   .strict();
-export type SteeringModelInput = z.infer<typeof SteeringModelInput>;
+export type SteeringEnsembleInput = z.infer<typeof SteeringEnsembleInput>;
 
-export const SteeringModelOutput = z
+export const SteeringEnsembleOutput = z
   .object({
     action: InterventionAction,
     confidence: z.number().min(0).max(1),
     reasonCode: Identifier,
     message: ShortText,
+    participatingModels: z.array(z.string().max(100)).max(10).default([]),
     lessonIds: z.array(Identifier).max(10).optional(),
     failureType: FailureType.optional()
   })
   .strict();
-export type SteeringModelOutput = z.infer<typeof SteeringModelOutput>;
+export type SteeringEnsembleOutput = z.infer<typeof SteeringEnsembleOutput>;
 
 export const TaskContract = z
   .object({

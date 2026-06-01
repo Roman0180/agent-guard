@@ -2,13 +2,13 @@
 
 ## 1. Product Summary
 
-Agent Sidecar is a terminal-run runtime reliability layer for AI coding agents such as Codex and Claude Code. Users install it with `pip`, start the sidecar daemon from their terminal, and configure agent hooks to call the sidecar command. The sidecar receives hook events from agent runtimes, normalizes and stores those events, retrieves approved reliability patterns, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
+Agent Sidecar is a terminal-run runtime reliability layer for AI coding agents such as Codex and Claude Code. Users install it with `pip`, start the sidecar daemon from their terminal, and configure agent hooks to call the sidecar command. The sidecar receives hook events from agent runtimes, normalizes and stores those events, retrieves approved reliability patterns, evaluates runtime monitors and tool-supervision checks, optionally asks an ensemble of cheaper steering models for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
 
 Agent Sidecar should make agent runs observable, correctable, cheaper to operate, and measurable. Each run should stream structured telemetry into the sidecar dashboard: hook events, normalized steps, monitor hits, difficulty state, decision reason codes, token and cost signals, validation evidence, and final outcome. The product should not only intervene; it should make the impact of each intervention auditable.
 
-The runtime should detect common long-running agent failures while the run is still active: semantic loops, repeated tool calls, skipped verification, silent topic drift, stale evidence, hedging/backtracking, and unbounded context growth. These detections should feed a lightweight difficulty state machine that helps decide whether Agent Sidecar should stay quiet, inject approved guidance, require validation, ask a steering model, or stop wasteful continuation.
+The runtime should detect common long-running agent failures while the run is still active: semantic loops, repeated tool calls, skipped verification, silent topic drift, stale evidence, hedging/backtracking, and unbounded context growth. These detections should feed a lightweight difficulty state machine that helps decide whether Agent Sidecar should stay quiet, inject approved guidance, require validation, ask the steering ensemble, or stop wasteful continuation.
 
-Agent Sidecar also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before hard rules and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving deterministic runtime enforcement.
+Agent Sidecar also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before monitor evaluation and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving runtime supervision.
 
 Agent Sidecar's reuse layer is inspired by the observation that coding agents often waste cost by re-exploring the same dead ends. Agent Sidecar should capture approved local lessons in a structured operational format: the situation encountered, the dead ends to avoid, and the unlock that worked. Injection must be confidence-gated, short, explainable, and scoped to the repo or failure mode that justified it.
 
@@ -20,7 +20,7 @@ Primary user workflow:
 2. Start the sidecar from the user’s terminal with `agent-sidecar daemon start`.
 3. Configure Codex or Claude Code hooks to call Agent Sidecar.
 4. Run the coding agent normally.
-5. Review traces, decisions, policies, lessons, and analytics in the sidecar dashboard.
+5. Review traces, decisions, monitors, lessons, and analytics in the sidecar dashboard.
 
 Install path:
 
@@ -42,7 +42,7 @@ The runtime pipeline runs between agent steps. It should keep the agent’s work
 5. `trajectory_assessment`: run deterministic monitors for loops, skipped validation, drift, stale evidence, risky tools, and cost pressure.
 6. `memory_gate`: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.
 7. `prompt_optimization`: create a task contract, continuation prompt, validation prompt, compaction output, or short injected context when useful.
-8. `policy_decision`: evaluate hard rules first; optionally call a steering model only for configured ambiguous cases.
+8. `decision_steering`: compose monitor outputs, confidence gates, prompt optimization results, and optional cheaper-model ensemble guidance into one response.
 9. `record`: store monitor results, decision source, cost rollup, injected context, and outcome labels.
 10. `respond`: return a provider-compatible action before the agent continues.
 
@@ -75,15 +75,15 @@ The MVP should include:
 - SQLite-backed local storage.
 - Shared event schemas for raw events, normalized events, decisions, run state, policies, lessons, and analytics.
 - Hook adapters for Codex and Claude Code, starting with a generic JSON hook protocol and thin provider-specific normalization.
-- Deterministic hard rule engine for low-cost decisions.
+- Runtime monitor and tool-supervision engine for low-cost decisions.
 - Runtime trajectory monitors for semantic loops, repeated tools, skipped verification, topic drift, stale evidence, hedging/backtracking, and context bloat.
 - Lightweight difficulty state machine for classifying run health and deciding whether to stay quiet, steer, validate, or stop waste.
 - Prompt optimization layer for task contracts, continuation prompts, compaction prompts, and approved lesson injection.
 - Confidence-gated reasoning reuse with approved local patterns that capture situation, dead ends, and unlock.
 - Semantic file memory with compact per-file summaries, validation notes, and last-observed hashes.
-- Tool supervision for redundant fetches, repeated reads, repeated searches, and risky tool calls.
+- Tool-cost guardrails for redundant fetches, repeated reads, repeated searches, and risky tool calls.
 - Reasoning-aware context pruning that preserves constraints, validation evidence, and dead-end history.
-- Optional small steering model interface for ambiguous decisions, disabled by default or configured explicitly.
+- Optional cheaper-model steering ensemble for ambiguous decisions, disabled by default or configured explicitly.
 - Local dashboard with runs, trace replay, policies, lessons, analytics, and feedback pages.
 - Per-step observability in the dashboard: run health, fired monitors, decisions, tokens, cost estimates, validation evidence, and final outcome.
 - Baseline comparison or A/B evaluation scaffolding so guarded and unguarded runs can be compared later.
@@ -91,7 +91,7 @@ The MVP should include:
 - Basic cost and token accounting using event metadata, provider pricing profiles, baseline links, and explicit controlled/correlated labels.
 - Fail-open daemon unavailable behavior by default, with fail-closed configuration.
 
-Initial hard rules:
+Initial runtime supervision actions:
 
 - Block dangerous shell commands.
 - Block protected files and paths.
@@ -99,7 +99,7 @@ Initial hard rules:
 - Require validation after code edits before final answers.
 - Require approval for broad file changes.
 
-Initial steering model use cases:
+Initial steering ensemble use cases:
 
 - Ambiguous prompt optimization cases.
 - Semantic loop detection.
@@ -123,12 +123,12 @@ Initial runtime monitor categories:
 
 Initial capability modules:
 
-1. **Scoped lesson recall**: convert reviewed successful traces into local lessons that can be matched by repo, task shape, failure signal, confidence, provenance, and cooldown. A lesson may be injected only when the matching gate explains why the current run is close enough to the saved situation.
-2. **Hash-aware file memory**: maintain compact per-file summaries, ownership hints, exported symbols, validation notes, and last-observed hashes. The sidecar should prefer these summaries when files are unchanged, and should explain why a file-memory hint was safe to reuse.
-3. **Runtime loop monitors**: detect exact command repetition, repeated file reads, stale searches, semantic retries, old evidence, and low-progress high-cost runs. Monitors should return supporting evidence, cooldown state, and a narrow recovery suggestion.
-4. **Tool policy supervision**: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first hard-rule set should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.
-5. **Task-context compression**: preserve the durable task contract, active constraints, validation evidence, accepted lessons, and unresolved risks while pruning stale tool output and low-value turns. Compression should record what was kept, what was dropped, and estimated token delta.
-6. **Steering direction**: keep deterministic rules as the default path. When hard rules cannot classify the situation and steering is enabled, send a compact state summary to the configured steering model and request a narrow next-step recommendation. Store the steering reason code, confidence, model id, prompt version, and fallback action. Steering must remain off or local/configured by default and must not receive raw traces unless the user explicitly enables that mode.
+1. **Runbook memory**: convert reviewed successful traces into compact operational notes with a situation, approaches to avoid, and the unlock that worked. A note may be injected only when repo scope, task shape, failure signal, confidence, provenance, and cooldown checks pass.
+2. **Repo map cache**: maintain hash-checked per-file summaries, ownership hints, exported symbols, validation notes, and last-observed hashes. The sidecar should prefer these notes when files are unchanged, and should explain why a repo-map hint was safe to reuse.
+3. **Trajectory watchdogs**: detect exact command repetition, repeated file reads, stale searches, semantic retries, old evidence, drift, and low-progress high-cost runs. Watchdogs should return supporting evidence, cooldown state, and a narrow recovery suggestion.
+4. **Tool-cost guardrails**: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first supervision checks should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.
+5. **Prompt shaping and compaction**: turn vague prompts into compact task briefs, preserve active constraints, validation evidence, accepted notes, and unresolved risks, and prune stale tool output and low-value turns. Compaction should record what was kept, what was dropped, and estimated token delta.
+6. **Ensemble steering**: when monitor signals or prompt optimization metadata indicate ambiguity, send compact structured features to an ensemble of cheaper configured models and request a narrow next-step recommendation. Store the steering reason code, confidence, participating model ids, prompt version, budget impact, and fallback action. Steering must remain off or local/configured by default and must not receive raw traces unless the user explicitly enables that mode.
 
 ## 3. Non-Goals
 
@@ -188,13 +188,14 @@ The MVP should not attempt to:
 │         │          └──────┬───────┘                  │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
-│         │          │ hard rules   │                  │
+│         │          │ runtime      │                  │
+│         │          │ monitors     │                  │
 │         │          └──────┬───────┘                  │
 │         │                 │ unresolved ambiguous case │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
 │         │          │ steering     │                  │
-│         │          │ model        │                  │
+│         │          │ ensemble     │                  │
 │         │          └──────┬───────┘                  │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
@@ -229,11 +230,11 @@ Retrieve semantic file memory
   ↓
 Prompt optimization layer
   ↓
-Tool supervision + context pruning
+Tool-cost guardrails + context pruning
   ↓
-Hard rule engine
+Runtime monitors
   ↓
-Optional small steering model
+Optional cheaper steering model ensemble
   ↓
 Decision composer
   ↓
@@ -251,9 +252,9 @@ Detailed runtime flow:
 7. Retrieve compact semantic file memory for touched or relevant files.
 8. If the event is `UserPromptSubmit`, `Stop`, `PreCompact`, or `PostCompact`, run prompt optimization.
 9. Run deterministic tool supervision and context-pruning checks.
-10. Evaluate deterministic hard rules.
-11. If a hard rule blocks or requires continuation, return immediately. If applicable, include the optimized continuation prompt.
-12. If needed, call the small steering model with compact structured features.
+10. Evaluate runtime monitors and tool-supervision signals.
+11. If the monitor result is confident enough to warn, block, require continuation, or inject context, compose that response immediately. If applicable, include the optimized continuation prompt.
+12. If needed, call the cheaper steering model ensemble with compact structured features.
 13. Compose final decision.
 14. Store the event, prompt optimization result, decision, state snapshot, file-memory update, and analytics features.
 15. Show events, prompt optimizations, decisions, state, lessons, file memory, and analytics in the dashboard.
@@ -300,8 +301,8 @@ agent-guard/
     policies/
       src/
         loader.ts
-        engine.ts
-        rules/
+        settings.ts
+        supervision.ts
       package.json
     detectors/
       src/
@@ -367,6 +368,7 @@ New prompt optimization package:
 - `packages/prompt-optimizer`: prompt rewriting, task contracts, continuation prompts, compaction prompts, lesson injection, and prompt optimization evaluation metadata.
 - `packages/file-memory`: compact per-file semantic summaries, matching, invalidation by content hash, and file-memory repository helpers.
 - `packages/tool-supervisor`: redundant tool-call detection, repeated read/search tracking, context-pruning signals, and tool-cost avoidance metrics.
+- `packages/steering`: low-cost model ensemble routing, budget tracking, response validation, and fallback handling.
 - `packages/evaluation`: local benchmark fixtures, A/B-style comparison harnesses, cost-per-success calculations, and correlation/causality labeling helpers.
 
 ## 6. Core Data Models
@@ -429,7 +431,7 @@ type RuntimeDecision = {
   runId: string;
   eventId: string;
   createdAt: string;
-  source: "hard_rule" | "steering_model" | "manual" | "system";
+  source: "runtime_monitor" | "steering_ensemble" | "manual" | "system";
   action:
     | "allow"
     | "warn"
@@ -441,9 +443,9 @@ type RuntimeDecision = {
   severity: "info" | "warning" | "error";
   reasonCode: string;
   message: string;
-  ruleId?: string;
+  monitorId?: string;
   lessonIds?: string[];
-  modelDecisionId?: string;
+  steeringDecisionId?: string;
   expiresAt?: string;
 };
 ```
@@ -466,8 +468,9 @@ type PolicyConfig = {
   };
   steering: {
     enabled: boolean;
-    provider?: string;
+    providers: string[];
     maxCallsPerRun: number;
+    maxCostUsdPerRun: number;
   };
 };
 ```
@@ -653,7 +656,7 @@ The hook command should:
 5. Fail open if the daemon is unavailable and policy is fail-open.
 6. Fail closed if explicitly configured.
 
-Provider adapters should be thin. Provider-specific differences belong in parser modules that convert raw hook payloads into `RawHookEvent` plus normalization hints. The daemon owns durable storage, run state, policy evaluation, and final decision composition.
+Provider adapters should be thin. Provider-specific differences belong in parser modules that convert raw hook payloads into `RawHookEvent` plus normalization hints. The daemon owns durable storage, run state, configuration evaluation, and final decision composition.
 
 Codex integration should start with documented hook event shapes available in the local environment. Claude Code integration should start with its hook lifecycle events. If either provider changes hook formats, only the adapter and normalizer should need updates.
 
@@ -664,11 +667,11 @@ Normalization converts provider-specific events into stable Agent Sidecar events
 Normalization goals:
 
 - Preserve raw payloads for replay and future migration.
-- Store compact normalized events for rules, analytics, and dashboard queries.
+- Store compact normalized events for monitors, analytics, and dashboard queries.
 - Normalize commands into executable, args, cwd, environment presence, and risk features.
 - Normalize file edits into paths, counts, operation type, and protected path matches.
 - Normalize validation into command type, pass/fail status, and evidence.
-- Avoid sending raw logs or full conversations into the steering model.
+- Avoid sending raw logs or full conversations into the steering ensemble.
 
 Implementation approach:
 
@@ -681,7 +684,7 @@ Implementation approach:
 7. Persist normalized event.
 8. Emit normalization warnings for unknown but accepted provider payloads.
 
-Unknown event types should be stored and displayed, but ignored by hard rules until explicit support is added.
+Unknown event types should be stored and displayed, but ignored by runtime monitors until explicit support is added.
 
 ## 9. Run State Model
 
@@ -714,7 +717,7 @@ type RunState = {
 
 The run state should be recomputable from normalized events. Persist snapshots for performance and trace replay, but treat event history as the source of truth.
 
-State update rules:
+State update logic:
 
 - Tool calls update recent command and command frequency features.
 - File edits reset `validationSinceLastEdit` to `false`.
@@ -724,7 +727,7 @@ State update rules:
 
 ## 10. Prompt Optimization Layer Design
 
-The prompt optimization layer runs after run state and lesson retrieval, but before hard rules and optional steering. It improves prompt structure so the coding agent wastes fewer steps and tokens. It must not weaken or bypass hard-rule enforcement.
+The prompt optimization layer runs after run state and lesson retrieval, but before monitor evaluation and optional ensemble steering. It improves prompt structure so the coding agent wastes fewer steps and tokens. It must not weaken or bypass runtime supervision.
 
 Primary purposes:
 
@@ -737,8 +740,8 @@ Primary purposes:
 - Generate continuation prompts when the agent tries to stop too early.
 - Generate compaction summaries for `PreCompact` and `PostCompact` events.
 - Reduce downstream token usage by giving Codex or Claude Code a clearer task structure.
-- Prefer deterministic and template-based rewriting first.
-- Use the small steering model only for ambiguous prompt optimization cases.
+- Prefer deterministic and template-based rewriting when they are sufficient.
+- Use the cheaper steering model ensemble only for ambiguous prompt optimization cases where the expected avoided agent cost justifies the steering call.
 
 The optimizer should run mainly on:
 
@@ -772,7 +775,7 @@ Implementation approach:
 6. Estimate token delta by comparing original prompt length with optimized prompt length and expected avoided repeated context, repeated reads, and repeated tool calls.
 7. Reject or truncate rewrites that exceed the configured maximum length.
 8. Store the result even when `shouldInject` is false so the dashboard can explain the decision.
-9. For ambiguous cases only, optionally ask the steering model to choose or refine a rewrite using compact structured prompt metadata.
+9. For ambiguous cases only, optionally ask the steering ensemble to choose or refine a rewrite using compact structured prompt metadata.
 10. Ignore invalid model rewrites and fall back to deterministic output.
 
 Package ownership:
@@ -785,26 +788,26 @@ Package ownership:
 - `packages/prompt-optimizer/patterns.ts`: confidence-gated lesson and dead-end rendering.
 - `packages/prompt-optimizer/file-memory.ts`: rendering compact file-memory hints.
 
-Prompt optimization is an assistive input-shaping layer. Hard rules still decide whether a run is allowed, blocked, or required to continue.
+Prompt optimization is an assistive input-shaping layer. Runtime monitors and steering decisions still decide whether a run is allowed, warned, blocked, or required to continue.
 
-## 11. Hard Rule Engine Design
+## 11. Runtime Monitor and Supervision Design
 
-The hard rule engine should be deterministic, fast, and model-free. It receives a normalized event, current run state, loaded policy config, and repository metadata. It returns zero or more decisions.
+The runtime monitor and supervision layer should be fast, explainable, and cheap enough to run between agent steps. It receives a normalized event, current run state, loaded configuration, repository metadata, prompt optimization output, file memory, and approved lesson matches. It returns zero or more candidate decisions with confidence, evidence, and expected cost impact.
 
-Hard rules run after prompt optimization so they can include optimized continuation prompts in their responses, but they remain deterministic and zero-token. Prompt optimization must never weaken hard-rule enforcement or convert a block into an allow decision.
+Monitor checks run after prompt optimization so they can include optimized continuation prompts in their responses. Prompt optimization must never weaken supervision or convert a high-confidence block into an allow decision.
 
-Rule interface:
+Monitor interface:
 
 ```ts
-type HardRule = {
+type RuntimeMonitor = {
   id: string;
   description: string;
   appliesTo: NormalizedEvent["eventType"][];
-  evaluate(input: RuleInput): RuleDecision[];
+  evaluate(input: MonitorInput): MonitorDecision[];
 };
 ```
 
-Initial rules:
+Initial monitor and supervision checks:
 
 - `dangerous_command.block`: block shell commands matching denylisted patterns such as recursive deletion, disk formatting, credential exfiltration, or known destructive git operations.
 - `protected_path.block`: block edits to protected paths such as `.env`, secrets, lockfiles, or configured production files unless explicitly allowed.
@@ -817,21 +820,21 @@ Initial rules:
 
 Design principles:
 
-- Rules should return structured reason codes, not free-form-only text.
-- Rules should be separately testable with fixture events.
-- Block and require decisions should short-circuit steering model calls.
-- If validation is missing on `Stop`, the validation rule should produce `block_continue` and use the prompt optimizer to attach a short continuation prompt.
+- Monitors should return structured reason codes, not free-form-only text.
+- Monitors should be separately testable with fixture events.
+- High-confidence block and require decisions should avoid unnecessary steering calls.
+- If validation is missing on `Stop`, the validation monitor should produce `block_continue` and use the prompt optimizer to attach a short continuation prompt.
 - Warn decisions can be accumulated and shown without preventing later evaluation.
-- Rule config should come from layered policy loading: defaults, global user config, repo config, then runtime overrides.
+- Supervision configuration should come from layered loading: defaults, global user config, repo config, then runtime overrides.
 
-## 12. Small Steering Model Design
+## 12. Steering Ensemble Design
 
-The steering model should be optional and used only when deterministic rules or deterministic prompt templates are insufficient. It should receive compact structured features, not raw transcripts or full raw prompt history.
+The steering ensemble should be optional and used only when runtime monitors, confidence gates, or prompt templates cannot classify the next step confidently. It should route compact structured features to one or more cheaper configured models, compare or vote on their recommendations, and only spend that extra steering cost when the expected avoided Codex or Claude Code spend is larger than the ensemble call cost. It should receive compact structured features, not raw transcripts or full raw prompt history.
 
-Model request:
+Ensemble request:
 
 ```ts
-type SteeringRequest = {
+type SteeringEnsembleRequest = {
   runId: string;
   purpose:
     | "semantic_loop"
@@ -848,17 +851,20 @@ type SteeringRequest = {
   allowedActions: RuntimeDecision["action"][];
   candidateLessons?: Lesson[];
   candidateFileMemory?: FileMemory[];
+  maxCostUsd: number;
+  candidateProviders: string[];
 };
 ```
 
-Model response:
+Ensemble response:
 
 ```ts
-type SteeringResponse = {
+type SteeringEnsembleResponse = {
   action: RuntimeDecision["action"];
   confidence: number;
   reasonCode: string;
   message: string;
+  participatingModels: string[];
   lessonIds?: string[];
   fileMemoryIds?: string[];
   difficultyState?: DifficultyState["state"];
@@ -871,9 +877,9 @@ Guardrails:
 
 - Validate strict JSON with Zod.
 - Reject unknown actions, reason codes, lesson IDs, or categories.
-- Enforce per-run model call budgets.
-- Log model inputs and outputs as structured records.
-- Fall back to allow or warn when the model provider fails, depending on policy.
+- Enforce per-run model call and cost budgets.
+- Log ensemble inputs, individual model outputs, and final aggregate outputs as structured records.
+- Fall back to allow or warn when steering providers fail, depending on configuration.
 - Do not include raw chain-of-thought, full prompts, or full logs in requests.
 - For prompt optimization, send compact prompt metadata, task hints, policy constraints, validation state, and candidate lesson summaries only.
 - For dead-end matching, send only compact summaries of recent events, command signatures, failure categories, and approved candidate lesson summaries.
@@ -885,8 +891,9 @@ Initial provider strategy:
 
 - Define provider-agnostic interface in `packages/steering`.
 - Support a no-op provider for tests and default installs.
-- Add configurable local HTTP provider for users running a small local model.
+- Add configurable local HTTP providers for users running cheaper local or hosted models.
 - Add later cloud provider support behind explicit configuration.
+- Track estimated steering cost and avoided downstream agent cost for every ensemble call.
 
 ## 13. Lesson Memory Design
 
@@ -908,7 +915,7 @@ Lesson lifecycle:
 4. Runtime matches approved lessons against compact run features.
 5. A confidence gate decides whether the lesson is injected, logged as a non-injected match, or ignored.
 6. Prompt optimizer injects at most 1-3 short approved matching lessons into task contracts or continuation prompts.
-7. Hard rules or steering model may still decide whether lesson injection should be suppressed for a specific event.
+7. Runtime monitors or the steering ensemble may still decide whether lesson injection should be suppressed for a specific event.
 8. Dashboard tracks accepted, ignored, stale, injected, non-injected, and helpful/unhelpful lessons.
 
 Matching inputs:
@@ -955,9 +962,9 @@ Constraints:
 - Show file-memory provenance in the dashboard.
 - Track repeated reads avoided as an analytics metric.
 
-## 13B. Tool Supervision and Context Pruning
+## 13B. Tool-Cost Guardrails and Context Pruning
 
-Tool supervision detects wasteful or risky tool behavior before it compounds cost.
+Tool-cost guardrails detect wasteful or risky tool behavior before it compounds cost.
 
 Minimum detections:
 
@@ -986,11 +993,11 @@ Pages:
 - Runs: searchable list of recent runs with provider, status, cost, tokens, success signal, loop count, validation status, and intervention count.
 - Trace replay: chronological raw and normalized event timeline, prompt optimizations, decisions, state snapshots, and feedback controls.
 - Failure modes: grouped failures by category, repeated loop signatures, stale evidence signals, and validation misses.
-- Policies: current effective policy, repo overrides, protected paths, dangerous command patterns, and rule test fixtures.
+- Policies: current effective configuration, repo overrides, protected paths, dangerous command patterns, and supervision fixtures.
 - Lessons and patterns: candidate review queue, approved lessons, disabled lessons, situation/dead-end/unlock fields, confidence gates, pattern matches, lesson usage, and lesson effectiveness.
-- File memory: per-repo file summaries, stale/hash status, provenance, injected file-memory hints, and repeated reads avoided.
-- Tool supervision: redundant fetches, repeated reads/searches, repeated failed commands, and dead-end redirects.
-- Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, prompt optimization count, continuation prompt count, compaction prompt count, average optimized prompt length, rule decision count, model decision count, accepted/rejected interventions, pattern match rate, high-confidence injection rate, repeated reads avoided, repeated fetches avoided, and repeated tool calls avoided.
+- Repo map cache: per-repo file summaries, stale/hash status, provenance, injected repo-map hints, and repeated reads avoided.
+- Tool-cost guardrails: redundant fetches, repeated reads/searches, repeated failed commands, and dead-end redirects.
+- Analytics: cost per successful task, estimated tokens per success, success rate, loop rate, validation block rate, prompt optimization count, continuation prompt count, compaction prompt count, average optimized prompt length, monitor decision count, steering ensemble decision count, accepted/rejected interventions, pattern match rate, high-confidence injection rate, repeated reads avoided, repeated fetches avoided, and repeated tool calls avoided.
 - Feedback: mark run success/failure, accept/reject intervention usefulness, and create lesson candidates.
 
 Prompt optimization UI should show:
@@ -1029,7 +1036,7 @@ Analytics should include:
 - Success rate.
 - Loop rate.
 - Validation block rate.
-- Rule decision count.
+- Monitor decision count.
 - Model decision count.
 - Prompt optimizations count.
 - Continuation prompts count.
@@ -1137,14 +1144,14 @@ CREATE TABLE decisions (
   severity TEXT NOT NULL,
   reason_code TEXT NOT NULL,
   message TEXT NOT NULL,
-  rule_id TEXT,
-  model_decision_id TEXT,
+  monitor_id TEXT,
+  steering_decision_id TEXT,
   data_json TEXT NOT NULL,
   FOREIGN KEY (run_id) REFERENCES runs(id),
   FOREIGN KEY (event_id) REFERENCES normalized_events(id)
 );
 
-CREATE TABLE model_decisions (
+CREATE TABLE steering_decisions (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
@@ -1297,7 +1304,7 @@ Package-level tests:
 - Three-field lesson rendering includes situation, dead ends, and unlock without raw reasoning.
 - Confidence gates suppress low-confidence pattern injection and log the non-injection reason.
 - Semantic file memory retrieval ignores stale hashes and never injects full file contents by default.
-- Tool supervision detects repeated reads, repeated searches, redundant fetches, and repeated failed commands.
+- Tool-cost guardrails detect repeated reads, repeated searches, redundant fetches, and repeated failed commands.
 - Context pruning preserves active constraints, validation requirements, and dead ends to avoid.
 - Difficulty-state classification transitions are stable and respect hysteresis.
 - Steering response validation and invalid response handling.
@@ -1311,7 +1318,7 @@ Integration tests:
 - Daemon stores prompt optimization results linked to `event_id`.
 - Daemon stores file-memory updates and pattern-match records linked to events.
 - Redundant tool supervision events are visible through dashboard APIs.
-- Hard rule block short-circuits steering.
+- High-confidence monitor block avoids steering.
 - Validation block uses the prompt optimizer result when returning a continuation prompt.
 - Fail-open behavior when daemon is unavailable.
 - Fail-closed behavior when configured.
@@ -1337,12 +1344,12 @@ Default posture:
 
 - Local-first storage.
 - No outbound network calls unless explicitly configured.
-- Steering model disabled or local-only by default.
+- Steering ensemble disabled or local-only by default.
 - Fail open if daemon is unavailable, unless fail-closed is configured.
 - Raw payloads stored locally because replay and future migration need fidelity.
 - Raw prompt storage is configurable.
 - Prompt optimization storage is local-only by default.
-- File memory and pattern matches are local-only by default.
+- Repo map cache and pattern matches are local-only by default.
 - Any future shared pattern library is opt-in and must use scrubbed, approved operational lessons.
 
 Security risks:
@@ -1350,8 +1357,8 @@ Security risks:
 - Raw traces and raw prompts may contain source code, secrets, credentials, prompts, and internal business context.
 - Shell command classification can miss dangerous command variants.
 - Protected path policies can be too broad or too narrow.
-- A steering model could produce malformed or unsafe decisions.
-- File memory could become stale and mislead the agent after source changes.
+- A steering model in the ensemble could produce malformed or unsafe decisions.
+- Repo map cache entries could become stale and mislead the agent after source changes.
 - Pattern injection could overfit to a superficially similar but semantically different task.
 - Dashboard APIs could expose sensitive local traces.
 
@@ -1360,7 +1367,7 @@ Mitigations:
 - Bind daemon to localhost by default.
 - Require explicit configuration for non-local listeners.
 - Validate every request and response with schemas.
-- Keep hard blocks deterministic.
+- Keep high-confidence blocks explainable and test-backed.
 - Store policy audit history.
 - Add configurable retention limits.
 - Add redaction support after MVP foundation.
@@ -1441,18 +1448,18 @@ Exit criteria:
 - High-confidence dead-end patterns render as short avoidance hints.
 - Prompt optimization results are persisted and queryable by event.
 
-### Milestone 6: Hard Rule Engine
+### Milestone 6: Runtime Monitor and Supervision Engine
 
 - Implement policy loader.
-- Implement initial deterministic hard rules.
-- Implement redundant fetch, repeated read, and repeated search tool-supervision rules.
-- Implement dead-end redirect rule.
-- Add rule unit tests and fixture coverage.
-- Compose decisions from rule outputs.
+- Implement initial runtime monitors and supervision checks.
+- Implement redundant fetch, repeated read, and repeated search tool-supervision checks.
+- Implement dead-end redirect monitor.
+- Add monitor unit tests and fixture coverage.
+- Compose decisions from monitor outputs.
 
 Exit criteria:
 
-- Dangerous command, protected path, repeat command, redundant fetch, repeated read, repeated search, dead-end redirect, validation, and broad-change scenarios produce expected decisions without model calls.
+- Dangerous command, protected path, repeat command, redundant fetch, repeated read, repeated search, dead-end redirect, validation, and broad-change scenarios produce expected decisions without ensemble calls.
 
 ### Milestone 7: Dashboard MVP
 
@@ -1506,13 +1513,13 @@ Exit criteria:
 
 Exit criteria:
 
-- Ambiguous fixture scenarios can call a fake steering provider, validate output, and persist model decision records.
+- Ambiguous fixture scenarios can call fake steering providers, validate aggregate output, and persist ensemble decision records.
 
 ### Milestone 11: Analytics and Evaluation
 
 - Add token and cost rollups.
 - Add success feedback model.
-- Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, rule/model decision counts, accepted/rejected interventions, pattern match metrics, file-memory metrics, tool-supervision metrics, and repeated tool calls avoided.
+- Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, monitor/ensemble decision counts, accepted/rejected interventions, pattern match metrics, file-memory metrics, tool-supervision metrics, and repeated tool calls avoided.
 - Add local synthetic benchmark fixtures for repeated reads, repeated searches, dead-end redirects, prompt optimization, and validation blocks.
 - Label prompt optimization outcome comparisons as correlation unless an A/B evaluation exists.
 - Label pattern and file-memory outcome comparisons as correlation unless an explicit controlled evaluation exists.
@@ -1527,7 +1534,7 @@ Exit criteria:
 - Package CLI.
 - Document Codex and Claude Code hook setup.
 - Run real local trials.
-- Tune default rules and policy examples.
+- Tune default monitors and policy examples.
 
 Exit criteria:
 
@@ -1545,13 +1552,13 @@ Mitigation: Keep raw payloads, isolate provider adapters, support generic events
 
 Risk: Runtime intervention can annoy users if warnings and blocks are noisy.
 
-Mitigation: Start with conservative hard blocks, make warnings visible but non-blocking, expose policy overrides, and track intervention feedback.
+Mitigation: Start with conservative high-confidence blocks, make warnings visible but non-blocking, expose policy overrides, and track intervention feedback.
 
 ### Model Cost and Latency
 
-Risk: Steering model calls could undermine the low-token product promise.
+Risk: Steering ensemble calls could undermine the low-token product promise.
 
-Mitigation: Deterministic prompt templates and hard rules run first, model calls are budgeted per run, inputs are compact structured features, and steering is optional.
+Mitigation: Prompt templates and runtime monitors run first, ensemble calls are budgeted per run, inputs are compact structured features, and steering is optional.
 
 ### Prompt Rewrite Overreach
 

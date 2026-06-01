@@ -36,7 +36,9 @@ const policy: Policy = {
   },
   steering: {
     enabled: false,
-    maxCallsPerRun: 0
+    providers: [],
+    maxCallsPerRun: 0,
+    maxCostUsdPerRun: 0
   }
 };
 
@@ -150,7 +152,7 @@ describe("@agent-sidecar/storage", () => {
       runId: run.id,
       eventId: event.id,
       createdAt: now,
-      source: "hard_rule",
+      source: "runtime_monitor",
       action: "allow",
       severity: "info",
       reasonCode: "runtime.allow",

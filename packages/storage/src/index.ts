@@ -70,14 +70,14 @@ export type Decision = {
   runId: string;
   eventId: string;
   createdAt: string;
-  source: "hard_rule" | "steering_model" | "manual" | "system";
+  source: "runtime_monitor" | "steering_ensemble" | "manual" | "system";
   action: InterventionAction;
   severity: "info" | "warning" | "error";
   reasonCode: string;
   message: string;
-  ruleId?: string;
+  monitorId?: string;
   lessonIds?: string[];
-  modelDecisionId?: string;
+  steeringDecisionId?: string;
   continuationPrompt?: string;
   expiresAt?: string;
   compactMetadata?: JsonRecord;
@@ -98,8 +98,9 @@ export type Policy = {
   };
   steering: {
     enabled: boolean;
-    provider?: string;
+    providers: string[];
     maxCallsPerRun: number;
+    maxCostUsdPerRun: number;
   };
 };
 
@@ -372,10 +373,10 @@ export class Storage {
         `
         INSERT INTO decisions (
           id, run_id, event_id, created_at, source, action, severity,
-          reason_code, message, rule_id, model_decision_id, decision_json
+          reason_code, message, monitor_id, steering_decision_id, decision_json
         ) VALUES (
           @id, @runId, @eventId, @createdAt, @source, @action, @severity,
-          @reasonCode, @message, @ruleId, @modelDecisionId, @decisionJson
+          @reasonCode, @message, @monitorId, @steeringDecisionId, @decisionJson
         )
       `
       )
@@ -389,8 +390,8 @@ export class Storage {
         severity: decision.severity,
         reasonCode: decision.reasonCode,
         message: decision.message,
-        ruleId: decision.ruleId ?? null,
-        modelDecisionId: decision.modelDecisionId ?? null,
+        monitorId: decision.monitorId ?? null,
+        steeringDecisionId: decision.steeringDecisionId ?? null,
         decisionJson: JSON.stringify(stripUndefined(decision))
       });
 
@@ -700,8 +701,8 @@ export class Storage {
           severity TEXT NOT NULL,
           reason_code TEXT NOT NULL,
           message TEXT NOT NULL,
-          rule_id TEXT,
-          model_decision_id TEXT,
+          monitor_id TEXT,
+          steering_decision_id TEXT,
           decision_json TEXT NOT NULL,
           FOREIGN KEY (run_id) REFERENCES runs(id),
           FOREIGN KEY (event_id) REFERENCES events(id)

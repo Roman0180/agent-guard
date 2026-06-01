@@ -2,7 +2,7 @@
 
 Agent Sidecar is a local-first runtime reliability sidecar for AI coding agents such as Codex and Claude Code.
 
-The intended system runs beside an existing coding agent, receives hook events, stores traces, applies deterministic runtime policies, optionally consults a compact steering model for ambiguous cases, and exposes a dashboard for replay, lessons, and analytics.
+The intended system runs beside an existing coding agent, receives hook events, stores traces, optimizes prompts, evaluates runtime monitors, optionally consults an ensemble of cheaper steering models for ambiguous cases, and exposes a dashboard for replay, lessons, and analytics.
 
 This repository currently contains the initial TypeScript monorepo skeleton only.
 
@@ -14,8 +14,8 @@ This repository currently contains the initial TypeScript monorepo skeleton only
 - `packages/storage`: SQLite-ready storage package placeholder.
 - `packages/cli`: Future `agent-sidecar` CLI package.
 - `packages/detectors`: Future loop, command, validation, and edit detectors.
-- `packages/policies`: Future deterministic policy engine.
-- `packages/steering`: Future small steering model interface.
+- `packages/policies`: Future runtime configuration and supervision settings.
+- `packages/steering`: Future low-cost steering model ensemble interface.
 - `packages/lessons`: Future approved lesson memory.
 - `docs`: Product and architecture documentation.
 

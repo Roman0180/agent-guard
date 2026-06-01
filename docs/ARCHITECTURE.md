@@ -1,6 +1,6 @@
 # Agent Sidecar Architecture
 
-Agent Sidecar is a terminal-run reliability sidecar for AI coding agents. Users install the package with `pip`, start the sidecar daemon from their shell, and configure Codex, Claude Code, or another agent runtime to send hook events into the sidecar. The daemon owns ingestion, state, policy evaluation, prompt shaping, persistence, API access, and runtime decisions. The dashboard is a replay and control surface; it does not make runtime decisions or read storage directly.
+Agent Sidecar is a terminal-run reliability sidecar for AI coding agents. Users install the package with `pip`, start the sidecar daemon from their shell, and configure Codex, Claude Code, or another agent runtime to send hook events into the sidecar. The daemon owns ingestion, state, prompt optimization, monitor evaluation, model-ensemble steering, persistence, API access, and runtime decisions. The dashboard is a replay and control surface; it does not make runtime decisions or read storage directly.
 
 ```text
 Coding agent hook
@@ -17,8 +17,8 @@ Terminal sidecar daemon
       +--> semantic file memory
       +--> approved lesson retrieval
       +--> prompt optimization
-      +--> deterministic hard rules
-      +--> optional steering model
+      +--> runtime monitors
+      +--> cheaper steering model ensemble
       +--> cost and token accounting
       +--> SQLite trace storage
       |
@@ -43,7 +43,7 @@ The `agent-sidecar` Python package should expose a stable CLI. Internally it can
 
 ## Runtime Lifecycle
 
-The sidecar acts between agent steps. It should not rewrite the agent’s full message history, and it should not accumulate unbounded guidance. Each decision is derived from the current event, durable run state, approved memory, and configured policy.
+The sidecar acts between agent steps. It should not rewrite the agent’s full message history, and it should not accumulate unbounded guidance. Each decision is derived from the current event, durable run state, approved memory, monitor signals, and configured steering budget.
 
 1. **Run start**: the first hook event creates a run record with provider, model, repository, task metadata, pricing profile, and configuration snapshot.
 2. **Step ingest**: every hook payload is captured as raw JSON, assigned a stable event id, and associated with a run id.
@@ -52,7 +52,7 @@ The sidecar acts between agent steps. It should not rewrite the agent’s full m
 5. **Trajectory assessment**: deterministic monitors evaluate loops, repeated reads, stale evidence, skipped validation, drift, risky tools, and cost pressure.
 6. **Memory retrieval**: semantic file memory and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
 7. **Prompt optimization**: the sidecar may produce a compact task contract, continuation prompt, validation reminder, or context injection.
-8. **Decision evaluation**: hard rules run first. Ambiguous cases may use a small steering model if configured. The final action is one of allow, warn, block, require continuation, inject context, or require validation.
+8. **Decision evaluation**: runtime monitors and confidence gates classify the step. Ambiguous cases may use an ensemble of cheaper steering models if configured. The final action is one of allow, warn, block, require continuation, inject context, or require validation.
 9. **Persistence**: the daemon stores raw event, normalized event, monitors fired, decision, cost rollup, prompt optimization output, and outcome labels.
 10. **Response**: the hook command returns a decision object to the agent runtime before the agent continues.
 
@@ -71,7 +71,7 @@ Decision responses should be explicit and small:
 }
 ```
 
-The agent should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: fired monitors, policy rule, confidence gates, cost impact, and related trace evidence.
+The agent should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: fired monitors, supervision reason, confidence gates, cost impact, and related trace evidence.
 
 ## State And Storage
 
@@ -82,7 +82,7 @@ Minimum durable entities:
 - `runs`: provider, model, repo, task, status, outcome, cost, tokens, start/end timestamps.
 - `raw_events`: original hook payloads, source provider, received timestamp.
 - `normalized_events`: stable event type, paths, command, validation signal, usage metadata.
-- `decisions`: action, reason code, rule/model source, severity, message, injected context.
+- `decisions`: action, reason code, monitor/model source, severity, message, injected context.
 - `monitor_results`: monitor id, score, fired flag, supporting evidence, cooldown state.
 - `lessons`: situation, dead ends to avoid, unlock, scope, confidence, approval state.
 - `file_memory`: path, summary, ownership hints, validation notes, content hash when available.
@@ -114,13 +114,13 @@ If the baseline comes from a randomized control arm, the dashboard may label the
 
 Agent Sidecar should cover these minimum runtime reliability capabilities:
 
-- Scoped lesson recall: retrieve reviewed local patterns from prior successful runs only when repo, task shape, failure signal, and confidence gates match.
-- Dead-end avoidance: store operational lessons in a structured format that captures the situation, dead ends to avoid, and the unlock that worked.
-- Hash-aware file memory: reuse compact file summaries, ownership hints, and validation notes when file hashes show the context is still current.
-- Runtime loop monitors: detect repeated commands, repeated file reads, semantic retries, stale evidence, and low-progress high-cost runs.
-- Tool policy supervision: identify redundant fetches, repeated searches, broad edits, protected paths, and risky commands before they compound cost or damage.
-- Task-context compression: preserve durable state, active constraints, validation requirements, and approved lessons while dropping noisy or stale context.
-- Steering direction: ask a configured steering model only after deterministic rules are inconclusive, using compact structured state and a stored fallback action.
+- Runbook memory: retrieve reviewed local fix notes only when repo scope, task shape, failure signal, and confidence gates match.
+- Dead-end avoidance: store operational guidance as a situation, avoided paths, and the unlock that worked.
+- Repo map cache: reuse compact file summaries, ownership hints, and validation notes when file hashes show the context is still current.
+- Trajectory watchdogs: detect repeated commands, repeated file reads, semantic retries, stale evidence, drift, and low-progress high-cost runs.
+- Tool-cost guardrails: identify redundant fetches, repeated searches, broad edits, protected paths, and risky commands before they compound cost or damage.
+- Prompt shaping and compaction: rewrite vague prompts into compact task briefs, preserve durable state, active constraints, validation requirements, and approved notes, and drop noisy or stale context.
+- Ensemble steering: use cheaper configured models to steer Codex and Claude Code through ambiguous next steps while keeping the steering budget lower than the avoided agent spend.
 - Reasoning-aware pruning: remove low-value context based on task state, validation evidence, and dead-end history rather than token count alone.
 - Confidence-gated injection: inject patterns only when structured triggers and similarity scores clear configurable thresholds.
 - Difficulty-state tracking: maintain a lightweight state such as `fast`, `normal`, `slow`, or `skip` to guide whether the sidecar should inject context, ask steering, require validation, or stay quiet.

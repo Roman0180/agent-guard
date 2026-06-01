@@ -9,7 +9,7 @@ import {
   PromptOptimizationInput,
   PromptOptimizationResult,
   RunState,
-  SteeringModelInput,
+  SteeringEnsembleInput,
   TaskContract
 } from "./index.js";
 
@@ -30,7 +30,9 @@ const policy = {
   },
   steering: {
     enabled: false,
-    maxCallsPerRun: 0
+    providers: [],
+    maxCallsPerRun: 0,
+    maxCostUsdPerRun: 0
   }
 } as const;
 
@@ -146,7 +148,7 @@ describe("@agent-sidecar/core schemas", () => {
       runId: "run-1",
       eventId: "event-1",
       createdAt: now,
-      source: "hard_rule",
+      source: "runtime_monitor",
       action: "require_validation",
       severity: "warning",
       reasonCode: "validation_after_edit.require",
@@ -159,8 +161,8 @@ describe("@agent-sidecar/core schemas", () => {
     expect(parsed.action).toBe("require_validation");
   });
 
-  it("validates a SteeringModelInput", () => {
-    const parsed = SteeringModelInput.parse({
+  it("validates a SteeringEnsembleInput", () => {
+    const parsed = SteeringEnsembleInput.parse({
       runId: "run-1",
       eventId: "event-1",
       purpose: "premature_final",
@@ -176,7 +178,9 @@ describe("@agent-sidecar/core schemas", () => {
         failureHints: ["validation_missing"]
       },
       allowedActions: ["allow", "warn", "require_validation"],
-      candidateLessons: [lesson]
+      candidateLessons: [lesson],
+      maxCostUsd: 0.01,
+      candidateProviders: ["local-cheap-a", "local-cheap-b"]
     });
 
     expect(parsed.allowedActions).toContain("require_validation");
