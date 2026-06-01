@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import Fastify, { type FastifyInstance } from "fastify";
+import {
+  RunStateManager,
+  RunState as CoreRunStateSchema,
+  NormalizedAgentEvent as CoreNormalizedAgentEventSchema,
+  normalizeClaudeHook,
+  normalizeCodexHook,
+  normalizeGenericHook
+} from "@agent-sidecar/core";
 import { PromptOptimizer } from "@agent-sidecar/prompt-optimizer";
 import {
   Storage,
@@ -9,6 +17,7 @@ import {
   type Lesson,
   type NormalizedAgentEvent,
   type Policy,
+  type PromptOptimizationRecord,
   type PromptOptimizationResult,
   type RunState,
   type StoredRun
@@ -25,7 +34,7 @@ export type BuildServerOptions = {
   logger?: boolean;
 };
 
-type HookProvider = "codex" | "claude";
+type HookProvider = "codex" | "claude" | "generic";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -101,6 +110,30 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     storage.getPromptOptimizationsForRun(request.params.id)
   );
 
+  server.get<{ Params: { id: string } }>("/api/runs/:id/demo", async (request, reply) => {
+    const run = storage.getRun(request.params.id);
+    if (!run) {
+      return reply.code(404).send({ error: "run_not_found" });
+    }
+
+    return createDemoReplay(
+      run,
+      storage.listEventsForRun(run.id),
+      storage.listDecisionsForRun(run.id),
+      storage.getPromptOptimizationRecordsForRun(run.id),
+      storage.getLatestRunStateSnapshot(run.id)
+    );
+  });
+
+  server.get<{ Params: { id: string } }>("/api/runs/:id/state", async (request, reply) => {
+    const snapshot = storage.getLatestRunStateSnapshot(request.params.id);
+    if (!snapshot) {
+      return reply.code(404).send({ error: "run_state_not_found" });
+    }
+
+    return snapshot;
+  });
+
   server.post("/api/events", async (request, reply) => {
     const event = request.body as NormalizedAgentEvent & { rawPayload?: unknown };
     ensureRun(storage, event.runId, event.agent);
@@ -128,6 +161,11 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     const decision = createAllowDecision(runId, eventId);
     storage.addDecision(decision);
     return reply.code(201).send(decision);
+  });
+
+  server.post("/hooks/generic", async (request, reply) => {
+    const result = ingestHook(storage, "generic", request.body);
+    return reply.code(201).send(result);
   });
 
   server.post("/hooks/codex", async (request, reply) => {
@@ -240,24 +278,37 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
     storage.createRun(run);
   }
 
-  const event: NormalizedAgentEvent & { rawPayload: unknown } = {
+  const normalized = normalizeProviderHook(provider, {
+    ...body,
     id: stringValue(body.id) ?? stringValue(body.eventId) ?? randomUUID(),
-    rawEventId: stringValue(body.rawEventId),
     runId: run.id,
-    agent: provider === "codex" ? "codex" : "claude-code",
-    providerEventType: stringValue(body.providerEventType) ?? stringValue(body.eventType) ?? stringValue(body.hook_event_name),
-    eventType: normalizeHookEventType(body),
-    timestamp: stringValue(body.timestamp) ?? now,
-    actor: inferActor(body),
-    summary: summarizePayload(body),
+    timestamp: stringValue(body.timestamp) ?? now
+  });
+  const event: NormalizedAgentEvent & { rawPayload: unknown } = {
+    ...normalized,
+    runId: run.id,
+    rawEventId: stringValue(body.rawEventId) ?? normalized.rawEventId,
     compactMetadata: {
+      ...normalized.compactMetadata,
       hookProvider: provider
     },
     rawPayload: payload
   };
 
   storage.addEvent(event);
-  const promptOptimization = maybeOptimizePrompt(storage, run, event, body, now);
+  const runStateManager = new RunStateManager({
+    getLatestRunStateSnapshot: (runId) => {
+      const snapshot = storage.getLatestRunStateSnapshot(runId);
+      return snapshot ? { state: CoreRunStateSchema.parse(snapshot.state) } : undefined;
+    },
+    saveRunStateSnapshot: (snapshot) => storage.saveRunStateSnapshot({
+      ...snapshot,
+      state: snapshot.state as RunState
+    })
+  });
+  const { rawPayload: _rawPayload, ...eventForState } = event;
+  const runState = runStateManager.applyEvent(CoreNormalizedAgentEventSchema.parse(eventForState)) as RunState;
+  const promptOptimization = maybeOptimizePrompt(storage, run, event, body, now, runState);
   const decision = promptOptimization
     ? createPromptOptimizationDecision(run.id, event.id, promptOptimization)
     : createAllowDecision(run.id, event.id);
@@ -272,6 +323,73 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
     decision,
     ...(promptOptimization ? { prompt_optimization: promptOptimization } : {})
   };
+}
+
+type DemoReplay = {
+  run: StoredRun;
+  checkpoints: Array<{ id: string; label: string; status: "complete" | "pending"; summary: string }>;
+  events: NormalizedAgentEvent[];
+  decisions: Decision[];
+  promptOptimizations: PromptOptimizationRecord[];
+  state?: RunState;
+};
+
+function createDemoReplay(
+  run: StoredRun,
+  events: NormalizedAgentEvent[],
+  decisions: Decision[],
+  promptOptimizations: PromptOptimizationRecord[],
+  snapshot?: { state: RunState }
+): DemoReplay {
+  const hasPrompt = events.some((event) => event.eventType === "prompt");
+  const hasToolOrValidation = events.some((event) =>
+    ["tool_call", "tool_result", "file_edit", "validation"].includes(event.eventType)
+  );
+  return {
+    run,
+    checkpoints: [
+      {
+        id: "hook-setup",
+        label: "Hook setup",
+        status: events.length > 0 ? "complete" : "pending",
+        summary: "Daemon accepted hook JSON and persisted the raw event before processing."
+      },
+      {
+        id: "prompt-ingest",
+        label: "Prompt enters Codex",
+        status: hasPrompt ? "complete" : "pending",
+        summary: "Prompt events are normalized into stable run timeline entries."
+      },
+      {
+        id: "prompt-optimization",
+        label: "Prompt optimization",
+        status: promptOptimizations.length > 0 ? "complete" : "pending",
+        summary: "Vague prompts can be converted into compact deterministic task contracts."
+      },
+      {
+        id: "run-state",
+        label: "Run state",
+        status: hasToolOrValidation ? "complete" : "pending",
+        summary: "Tool calls, edits, validation, usage, and repeated command signals update run state."
+      }
+    ],
+    events,
+    decisions,
+    promptOptimizations,
+    state: snapshot?.state
+  };
+}
+
+function normalizeProviderHook(provider: HookProvider, payload: UnknownRecord): NormalizedAgentEvent {
+  if (provider === "codex") {
+    return normalizeCodexHook(payload);
+  }
+
+  if (provider === "claude") {
+    return normalizeClaudeHook(payload);
+  }
+
+  return normalizeGenericHook(payload);
 }
 
 function createAllowDecision(runId: string, eventId: string): Decision {
@@ -294,7 +412,8 @@ function maybeOptimizePrompt(
   run: StoredRun,
   event: NormalizedAgentEvent,
   body: UnknownRecord,
-  now: string
+  now: string,
+  runState: RunState
 ): PromptOptimizationResult | undefined {
   if (event.eventType !== "prompt") {
     return undefined;
@@ -305,7 +424,6 @@ function maybeOptimizePrompt(
     return undefined;
   }
 
-  const runState = createPromptRunState(run, event, now);
   const policy = storage.getPolicyForRepo(run.repoRoot)?.policy ?? createDefaultPolicy();
   const optimizer = new PromptOptimizer({
     now: () => now
@@ -347,9 +465,10 @@ function maybeOptimizePrompt(
     createdAt: now,
     state: {
       ...runState,
-      promptOptimizationCount: 1,
+      promptOptimizationCount: (runState.promptOptimizationCount ?? 0) + 1,
       interventions: {
-        inject_context: 1
+        ...runState.interventions,
+        inject_context: (runState.interventions?.inject_context ?? 0) + 1
       }
     }
   });
@@ -380,53 +499,6 @@ function createPromptOptimizationDecision(
       estimatedTokenDelta: optimization.estimatedTokenDelta,
       deterministicOrModel: optimization.deterministicOrModel
     }
-  };
-}
-
-function createPromptRunState(run: StoredRun, event: NormalizedAgentEvent, now: string): RunState {
-  return {
-    runId: run.id,
-    status: run.status,
-    startedAt: run.startedAt,
-    updatedAt: now,
-    agent: event.agent,
-    repoRoot: run.repoRoot,
-    branch: run.branch,
-    taskSummary: run.taskSummary,
-    eventCounts: {
-      prompt: 1
-    },
-    recentCommands: [],
-    commandFrequency: {},
-    editedFiles: [],
-    changedFileCount: 0,
-    estimatedChangedLines: 0,
-    validationSinceLastEdit: false,
-    pendingApprovals: [],
-    interventions: {},
-    tokenUsage: {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0
-    },
-    costEstimate: {
-      amountUsd: 0,
-      source: "estimated"
-    },
-    filesChanged: [],
-    filesRead: [],
-    filesInspected: [],
-    commandSignatures: [],
-    recentCommandSignatures: [],
-    repeatedCommandCounts: {},
-    latestErrors: [],
-    validationCommandCount: 0,
-    toolCallCount: 0,
-    riskEvents: [],
-    injectedLessons: [],
-    promptOptimizationCount: 0,
-    continuationPromptCount: 0,
-    compactionPromptCount: 0
   };
 }
 
@@ -469,35 +541,6 @@ function ensureRun(storage: Storage, runId: string, provider: StoredRun["provide
   };
   storage.createRun(run);
   return run;
-}
-
-function normalizeHookEventType(body: UnknownRecord): NormalizedAgentEvent["eventType"] {
-  const providerEventType = stringValue(body.providerEventType) ?? stringValue(body.eventType) ?? stringValue(body.hook_event_name);
-
-  switch (providerEventType) {
-    case "UserPromptSubmit":
-      return "prompt";
-    case "PreToolUse":
-      return "tool_call";
-    case "PostToolUse":
-      return "tool_result";
-    case "Stop":
-      return "final_attempt";
-    case "PreCompact":
-    case "PostCompact":
-      return "compaction";
-    default:
-      return stringValue(body.prompt) || stringValue(body.userPrompt) ? "prompt" : "tool_call";
-  }
-}
-
-function inferActor(body: UnknownRecord): NormalizedAgentEvent["actor"] {
-  const actor = stringValue(body.actor);
-  if (actor === "agent" || actor === "user" || actor === "tool" || actor === "system") {
-    return actor;
-  }
-
-  return stringValue(body.prompt) || stringValue(body.userPrompt) ? "user" : "agent";
 }
 
 function summarizePayload(body: UnknownRecord): string {

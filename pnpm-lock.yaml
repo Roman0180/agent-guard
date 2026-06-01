@@ -20,6 +20,9 @@ importers:
 
   apps/daemon:
     dependencies:
+      '@agent-sidecar/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@agent-sidecar/prompt-optimizer':
         specifier: workspace:^
         version: link:../../packages/prompt-optimizer

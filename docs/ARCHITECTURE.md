@@ -46,10 +46,10 @@ The sidecar acts between agent steps. It should not rewrite the agent’s full m
 2. **Step ingest**: every hook payload is captured as raw JSON, assigned a stable event id, and associated with a run id.
 3. **Normalization**: provider-specific payloads are converted into normalized step records: command, file read, edit, validation, tool call, model usage, finalization attempt, or error.
 4. **Run-state update**: the daemon updates counters for edited paths, validation freshness, repeated tools, recent files, cost, tokens, monitor history, and difficulty state.
-5. **Trajectory assessment**: deterministic monitors evaluate loops, repeated reads, stale evidence, skipped validation, drift, risky tools, and cost pressure.
-6. **Memory retrieval**: semantic file memory and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
-7. **Prompt optimization**: the sidecar may produce a compact task contract, continuation prompt, validation reminder, or context injection.
-8. **Decision evaluation**: runtime monitors and confidence gates classify the step. Ambiguous cases may use an ensemble of cheaper steering models if configured. The final action is one of allow, warn, block, require continuation, inject context, or require validation.
+5. **Memory gate**: semantic file memory and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
+6. **Prompt optimization**: the sidecar may produce a compact task contract, continuation prompt, validation reminder, compaction output, or short context injection.
+7. **Trajectory assessment**: deterministic monitors and tool-cost guardrails evaluate loops, repeated reads, stale evidence, skipped validation, drift, risky tools, and cost pressure.
+8. **Decision evaluation**: prompt outputs, monitor results, confidence gates, and optional cheaper steering models are composed into one action: allow, warn, block, require continuation, inject context, or require validation.
 9. **Persistence**: the daemon stores raw event, normalized event, monitors fired, decision, cost rollup, prompt optimization output, and outcome labels.
 10. **Response**: the hook command returns a decision object to the agent runtime before the agent continues.
 
