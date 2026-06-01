@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isApprovedLesson, type LessonSummary } from "./index.js";
 
-describe("@agentguard/lessons", () => {
+describe("@agent-sidecar/lessons", () => {
   it("identifies approved lessons", () => {
     const lesson: LessonSummary = {
       id: "lesson_1",

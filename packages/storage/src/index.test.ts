@@ -52,7 +52,7 @@ const taskContract: TaskContract = {
 let tempDirs: string[] = [];
 
 async function createTempDatabasePath(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "agentguard-storage-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-sidecar-storage-"));
   tempDirs.push(dir);
   return join(dir, "test.sqlite");
 }
@@ -62,11 +62,11 @@ afterEach(async () => {
   tempDirs = [];
 });
 
-describe("@agentguard/storage", () => {
+describe("@agent-sidecar/storage", () => {
   it("creates a SQLite-ready storage config", () => {
-    expect(DEFAULT_DATABASE_FILENAME).toBe("agentguard.sqlite");
-    expect(createStorageConfig("/tmp/agentguard.sqlite")).toEqual({
-      databasePath: "/tmp/agentguard.sqlite"
+    expect(DEFAULT_DATABASE_FILENAME).toBe("agent-sidecar.sqlite");
+    expect(createStorageConfig("/tmp/agent-sidecar.sqlite")).toEqual({
+      databasePath: "/tmp/agent-sidecar.sqlite"
     });
   });
 

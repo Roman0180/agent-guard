@@ -1,5 +1,5 @@
 {
-  "name": "@agentguard/core",
+  "name": "@agent-sidecar/core",
   "version": "0.1.0",
   "private": true,
   "type": "module",

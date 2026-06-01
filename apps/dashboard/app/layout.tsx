@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-import "./styles.css";
+import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AgentGuard Dashboard",
-  description: "Local AgentGuard control plane"
+  title: "Agent Sidecar",
+  description: "Make AI coding agents observable, correctable, and cheaper to run"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

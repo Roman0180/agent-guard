@@ -1,48 +1,129 @@
-# AgentGuard Architecture
+# Agent Sidecar Architecture
 
-AgentGuard is designed as a local sidecar for coding agents. Codex, Claude Code, or another agent emits hook events to the `agentguard` CLI. The CLI forwards those events to a local daemon. The daemon normalizes events, updates run state, retrieves approved reliability patterns, applies prompt optimization, applies deterministic hard rules, optionally calls a small steering model, stores traces locally, and returns a runtime decision.
+      +--> repo map cache
 
-```text
-Coding agent hook
+Dashboard --> daemon API --> trace, lesson, repo map, configuration, and analytics data
+6. **Memory retrieval**: repo map cache entries and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
+The agent should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: fired monitors, guardrail reason, confidence gates, cost impact, and related trace evidence.
+- `repo_map_entries`: path, summary, ownership hints, validation notes, content hash when available.
+agent-sidecar hook adapter
       |
       v
-agentguard CLI adapter
+Terminal sidecar daemon
       |
-      v
-Local Fastify daemon
-      |
-      +--> normalization
-      +--> run state
+      +--> event normalization
+      +--> run-state update
+      +--> trajectory monitors
       +--> semantic file memory
-      +--> approved pattern retrieval
+      +--> approved lesson retrieval
       +--> prompt optimization
-      +--> hard rules
+      +--> deterministic hard rules
       +--> optional steering model
-      +--> SQLite storage
+      +--> cost and token accounting
+      +--> SQLite trace storage
       |
       v
 Decision response
 
-Dashboard --> daemon API --> local trace and analytics data
+Dashboard --> daemon API --> trace, lesson, policy, and analytics data
 ```
 
-The dashboard is the control plane and replay UI. It should not own runtime decisions or access storage directly. The daemon owns ingestion, state, policy evaluation, persistence, and API access.
+## Installation And Runtime Shape
 
-The MVP intentionally keeps model usage optional and scarce. Deterministic rules should handle obvious decisions before any steering model is considered.
+The product should install and run from the user’s terminal:
+
+```bash
+python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+```
+
+The `agent-sidecar` Python package should expose a stable CLI. Internally it can start packaged services, open the dashboard, manage configuration, and install hook snippets. The important boundary is that the agent runtime calls the sidecar hook command and receives a structured decision response. If the daemon is unavailable, the hook command follows the configured availability policy: fail open by default, fail closed when explicitly configured.
+
+## Runtime Lifecycle
+
+The sidecar acts between agent steps. It should not rewrite the agent’s full message history, and it should not accumulate unbounded guidance. Each decision is derived from the current event, durable run state, approved memory, and configured policy.
+
+1. **Run start**: the first hook event creates a run record with provider, model, repository, task metadata, pricing profile, and configuration snapshot.
+2. **Step ingest**: every hook payload is captured as raw JSON, assigned a stable event id, and associated with a run id.
+3. **Normalization**: provider-specific payloads are converted into normalized step records: command, file read, edit, validation, tool call, model usage, finalization attempt, or error.
+4. **Run-state update**: the daemon updates counters for edited paths, validation freshness, repeated tools, recent files, cost, tokens, monitor history, and difficulty state.
+5. **Trajectory assessment**: deterministic monitors evaluate loops, repeated reads, stale evidence, skipped validation, drift, risky tools, and cost pressure.
+6. **Memory retrieval**: semantic file memory and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
+7. **Prompt optimization**: the sidecar may produce a compact task contract, continuation prompt, validation reminder, or context injection.
+8. **Decision evaluation**: hard rules run first. Ambiguous cases may use a small steering model if configured. The final action is one of allow, warn, block, require continuation, inject context, or require validation.
+9. **Persistence**: the daemon stores raw event, normalized event, monitors fired, decision, cost rollup, prompt optimization output, and outcome labels.
+10. **Response**: the hook command returns a decision object to the agent runtime before the agent continues.
+
+## Decision Contract
+
+Decision responses should be explicit and small:
+
+```json
+{
+  "action": "require_validation",
+  "reasonCode": "validation_after_edit.require",
+  "message": "Code changed after the last accepted validation.",
+  "continuationPrompt": "Run the targeted validation before finalizing.",
+  "context": [],
+  "severity": "medium"
+}
+```
+
+The agent should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: fired monitors, policy rule, confidence gates, cost impact, and related trace evidence.
+
+## State And Storage
+
+SQLite is the MVP storage layer. The daemon owns all reads and writes. The dashboard accesses data through daemon APIs so state transitions stay centralized.
+
+Minimum durable entities:
+
+- `runs`: provider, model, repo, task, status, outcome, cost, tokens, start/end timestamps.
+- `raw_events`: original hook payloads, source provider, received timestamp.
+- `normalized_events`: stable event type, paths, command, validation signal, usage metadata.
+- `decisions`: action, reason code, rule/model source, severity, message, injected context.
+- `monitor_results`: monitor id, score, fired flag, supporting evidence, cooldown state.
+- `lessons`: situation, dead ends to avoid, unlock, scope, confidence, approval state.
+- `file_memory`: path, summary, ownership hints, validation notes, content hash when available.
+- `cost_rollups`: per-step and per-run token/cost totals with pricing version.
+- `baseline_links`: matched baseline run ids or controlled evaluation arm ids.
+
+## Cost Accounting
+
+Cost calculations must be auditable. A step cost is computed from usage metadata and a pricing profile:
+
+```text
+step_cost =
+  input_tokens * input_price_per_token
+  + output_tokens * output_price_per_token
+  + cache_write_tokens * cache_write_price_per_token
+  + cache_read_tokens * cache_read_price_per_token
+```
+
+Run cost is the sum of step costs. Total cost saved is calculated against a comparable baseline:
+
+```text
+savings_for_run = baseline_run_cost - guarded_run_cost
+total_cost_saved = sum(savings_for_run for matched runs)
+```
+
+If the baseline comes from a randomized control arm, the dashboard may label the result as controlled. If the baseline comes from historical or heuristic matching, the dashboard must label it as estimated or correlated. Negative deltas should remain visible so regressions are not hidden.
 
 ## Reliability Capabilities
 
-AgentGuard should cover these minimum runtime reliability capabilities:
+Agent Sidecar should cover these minimum runtime reliability capabilities:
 
-- Reasoning reuse: retrieve approved local patterns from prior successful runs and inject only high-confidence matches.
+- Scoped lesson recall: retrieve reviewed local patterns from prior successful runs only when repo, task shape, failure signal, and confidence gates match.
 - Dead-end avoidance: store operational lessons in a structured format that captures the situation, dead ends to avoid, and the unlock that worked.
-- Semantic file memory: remember compact per-file summaries, ownership hints, and validation notes so agents do not repeatedly re-read unchanged files.
-- Loop detection: detect repeated commands, repeated file reads, semantic retries, and stale evidence loops.
-- Tool supervision: identify redundant fetches, repeated searches, repeated reads, and risky tool calls before they compound cost or damage.
-- Context compression: preserve durable state, open constraints, validation requirements, and approved lessons while dropping noisy or stale context.
+- Hash-aware file memory: reuse compact file summaries, ownership hints, and validation notes when file hashes show the context is still current.
+- Runtime loop monitors: detect repeated commands, repeated file reads, semantic retries, stale evidence, and low-progress high-cost runs.
+- Tool policy supervision: identify redundant fetches, repeated searches, broad edits, protected paths, and risky commands before they compound cost or damage.
+- Task-context compression: preserve durable state, active constraints, validation requirements, and approved lessons while dropping noisy or stale context.
+- Steering direction: ask a configured steering model only after deterministic rules are inconclusive, using compact structured state and a stored fallback action.
 - Reasoning-aware pruning: remove low-value context based on task state, validation evidence, and dead-end history rather than token count alone.
 - Confidence-gated injection: inject patterns only when structured triggers and similarity scores clear configurable thresholds.
-- Difficulty-state tracking: maintain a lightweight state such as `fast`, `normal`, `slow`, or `skip` to guide whether AgentGuard should inject context, ask steering, require validation, or stay quiet.
-- Cost-per-success evaluation: compare runs with and without interventions and label results as correlation unless an explicit controlled evaluation exists.
+- Difficulty-state tracking: maintain a lightweight state such as `fast`, `normal`, `slow`, or `skip` to guide whether the sidecar should inject context, ask steering, require validation, or stay quiet.
+- Cost-per-success evaluation: compare guarded and unguarded runs and label results as controlled, estimated, or correlated depending on the evaluation design.
 
-These capabilities are implemented locally by default. Shared or cloud pattern libraries are a future opt-in feature and must use scrubbed, approved, operational lessons rather than raw traces.
+These capabilities are terminal-run and local by default. Shared or cloud pattern libraries are a future opt-in feature and must use scrubbed, approved, operational lessons rather than raw traces.

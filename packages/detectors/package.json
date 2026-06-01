@@ -1,5 +1,5 @@
 {
-  "name": "@agentguard/detectors",
+  "name": "@agent-sidecar/detectors",
   "version": "0.1.0",
   "private": true,
   "type": "module",

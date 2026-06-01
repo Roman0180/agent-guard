@@ -1,8 +1,8 @@
-# AgentGuard
+# Agent Sidecar
 
-AgentGuard is a local-first runtime reliability sidecar for AI coding agents such as Codex and Claude Code.
+Agent Sidecar is a local-first runtime reliability sidecar for AI coding agents such as Codex and Claude Code.
 
-The intended system runs beside an existing coding agent, receives hook events, stores local traces, applies deterministic runtime policies, optionally consults a compact steering model for ambiguous cases, and exposes a local dashboard for replay, lessons, and analytics.
+- `packages/policies`: Future runtime configuration and tool-cost guardrail settings.
 
 This repository currently contains the initial TypeScript monorepo skeleton only.
 
@@ -12,7 +12,7 @@ This repository currently contains the initial TypeScript monorepo skeleton only
 - `apps/dashboard`: Next.js dashboard.
 - `packages/core`: Shared types and protocol primitives.
 - `packages/storage`: SQLite-ready storage package placeholder.
-- `packages/cli`: Future `agentguard` CLI package.
+- `packages/cli`: Future `agent-sidecar` CLI package.
 - `packages/detectors`: Future loop, command, validation, and edit detectors.
 - `packages/policies`: Future deterministic policy engine.
 - `packages/steering`: Future small steering model interface.

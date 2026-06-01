@@ -149,7 +149,7 @@ export type SqliteStorageConfig = {
   storeRawPrompts?: boolean;
 };
 
-export const DEFAULT_DATABASE_FILENAME = "agentguard.sqlite";
+export const DEFAULT_DATABASE_FILENAME = "agent-sidecar.sqlite";
 
 export function createStorageConfig(databasePath: string): SqliteStorageConfig {
   return { databasePath };

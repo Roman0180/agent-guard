@@ -1,44 +1,101 @@
-# AgentGuard Implementation Plan
+# Agent Sidecar Implementation Plan
 
 ## 1. Product Summary
 
-AgentGuard is a local-first runtime reliability layer for AI coding agents such as Codex and Claude Code. It runs as a sidecar beside existing agents instead of replacing them. AgentGuard receives hook events from agent runtimes, normalizes and stores those events locally, retrieves approved reliability patterns, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
+Agent Sidecar is a terminal-run runtime reliability layer for AI coding agents such as Codex and Claude Code. Users install it with `pip`, start the sidecar daemon from their terminal, and configure agent hooks to call the sidecar command. The sidecar receives hook events from agent runtimes, normalizes and stores those events, retrieves approved reliability patterns, evaluates runtime monitors and tool-cost guardrail checks, optionally asks an ensemble of cheaper steering models for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
 
-AgentGuard also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before hard rules and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving deterministic runtime enforcement.
+Agent Sidecar should make agent runs observable, correctable, cheaper to operate, and measurable. Each run should stream structured telemetry into the sidecar dashboard: hook events, normalized steps, monitor hits, difficulty state, decision reason codes, token and cost signals, validation evidence, and final outcome. The product should not only intervene; it should make the impact of each intervention auditable.
 
-AgentGuard's reuse layer is inspired by the observation that coding agents often waste cost by re-exploring the same dead ends. AgentGuard should capture approved local lessons in a structured operational format: the situation encountered, the dead ends to avoid, and the unlock that worked. Injection must be confidence-gated, short, and explainable.
+Agent Sidecar also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before monitor evaluation and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving runtime monitoring and steering controls.
 
-The dashboard is the control plane and replay UI, but the core product is the runtime decision pipeline. The MVP should prove that AgentGuard can observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task.
+6. `memory_gate`: retrieve repo map cache entries and approved lessons only when scope, confidence, and cooldown gates pass.
 
-Primary user workflow:
 
-1. Install the `agentguard` CLI.
-2. Start the local daemon.
-3. Configure Codex or Claude Code hooks to call AgentGuard.
+### Business Framing
+
+The landing page should keep the business message simple: AI coding agents are useful, but unmanaged agent runs can become expensive when loops, stale context, repeated reads, and skipped validation compound across teams. The public website cites Fortune coverage of enterprise AI coding-tool budget pressure, then positions Agent Sidecar as the Codex and Claude Code runtime layer that reduces repeated loops, stale context, and wasted tokens so builders spend less per successful task.
+
+The implementation must support that claim with auditable product data rather than marketing-only assertions: per-step token and cost rollups, matched guarded-versus-unguarded baselines, total cost saved, and clear labels for controlled, estimated, or correlated comparisons.
+
+- Runtime monitor and tool-cost guardrail engine for low-cost decisions.
+- Repo map cache with compact per-file summaries, validation notes, and last-observed hashes.
+Initial monitor and tool-cost guardrail actions:
+
+4. **Tool-cost guardrails**: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first tool-cost guardrail checks should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.
+
+1. Install the package with `python -m pip install agent-sidecar`.
+2. Start the sidecar from the user’s terminal with `agent-sidecar daemon start`.
+3. Configure Codex or Claude Code hooks to call Agent Sidecar.
 4. Run the coding agent normally.
-5. Review traces, decisions, policies, lessons, and analytics in the local dashboard.
+5. Review traces, decisions, policies, lessons, and analytics in the sidecar dashboard.
+
+Install path:
+
+```bash
+python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+```
+
+### Runtime Lifecycle
+
+The runtime pipeline runs between agent steps. It should keep the agent’s working history clean and return only the decision or short injected guidance required for the next step.
+
+1. `run_start`: create a run record with provider, model, repo, task, pricing profile, and config snapshot.
+2. `event_received`: persist the raw hook payload and attach provider metadata.
+3. `normalize`: convert provider-specific payloads into stable command, read, edit, validation, tool, usage, finalization, and error events.
+4. `state_update`: update run state, edited paths, validation freshness, repeated-tool counters, token/cost totals, and difficulty state.
+5. `trajectory_assessment`: run deterministic monitors for loops, skipped validation, drift, stale evidence, risky tools, and cost pressure.
+6. `memory_gate`: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.
+7. `prompt_optimization`: create a task contract, continuation prompt, validation prompt, compaction output, or short injected context when useful.
+8. `policy_decision`: evaluate hard rules first; optionally call a steering model only for configured ambiguous cases.
+9. `record`: store monitor results, decision source, cost rollup, injected context, and outcome labels.
+10. `respond`: return a provider-compatible action before the agent continues.
+
+### Cost Calculation
+
+Every cost number shown in the dashboard must be explainable from recorded usage and pricing data.
+
+```text
+step_cost =
+  input_tokens * input_price_per_token
+  + output_tokens * output_price_per_token
+  + cache_write_tokens * cache_write_price_per_token
+  + cache_read_tokens * cache_read_price_per_token
+
+run_cost = sum(step_cost for each step)
+savings_for_run = baseline_run_cost - guarded_run_cost
+total_cost_saved = sum(savings_for_run for matched runs)
+```
+
+Controlled A/B arms can be labeled as controlled evidence. Historical matching, synthetic replay, or heuristic baselines must be labeled as estimated or correlated. Negative savings should remain visible so regressions are not hidden behind positive totals.
 
 ## 2. MVP Scope
 
 The MVP should include:
 
-- TypeScript monorepo with shared packages and app workspaces.
-- Local Fastify daemon that exposes hook ingestion and dashboard APIs.
-- `agentguard` CLI for starting the daemon, installing hook snippets, sending hook events, and checking status.
+- Pip-installable `agent-sidecar` package that exposes the terminal CLI.
+- Packaged daemon that exposes hook ingestion and dashboard APIs after `agent-sidecar daemon start`.
+- Hook installer commands for Codex, Claude Code, and generic JSON hooks.
+- Internal TypeScript or Python services may be used behind the CLI, but the user-facing install path should be `pip`.
 - SQLite-backed local storage.
 - Shared event schemas for raw events, normalized events, decisions, run state, policies, lessons, and analytics.
 - Hook adapters for Codex and Claude Code, starting with a generic JSON hook protocol and thin provider-specific normalization.
 - Deterministic hard rule engine for low-cost decisions.
+- Runtime trajectory monitors for semantic loops, repeated tools, skipped verification, topic drift, stale evidence, hedging/backtracking, and context bloat.
+- Lightweight difficulty state machine for classifying run health and deciding whether to stay quiet, steer, validate, or stop waste.
 - Prompt optimization layer for task contracts, continuation prompts, compaction prompts, and approved lesson injection.
 - Confidence-gated reasoning reuse with approved local patterns that capture situation, dead ends, and unlock.
 - Semantic file memory with compact per-file summaries, validation notes, and last-observed hashes.
 - Tool supervision for redundant fetches, repeated reads, repeated searches, and risky tool calls.
 - Reasoning-aware context pruning that preserves constraints, validation evidence, and dead-end history.
-- Lightweight difficulty-state tracking to decide whether to inject context, ask steering, require validation, or stay quiet.
 - Optional small steering model interface for ambiguous decisions, disabled by default or configured explicitly.
 - Local dashboard with runs, trace replay, policies, lessons, analytics, and feedback pages.
+- Per-step observability in the dashboard: run health, fired monitors, decisions, tokens, cost estimates, validation evidence, and final outcome.
+- Baseline comparison or A/B evaluation scaffolding so guarded and unguarded runs can be compared later.
 - Lesson memory with candidate, approved, disabled, and expired states.
-- Basic cost and token accounting using event metadata when available and estimation when unavailable.
+- Basic cost and token accounting using event metadata, provider pricing profiles, baseline links, and explicit controlled/correlated labels.
 - Fail-open daemon unavailable behavior by default, with fail-closed configuration.
 
 Initial hard rules:
@@ -61,6 +118,24 @@ Initial steering model use cases:
 - Broad edit classification.
 - Approved lesson selection.
 - Failure category classification.
+
+Initial runtime monitor categories:
+
+- Semantic loop monitor: detects repeated attempts with no new evidence.
+- Verification monitor: detects finalization attempts after edits without accepted validation.
+- Drift monitor: detects movement away from the original task contract.
+- Tool repetition monitor: detects repeated reads, searches, fetches, and commands.
+- Stale evidence monitor: detects conclusions based on superseded files or old command output.
+- Cost pressure monitor: detects long runs with low progress and high token accumulation.
+
+Initial capability modules:
+
+1. **Scoped lesson recall**: convert reviewed successful traces into local lessons that can be matched by repo, task shape, failure signal, confidence, provenance, and cooldown. A lesson may be injected only when the matching gate explains why the current run is close enough to the saved situation.
+2. **Hash-aware file memory**: maintain compact per-file summaries, ownership hints, exported symbols, validation notes, and last-observed hashes. The sidecar should prefer these summaries when files are unchanged, and should explain why a file-memory hint was safe to reuse.
+3. **Runtime loop monitors**: detect exact command repetition, repeated file reads, stale searches, semantic retries, old evidence, and low-progress high-cost runs. Monitors should return supporting evidence, cooldown state, and a narrow recovery suggestion.
+4. **Tool policy supervision**: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first hard-rule set should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.
+5. **Task-context compression**: preserve the durable task contract, active constraints, validation evidence, accepted lessons, and unresolved risks while pruning stale tool output and low-value turns. Compression should record what was kept, what was dropped, and estimated token delta.
+6. **Steering direction**: keep deterministic rules as the default path. When hard rules cannot classify the situation and steering is enabled, send a compact state summary to the configured steering model and request a narrow next-step recommendation. Store the steering reason code, confidence, model id, prompt version, and fallback action. Steering must remain off or local/configured by default and must not receive raw traces unless the user explicitly enables that mode.
 
 ## 3. Non-Goals
 
@@ -88,10 +163,10 @@ The MVP should not attempt to:
           │ hook event JSON
           ▼
 ┌────────────────────┐
-│ agentguard CLI     │
+│ agent-sidecar CLI  │
 │ hook adapter       │
 └─────────┬──────────┘
-          │ HTTP localhost
+          │ daemon request
           ▼
 ┌──────────────────────────────────────────────────────┐
 │ apps/daemon                                           │
@@ -110,8 +185,8 @@ The MVP should not attempt to:
 │         │          └──────┬───────┘                  │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
-│         │          │ semantic     │                  │
-│         │          │ file memory  │                  │
+│         │          │ repo map     │                  │
+│         │          │ cache        │                  │
 │         │          └──────┬───────┘                  │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
@@ -120,17 +195,17 @@ The MVP should not attempt to:
 │         │          └──────┬───────┘                  │
 │         │                 ▼                          │
 │         │          ┌──────────────┐                  │
-│         │          │ hard rules   │                  │
-│         │          └──────┬───────┘                  │
-│         │                 │ unresolved ambiguous case │
-│         │                 ▼                          │
-│         │          ┌──────────────┐                  │
-│         │          │ steering     │                  │
-│         │          │ model        │                  │
-│         │          └──────┬───────┘                  │
-│         │                 ▼                          │
-│         │          ┌──────────────┐                  │
-│         └─────────▶│ decision log │                  │
+Retrieve repo map cache
+7. Retrieve compact repo map cache for touched or relevant files.
+9. Run deterministic tool-cost guardrails and context-pruning checks.
+10. Evaluate runtime monitors and tool-cost guardrail signals.
+14. Store the event, prompt optimization result, decision, state snapshot, repo-map update, and analytics features.
+15. Show events, prompt optimizations, decisions, state, lessons, repo map cache, and analytics in the dashboard.
+        tool-cost-guardrails.ts
+    repo-map/
+    tool-cost-guardrails/
+- `packages/repo-map`: compact per-file semantic summaries, matching, invalidation by content hash, and repo-map repository helpers.
+- `packages/tool-cost-guardrails`: redundant tool-call detection, repeated read/search tracking, context-pruning signals, and tool-cost avoidance metrics.
 │                    └──────┬───────┘                  │
 └───────────────────────────┼──────────────────────────┘
                             │ decision JSON
@@ -435,10 +510,10 @@ Lesson fields must remain operational and compact:
 
 This structure is intentionally not raw chain-of-thought. It captures reusable operational guidance, not hidden reasoning traces.
 
-### Semantic File Memory
+### Repo Map Cache
 
 ```ts
-type FileMemory = {
+type RepoMapEntry = {
   id: string;
   repoRoot: string;
   path: string;
@@ -454,7 +529,7 @@ type FileMemory = {
 };
 ```
 
-Semantic file memory should help the agent avoid repeatedly reading unchanged files. It stores compact, local, per-file operational summaries and must not store full file contents by default.
+Repo map cache should help the agent avoid repeatedly reading unchanged files. It stores compact, local, per-file operational summaries and must not store full file contents by default.
 
 ### Pattern Match
 
@@ -464,8 +539,8 @@ type PatternMatch = {
   runId: string;
   eventId: string;
   lessonId?: string;
-  fileMemoryId?: string;
-  matchKind: "lesson" | "file_memory" | "dead_end" | "tool_pattern";
+  repoMapEntryId?: string;
+  matchKind: "lesson" | "repo_map_entry" | "dead_end" | "tool_pattern";
   confidence: number;
   triggerSummary: string;
   shouldInject: boolean;
@@ -475,7 +550,7 @@ type PatternMatch = {
 };
 ```
 
-Pattern injection must be confidence-gated. The runtime should store matches even when `shouldInject` is false so the dashboard can explain why AgentGuard stayed quiet.
+Pattern injection must be confidence-gated. The runtime should store matches even when `shouldInject` is false so the dashboard can explain why Agent Sidecar stayed quiet.
 
 ### Difficulty State
 
@@ -489,7 +564,7 @@ type DifficultyState = {
 };
 ```
 
-Difficulty state is a compact runtime signal, not an orchestration system. It helps AgentGuard decide whether to inject context, ask steering, require validation, or suppress low-confidence interventions.
+Difficulty state is a compact runtime signal, not an orchestration system. It helps Agent Sidecar decide whether to inject context, ask steering, require validation, or suppress low-confidence interventions.
 
 ### Prompt Optimization
 
@@ -509,7 +584,7 @@ type TaskContract = {
   validation_requirements: string[];
   relevant_lessons: string[];
   dead_ends_to_avoid: string[];
-  file_memory: string[];
+  repo_map_hints: string[];
   risk_notes: string[];
 };
 
@@ -537,7 +612,7 @@ type PromptOptimizationResult = {
   validationRequirements: string[];
   relevantLessons: Lesson[];
   patternMatches: PatternMatch[];
-  fileMemory: FileMemory[];
+  repoMapEntries: RepoMapEntry[];
   riskNotes: string[];
   estimatedTokenDelta: number;
   rewriteReason: string;
@@ -554,31 +629,33 @@ Example optimization:
 
 ```text
 Original prompt:
-Fix the logger issue in Queue Service 2.
+Fix the logger issue in the worker service.
 
 Optimized prompt:
-Task: Fix the Queue Service 2 logger issue.
-Scope: Inspect current logging setup, dependency injection registration, configuration, and tests before editing.
+Task: Fix the worker service logger issue.
+Scope: Inspect current logging setup, service registration, configuration, and tests before editing.
 Constraints: Keep changes minimal. Do not refactor unrelated services.
-Validation: Run targeted Queue Service 2 build/tests after edits.
-Relevant lesson: For C# DI/logging failures, inspect service registration before constructor or test changes.
+Validation: Run targeted worker service build/tests after edits.
+Relevant lesson: For service logger failures, inspect registration and config binding before changing tests.
 ```
 
 ## 7. Hook Integration Strategy
 
-The CLI should expose a stable local hook command:
+The pip-installed CLI should expose stable terminal commands:
 
 ```bash
-agentguard hook --provider codex
-agentguard hook --provider claude-code
-agentguard hook --provider generic
+python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+agent-sidecar hook --provider generic
 ```
 
 The hook command should:
 
 1. Read JSON from stdin.
 2. Add provider and local metadata.
-3. POST to the local daemon.
+3. Send the event to the running sidecar daemon.
 4. Print a provider-compatible response.
 5. Fail open if the daemon is unavailable and policy is fail-open.
 6. Fail closed if explicitly configured.
@@ -589,7 +666,7 @@ Codex integration should start with documented hook event shapes available in th
 
 ## 8. Event Normalization Strategy
 
-Normalization converts provider-specific events into stable AgentGuard events.
+Normalization converts provider-specific events into stable Agent Sidecar events.
 
 Normalization goals:
 
@@ -644,27 +721,27 @@ type RunState = {
 
 The run state should be recomputable from normalized events. Persist snapshots for performance and trace replay, but treat event history as the source of truth.
 
-State update rules:
+The prompt optimization layer runs after run state and lesson retrieval, but before monitor evaluation and optional ensemble steering. It improves prompt structure so the coding agent wastes fewer steps and tokens. It must not weaken or bypass runtime monitors, tool-cost guardrails, or validation requirements.
 
-- Tool calls update recent command and command frequency features.
-- File edits reset `validationSinceLastEdit` to `false`.
-- Validation events update `lastValidation` and set `validationSinceLastEdit` based on accepted validation commands.
-- Final attempts check whether validation is required.
-- Decisions update intervention counters and pending approval state.
+- Inject compact repo map cache for relevant unchanged files instead of encouraging repeated reads.
+- `repo_map_hints`
+3. Retrieve high-confidence pattern matches and relevant repo-map summaries.
+4. Apply deterministic templates for task contracts, validation requirements, continuation prompts, compaction prompts, dead-end avoidance, and repo-map insertion.
+- `packages/prompt-optimizer/repo-map.ts`: rendering compact repo-map hints.
 
-## 10. Prompt Optimization Layer Design
+Prompt optimization is an assistive input-shaping layer. Runtime monitors, tool-cost guardrails, and steering decisions still decide whether a run is allowed, warned, blocked, or required to continue.
 
-The prompt optimization layer runs after run state and lesson retrieval, but before hard rules and optional steering. It improves prompt structure so the coding agent wastes fewer steps and tokens. It must not weaken or bypass hard-rule enforcement.
+## 11. Runtime Monitor and Tool-Cost Guardrail Design
 
-Primary purposes:
+The runtime monitor and tool-cost guardrail layer should be fast, explainable, and cheap enough to run between agent steps. It receives a normalized event, current run state, loaded configuration, repository metadata, prompt optimization output, repo map cache, and approved lesson matches. It returns zero or more candidate decisions with confidence, evidence, and expected cost impact.
 
-- Rewrite vague user prompts into compact task contracts.
-- Add repo-specific constraints from policy and run context.
-- Add validation expectations before edits begin.
-- Inject only relevant approved lessons.
-- Inject dead ends to avoid and the unlock that worked when a high-confidence approved pattern matches.
-- Inject compact semantic file memory for relevant unchanged files instead of encouraging repeated reads.
-- Generate continuation prompts when the agent tries to stop too early.
+Monitor checks run after prompt optimization so they can include optimized continuation prompts in their responses. Prompt optimization must never weaken tool-cost guardrails or convert a high-confidence block into an allow decision.
+Initial monitor and tool-cost guardrail checks:
+- `repeated_read.prune`: suggest repo-map or compact summaries when unchanged files are read repeatedly.
+- Guardrail configuration should come from layered loading: defaults, global user config, repo config, then runtime overrides.
+  candidateRepoMapEntries?: RepoMapEntry[];
+  repoMapEntryIds?: string[];
+- For repo map cache, send only file paths, hashes, compact summaries, and relevance features; never send full file contents by default.
 - Generate compaction summaries for `PreCompact` and `PostCompact` events.
 - Reduce downstream token usage by giving Codex or Claude Code a clearer task structure.
 - Prefer deterministic and template-based rewriting first.
@@ -822,7 +899,7 @@ Initial provider strategy:
 
 Lessons are structured memory items that require approval before runtime injection. They should help avoid repeated mistakes without storing raw reasoning.
 
-AgentGuard lessons should use a compact three-part operational format:
+Agent Sidecar lessons should use a compact three-part operational format:
 
 - Situation: when this lesson applies.
 - Dead ends: specific approaches, commands, assumptions, or files that wasted work.
@@ -865,37 +942,37 @@ Storage constraints:
 - Never inject raw trace history.
 - No full logs unless the user explicitly adds them later.
 
-## 13A. Semantic File Memory Design
+## 13A. Repo Map Cache Design
 
-Semantic file memory stores compact local summaries of files the agent has already inspected. Its purpose is to reduce repeated file reads and preserve repository understanding across runs without storing full file contents by default.
+Repo map cache stores compact local summaries of files the agent has already inspected. Its purpose is to reduce repeated file reads and preserve repository understanding across runs without storing full file contents by default.
 
 Lifecycle:
 
 1. File read, search, edit, or validation events identify candidate files.
-2. AgentGuard records path, hash when available, language hints, exported symbols, responsibilities, and validation notes.
-3. If the file changes, the memory is marked stale until refreshed.
-4. Future runs retrieve matching file memory by repo, path, symbols, task terms, and confidence.
-5. Prompt optimizer injects only compact file-memory hints when relevant.
+2. Agent Sidecar records path, hash when available, language hints, exported symbols, responsibilities, and validation notes.
+3. If the file changes, the cache entry is marked stale until refreshed.
+4. Future runs retrieve matching repo map cache entries by repo, path, symbols, task terms, and confidence.
+5. Prompt optimizer injects only compact repo-map hints when relevant.
 
 Constraints:
 
-- Store local file memory only by default.
+- Store local repo map cache entries only by default.
 - Do not store full source file contents by default.
 - Invalidate or down-rank memory when content hash changes.
-- Show file-memory provenance in the dashboard.
+- Show repo-map provenance in the dashboard.
 - Track repeated reads avoided as an analytics metric.
 
-## 13B. Tool Supervision and Context Pruning
+Context pruning should be reasoning-aware. It should preserve active task constraints, validation requirements, failed approaches, repo-map hints, policy decisions, and user-approved lessons while pruning stale logs, duplicate tool output, and already-resolved branches.
 
-Tool supervision detects wasteful or risky tool behavior before it compounds cost.
+- Policies: current effective configuration, repo overrides, protected paths, dangerous command patterns, and tool-cost guardrail fixtures.
 
-Minimum detections:
+- Repo-map hints injected.
 
-- Repeated reads of the same unchanged file.
-- Repeated searches with equivalent queries.
-- Repeated fetches of the same URL or dependency metadata.
-- Repeated failed commands without changed inputs.
-- Tool calls that revisit a known dead end from an approved lesson.
+- Repo-map review and stale-memory inspection.
+- Tool-tool-cost guardrail event list.
+- Runs with repo-map injection vs without.
+- Repeated file-read rate after repo-map injection.
+- Redundant fetch/search rate after tool-cost guardrails.
 
 Context pruning should be reasoning-aware. It should preserve active task constraints, validation requirements, failed approaches, file-memory hints, policy decisions, and user-approved lessons while pruning stale logs, duplicate tool output, and already-resolved branches.
 
@@ -909,7 +986,7 @@ The pruning layer should emit explainable metadata:
 
 ## 14. Dashboard Design
 
-The dashboard should be a local Next.js app served either by its own dev server in development or by the daemon in packaged mode.
+The dashboard should be served by the sidecar in packaged mode and by its own dev server only during development. Customers should not need to clone the repository or start a Node dev server.
 
 Pages:
 
@@ -953,6 +1030,7 @@ MVP UI priorities:
 
 Analytics should include:
 
+- Total cost saved, with the baseline method clearly labeled.
 - Cost per successful task when cost data exists.
 - Estimated tokens per successful task.
 - Success rate.
@@ -977,6 +1055,8 @@ Analytics should include:
 - Repeated tool calls avoided.
 
 Prompt optimization analytics should clearly label correlation as correlation unless an explicit A/B evaluation exists. For example, "runs with prompt optimization had lower repeated tool-call rate" must not be presented as causal unless controlled evaluation is implemented.
+
+Cost analytics should be computed from per-step usage metadata and a versioned price table. When a provider does not return complete usage metadata, the dashboard should mark the affected costs as estimated. The cost report should store `baseline_run_id`, `baseline_method`, `guarded_cost_usd`, `baseline_cost_usd`, `savings_usd`, `token_delta`, and `evidence_label` so every “total cost saved” number can be traced back to individual runs.
 
 ## 15. Storage Schema
 
@@ -1103,7 +1183,7 @@ CREATE TABLE lessons (
   expires_at TEXT
 );
 
-CREATE TABLE file_memory (
+CREATE TABLE repo_map_entries (
   id TEXT PRIMARY KEY,
   repo_root TEXT NOT NULL,
   path TEXT NOT NULL,
@@ -1124,7 +1204,7 @@ CREATE TABLE pattern_matches (
   run_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
   lesson_id TEXT,
-  file_memory_id TEXT,
+  repo_map_entry_id TEXT,
   match_kind TEXT NOT NULL,
   confidence REAL NOT NULL,
   trigger_summary TEXT NOT NULL,
@@ -1135,14 +1215,14 @@ CREATE TABLE pattern_matches (
   FOREIGN KEY (run_id) REFERENCES runs(id),
   FOREIGN KEY (event_id) REFERENCES normalized_events(id),
   FOREIGN KEY (lesson_id) REFERENCES lessons(id),
-  FOREIGN KEY (file_memory_id) REFERENCES file_memory(id)
+  FOREIGN KEY (repo_map_entry_id) REFERENCES repo_map_entries(id)
 );
 
-CREATE TABLE tool_supervision_events (
+CREATE TABLE tool_cost_guardrail_events (
   id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
-  supervision_type TEXT NOT NULL,
+  guardrail_type TEXT NOT NULL,
   signature TEXT NOT NULL,
   action TEXT NOT NULL,
   message TEXT NOT NULL,
@@ -1196,11 +1276,11 @@ Important indexes:
 - `decisions(run_id, created_at)`
 - `decisions(reason_code, created_at)`
 - `lessons(status, updated_at)`
-- `file_memory(repo_root, path)`
-- `file_memory(repo_root, content_hash)`
+- `repo_map_entries(repo_root, path)`
+- `repo_map_entries(repo_root, content_hash)`
 - `pattern_matches(run_id, created_at)`
 - `pattern_matches(match_kind, confidence)`
-- `tool_supervision_events(run_id, created_at)`
+- `tool_cost_guardrail_events(run_id, created_at)`
 - `intervention_feedback(run_id, created_at)`
 
 ## 16. Testing Strategy
@@ -1223,14 +1303,14 @@ Package-level tests:
 - Prompt rewrites stay under configured maximum length.
 - Three-field lesson rendering includes situation, dead ends, and unlock without raw reasoning.
 - Confidence gates suppress low-confidence pattern injection and log the non-injection reason.
-- Semantic file memory retrieval ignores stale hashes and never injects full file contents by default.
-- Tool supervision detects repeated reads, repeated searches, redundant fetches, and repeated failed commands.
-- Context pruning preserves active constraints, validation requirements, and dead ends to avoid.
-- Difficulty-state classification transitions are stable and respect hysteresis.
-- Steering response validation and invalid response handling.
-- Lesson matching and status filtering.
-- Storage migrations and repository methods.
-
+- Repo map cache retrieval ignores stale hashes and never injects full file contents by default.
+- Daemon stores repo-map updates and pattern-match records linked to events.
+- Redundant tool-cost guardrail events are visible through dashboard APIs.
+- Send repeated file-read and repeated-search fixtures and confirm tool-cost guardrail records are created.
+- Keep high-confidence interventions explainable and test-backed.
+- Never send full file contents to steering providers for repo-map matching by default.
+- Apply confidence thresholds and provenance display before injecting lessons or repo-map hints.
+- Mark repo map cache entries stale when hashes change or validation contradicts the summary.
 Integration tests:
 
 - CLI hook command posts to daemon and returns expected allow decision.
@@ -1327,9 +1407,9 @@ Exit criteria:
 
 ### Milestone 3: CLI and Generic Hook Adapter
 
-- Implement `agentguard status`.
-- Implement `agentguard daemon start`.
-- Implement `agentguard hook --provider generic`.
+- Implement `agent-sidecar status`.
+- Implement `agent-sidecar daemon start`.
+- Implement `agent-sidecar hook --provider generic`.
 - Add fail-open and fail-closed behavior.
 
 Exit criteria:
@@ -1356,7 +1436,7 @@ Exit criteria:
 - Implement compaction prompt generation.
 - Implement lesson injection.
 - Implement dead-end-to-avoid rendering.
-- Implement file-memory hint rendering.
+- Implement repo-map hint rendering.
 - Store prompt optimization results.
 - Add unit tests.
 
@@ -1368,31 +1448,56 @@ Exit criteria:
 - High-confidence dead-end patterns render as short avoidance hints.
 - Prompt optimization results are persisted and queryable by event.
 
-### Milestone 6: Hard Rule Engine
+### Milestone 6: Runtime Monitor and Tool-Cost Guardrail Engine
 
 - Implement policy loader.
-- Implement initial deterministic hard rules.
-- Implement redundant fetch, repeated read, and repeated search tool-supervision rules.
-- Implement dead-end redirect rule.
-- Add rule unit tests and fixture coverage.
-- Compose decisions from rule outputs.
+- Implement initial runtime monitors and tool-cost guardrail checks.
+- Implement redundant fetch, repeated read, and repeated search tool-cost guardrail checks.
+- Add basic policies, lessons, repo map cache, tool-cost guardrails, analytics, and feedback pages.
+- A user can inspect a run, see optimized prompts, pattern matches, repo-map hints, tool-cost guardrail events, and why Agent Sidecar intervened, then mark feedback locally.
+### Milestone 9: Repo Map Cache and Tool-Cost Guardrails
 
-Exit criteria:
+- Add `packages/repo-map`.
+- Add repo-map repository and hash-based staleness tracking.
+- Add `packages/tool-cost-guardrails`.
+- Add dashboard APIs for repo map cache, pattern matches, and tool-cost guardrail events.
+- Repeated unchanged file reads can be replaced by compact repo-map hints.
+- Stale repo map cache entries are not injected after content hash changes.
+- Redundant fetch/search fixtures produce explainable tool-cost guardrail events.
+- Add cost-per-success, loop rate, validation block rate, prompt optimization metrics, monitor/ensemble decision counts, accepted/rejected interventions, pattern match metrics, repo-map metrics, tool-cost guardrail metrics, and repeated tool calls avoided.
+- Label pattern and repo-map outcome comparisons as correlation unless an explicit controlled evaluation exists.
 
-- Dangerous command, protected path, repeat command, redundant fetch, repeated read, repeated search, dead-end redirect, validation, and broad-change scenarios produce expected decisions without model calls.
+## 19. Website And Docs Alignment
 
-### Milestone 7: Dashboard MVP
+The current website and docs present the product in this order: business problem, six sidecar controls, demo, how to use, and deeper architecture on the docs page. The implementation plan should remain aligned with that public model.
 
-- Build local dashboard shell.
-- Add runs list.
-- Add trace replay.
-- Add decision detail cards.
-- Add prompt optimization cards.
+Website-facing controls:
+
+1. Runbook memory.
+2. Repo map cache.
+3. Trajectory watchdogs.
+4. Tool-cost guardrails.
+5. Prompt shaping and compaction.
+6. Ensemble steering.
+
+The landing demo should model the same runtime flow the product implements:
+
+1. User installs Agent Sidecar, starts the daemon, and attaches Codex hooks.
+2. User enters a vague Codex prompt that benefits from prompt shaping.
+3. Agent Sidecar converts the prompt into a compact task brief before Codex continues.
+4. The six controls run against the prompt, repo state, monitors, and budget signals.
+5. Codex edits code using the optimized prompt and ensemble steering output.
+6. The dashboard records the decision, validation requirement, guarded run cost, baseline cost, and total cost saved.
+
+The docs page should stay higher level than this plan. It should explain install, how it works, architecture, decisions, and cost math without exposing every internal package or schema detail.
+
+## 20. Risks and Mitigations
+Mitigation: Start with conservative high-confidence interventions, make warnings visible but non-blocking, expose configuration overrides, and track intervention feedback.
 - Add basic policies, lessons, file memory, tool supervision, analytics, and feedback pages.
 
 Exit criteria:
 
-- A user can inspect a run, see optimized prompts, pattern matches, file-memory hints, tool-supervision events, and why AgentGuard intervened, then mark feedback locally.
+- A user can inspect a run, see optimized prompts, pattern matches, file-memory hints, tool-supervision events, and why Agent Sidecar intervened, then mark feedback locally.
 
 ### Milestone 8: Lessons
 
@@ -1458,7 +1563,7 @@ Exit criteria:
 
 Exit criteria:
 
-- A user can install AgentGuard locally, configure at least one agent, run a real task, and review the run in the dashboard.
+- A user can install Agent Sidecar locally, configure at least one agent, run a real task, and review the run in the dashboard.
 
 ## 19. Risks and Mitigations
 
@@ -1536,15 +1641,15 @@ Mitigation: Require situation/dead-end/unlock fields, structured triggers, appro
 
 ### Pattern Over-Injection
 
-Risk: AgentGuard could inject too many patterns and bloat prompts or bias the agent toward the wrong prior solution.
+Risk: Agent Sidecar could inject too many patterns and bloat prompts or bias the agent toward the wrong prior solution.
 
 Mitigation: Inject at most 1-3 lessons, require confidence thresholds, log non-injected matches, show provenance, and track helpful/unhelpful feedback.
 
-### Stale File Memory
+### Stale Repo Map Cache
 
-Risk: File summaries can become inaccurate after source changes.
+Risk: Repo map summaries can become inaccurate after source changes.
 
-Mitigation: Store content hashes when available, mark memory stale on mismatch, down-rank old summaries, and require refresh before injection.
+Mitigation: Store content hashes when available, mark cache entries stale on mismatch, down-rank old summaries, and require refresh before injection.
 
 ### Evaluation Overclaiming
 
