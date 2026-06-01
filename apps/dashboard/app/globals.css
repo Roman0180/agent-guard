@@ -34,6 +34,179 @@ a {
   background: rgb(167 139 250 / 45%);
 }
 
+@keyframes demo-video-glow {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04), 0 24px 80px rgb(34 211 238 / 0.08);
+  }
+
+  50% {
+    box-shadow: inset 0 0 0 1px rgb(34 211 238 / 0.14), 0 24px 90px rgb(34 211 238 / 0.16);
+  }
+}
+
+@keyframes demo-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  15%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes demo-scene {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+
+  10%,
+  88% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.98);
+  }
+}
+
+@keyframes demo-scene-final {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+
+  12%,
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes demo-prompt-type {
+  0%,
+  18% {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  48%,
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes demo-editor-badge {
+  0%,
+  44% {
+    opacity: 0.42;
+  }
+
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes demo-code-change {
+  0%,
+  48% {
+    opacity: 0;
+    transform: translateX(-8px);
+    background: transparent;
+  }
+
+  56%,
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes demo-code-remove {
+  0%,
+  48% {
+    opacity: 1;
+  }
+
+  56%,
+  100% {
+    opacity: 0.55;
+  }
+}
+
+@keyframes demo-video-progress {
+  from {
+    width: 0;
+  }
+
+  to {
+    width: 100%;
+  }
+}
+
+.demo-video-frame {
+  animation: demo-video-glow 40s ease-in-out infinite;
+}
+
+.demo-scene {
+  animation: demo-scene 8s ease-in-out both;
+  animation-delay: var(--delay);
+  opacity: 0;
+}
+
+.demo-scene-final {
+  animation: demo-scene-final 8s ease-in-out both;
+  animation-delay: var(--delay);
+  opacity: 0;
+}
+
+.demo-terminal-line,
+.demo-capability-event,
+.demo-sidecar-event {
+  animation: demo-reveal 600ms ease-out both;
+  animation-delay: var(--delay);
+  opacity: 0;
+}
+
+.demo-prompt-type {
+  animation: demo-prompt-type 6s steps(95, end) both;
+  animation-delay: var(--delay, 8.7s);
+  display: inline-block;
+}
+
+.demo-editor-badge {
+  animation: demo-editor-badge 40s ease-in-out infinite;
+}
+
+.demo-code-add {
+  animation: demo-code-change 40s ease-in-out both;
+}
+
+.demo-code-remove {
+  animation: demo-code-remove 40s ease-in-out both;
+}
+
+.demo-sidecar-decision {
+  animation: demo-reveal 600ms ease-out both;
+  animation-delay: 37s;
+  opacity: 0;
+}
+
+.demo-video-progress {
+  animation: demo-video-progress 40s linear both;
+}
+
+.demo-video-paused,
+.demo-video-paused * {
+  animation-play-state: paused !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -42,5 +215,29 @@ a {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .demo-scene {
+    display: none !important;
+  }
+
+  .demo-scene-final {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .demo-sidecar-event,
+  .demo-capability-event,
+  .demo-sidecar-decision {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .demo-prompt-type {
+    clip-path: inset(0 0 0 0) !important;
+  }
+
+  .demo-video-progress {
+    width: 100% !important;
   }
 }

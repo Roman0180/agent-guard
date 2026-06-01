@@ -1,11 +1,15 @@
-export type SteeringProviderName = "none" | "local-http";
+export type SteeringProviderName = "local-http";
 
 export type SteeringConfig = {
   enabled: boolean;
-  provider: SteeringProviderName;
+  providers: SteeringProviderName[];
+  maxCallsPerRun: number;
+  maxCostUsdPerRun: number;
 };
 
 export const DEFAULT_STEERING_CONFIG: SteeringConfig = {
   enabled: false,
-  provider: "none"
+  providers: [],
+  maxCallsPerRun: 0,
+  maxCostUsdPerRun: 0
 };

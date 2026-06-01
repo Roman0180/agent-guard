@@ -6,24 +6,26 @@ const sections = [
   ["Overview", "#overview"],
   ["Install", "#install"],
   ["How it works", "#how-it-works"],
+  ["Architecture", "#architecture"],
   ["Decisions", "#decisions"],
   ["Cost math", "#cost-math"]
 ] as const;
 
 const lifecycle = [
   ["Observe", "Hook events from Codex, Claude Code, or another agent are captured as a structured run timeline"],
+  ["Optimize", "Vague prompts are rewritten into compact task contracts before the agent spends more steps"],
   ["Evaluate", "The sidecar checks monitor signals, tool-cost guardrails, repo map entries, and approved lessons"],
   ["Respond", "The agent receives one compact action: allow, warn, block, require validation, or inject concise context"],
   ["Measure", "Costs, tokens, decisions, lessons, and outcomes are saved for replay and baseline comparison"]
 ];
 
 const capabilities = [
-  "Scoped lesson recall",
-  "Hash-aware file memory",
-  "Runtime loop monitors",
-  "Tool policy supervision",
-  "Task-context compression",
-  "Steering direction"
+  "Runbook memory",
+  "Repo map cache",
+  "Trajectory watchdogs",
+  "Tool-cost guardrails",
+  "Prompt shaping and compaction",
+  "Ensemble steering"
 ];
 
 export default function DocsPage() {
@@ -103,7 +105,7 @@ agent-sidecar hook install --provider claude-code`}</code>
             id="how-it-works"
             className="mt-8 rounded-[28px] border border-white/10 bg-white/[0.035] p-6 sm:p-8"
           >
-            <SectionTitle icon={GitBranch} label="How it works" title="Observe, evaluate, respond, measure" />
+            <SectionTitle icon={GitBranch} label="How it works" title="Observe, optimize, evaluate, respond, measure" />
             <div className="mt-6 grid gap-3">
               {lifecycle.map(([label, body], index) => (
                 <div key={label} className="grid gap-3 rounded-2xl border border-white/10 bg-[#050509] p-4 sm:grid-cols-[56px_150px_1fr] sm:items-start">
@@ -114,6 +116,24 @@ agent-sidecar hook install --provider claude-code`}</code>
                   <p className="text-sm leading-6 text-neutral-400">{body}</p>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section
+            id="architecture"
+            className="mt-8 rounded-[28px] border border-white/10 bg-white/[0.035] p-6 sm:p-8"
+          >
+            <SectionTitle icon={GitBranch} label="Architecture" title="Local sidecar, runtime decisions" />
+            <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-red-400/80" />
+                  <span className="size-2 rounded-full bg-amber-300/80" />
+                  <span className="size-2 rounded-full bg-emerald-300/80" />
+                </div>
+                <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">runtime pipeline</span>
+              </div>
+              <SystemDiagram />
             </div>
           </section>
 
@@ -156,7 +176,7 @@ agent-sidecar hook install --provider claude-code`}</code>
                 </div>
               </div>
               <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.065] p-5">
-                <p className="font-mono text-xs uppercase tracking-[0.16em] text-emerald-200">Reporting rule</p>
+                <p className="font-mono text-xs uppercase tracking-[0.16em] text-emerald-200">Reporting note</p>
                 <p className="mt-3 text-sm leading-7 text-emerald-50/75">
                   If there is no matched baseline, the dashboard labels the number as an estimate. If controlled arms exist, the report can show per-arm deltas for cost, tokens, validation rate, and successful completion.
                 </p>
@@ -186,6 +206,82 @@ function SectionTitle({ icon: Icon, label, title }: { icon: LucideIcon; label: s
         {label}
       </Badge>
       <h2 className="mt-4 text-3xl font-semibold leading-tight sm:text-4xl">{title}</h2>
+    </div>
+  );
+}
+
+function SystemDiagram() {
+  return (
+    <div className="bg-[radial-gradient(circle_at_18%_18%,rgba(124,92,255,0.2),transparent_30%),radial-gradient(circle_at_82%_70%,rgba(34,211,238,0.14),transparent_32%),#050509] p-5 sm:p-7">
+      <div className="grid gap-4 lg:grid-cols-[1fr_72px_1.2fr_72px_1fr] lg:items-center">
+        <DiagramNode label="Coding agent" detail="Codex, Claude Code, or another agent emits hook events" tone="neutral" />
+        <DiagramArrow />
+        <DiagramNode label="Agent Sidecar" detail="CLI adapter and local daemon evaluate the run" tone="cyan" />
+        <DiagramArrow />
+        <DiagramNode label="Runtime decision" detail="warn, block, continue, inject context, or require validation" tone="green" />
+      </div>
+
+      <div className="my-5 h-px bg-white/10" />
+
+      <div className="rounded-2xl border border-[#22d3ee]/20 bg-[#22d3ee]/[0.045] p-4">
+        <div className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Sidecar internals</p>
+            <h3 className="mt-2 text-xl font-semibold">Evaluate before the agent continues</h3>
+          </div>
+          <span className="w-fit rounded-full border border-white/10 bg-black/20 px-3 py-1 font-mono text-xs text-neutral-300">
+            local daemon
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Ingest", "Normalize hook events and update run state"],
+            ["Remember", "Retrieve file memory and approved lessons"],
+            ["Steer", "Apply prompt optimization, monitor signals, and low-cost model ensemble guidance"],
+            ["Record", "Store traces, decisions, cost signals, and outcomes"]
+          ].map(([label, detail]) => (
+            <div key={label} className="rounded-xl border border-white/10 bg-black/20 p-3">
+              <p className="font-mono text-xs uppercase tracking-[0.14em] text-white">{label}</p>
+              <p className="mt-2 text-sm leading-6 text-neutral-400">{detail}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="my-5 h-px bg-white/10" />
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_72px_1fr_72px_1fr] lg:items-center">
+        <DiagramNode label="Dashboard" detail="Replay UI and control plane" tone="violet" />
+        <DiagramArrow />
+        <DiagramNode label="Daemon API" detail="Reads and writes through the sidecar" tone="cyan" />
+        <DiagramArrow />
+        <DiagramNode label="Local data" detail="Traces, policies, lessons, analytics" tone="neutral" />
+      </div>
+    </div>
+  );
+}
+
+function DiagramNode({ label, detail, tone }: { label: string; detail: string; tone: "neutral" | "cyan" | "green" | "violet" }) {
+  const tones = {
+    neutral: "border-white/10 bg-white/[0.035]",
+    cyan: "border-[#22d3ee]/25 bg-[#22d3ee]/[0.055]",
+    green: "border-emerald-300/25 bg-emerald-300/[0.06]",
+    violet: "border-violet-300/25 bg-violet-300/[0.06]"
+  };
+
+  return (
+    <div className={`rounded-2xl border p-4 ${tones[tone]}`}>
+      <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{label}</p>
+      <p className="mt-3 text-sm leading-6 text-neutral-300">{detail}</p>
+    </div>
+  );
+}
+
+function DiagramArrow() {
+  return (
+    <div className="hidden items-center justify-center lg:flex">
+      <div className="h-px flex-1 bg-white/15" />
+      <div className="size-2 rotate-45 border-r border-t border-white/30" />
     </div>
   );
 }

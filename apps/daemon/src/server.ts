@@ -446,7 +446,9 @@ function createDefaultPolicy(): Policy {
     },
     steering: {
       enabled: false,
-      maxCallsPerRun: 0
+      providers: [],
+      maxCallsPerRun: 0,
+      maxCostUsdPerRun: 0
     }
   };
 }
