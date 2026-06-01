@@ -29,4 +29,4 @@ pnpm dev:daemon
 pnpm dev:dashboard
 ```
 
-The daemon defaults to `http://localhost:4737` and exposes `GET /health`.
+The daemon defaults to `http://localhost:4319` and exposes `GET /health`.

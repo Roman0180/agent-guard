@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const AGENT_SIDECAR_DAEMON_DEFAULT_PORT = 4737;
+export const AGENT_SIDECAR_DAEMON_DEFAULT_PORT = 4319;
 
 const IsoDateTime = z.string().datetime({ offset: true });
 const ShortText = z.string().max(2_000);

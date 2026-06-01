@@ -125,7 +125,7 @@ const taskContract = {
 
 describe("@agent-sidecar/core schemas", () => {
   it("exports shared constants", () => {
-    expect(AGENT_SIDECAR_DAEMON_DEFAULT_PORT).toBe(4737);
+    expect(AGENT_SIDECAR_DAEMON_DEFAULT_PORT).toBe(4319);
   });
 
   it("validates a NormalizedAgentEvent", () => {
