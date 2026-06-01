@@ -72,7 +72,7 @@ const workflow = [
   "Start the daemon from your terminal",
   "Configure Codex or Claude Code hooks",
   "Run the coding agent normally",
-  "Review traces, decisions, monitors, saved patterns, and A/B analytics"
+  "Review traces, decisions, monitors, repo-map hints, tool-cost guardrails, and evidence-labeled analytics"
 ];
 
 const evidenceCards = [
@@ -447,12 +447,12 @@ function DemoSection() {
     "agent-sidecar hook install --provider codex"
   ];
   const capabilityEvents: Array<[string, string]> = [
-    ["Runbook memory", "Find auth-refresh fix note"],
-    ["Repo map cache", "Load session.ts ownership hint"],
+    ["Runbook memory", "Find approved auth-refresh runbook"],
+    ["Repo map cache", "Load hash-checked session.ts hint"],
     ["Trajectory watchdogs", "Watch for repeated edits"],
     ["Tool-cost guardrails", "Score command and edit risk"],
     ["Prompt shaping", "Replace vague prompt with task brief"],
-    ["Ensemble steering", "Run low-cost guidance vote"]
+    ["Ensemble steering", "Run optional low-cost guidance vote"]
   ];
   const optimizedPromptLines = [
     "Task: Fix auth refresh so users stay signed in after token renewal",
@@ -574,7 +574,7 @@ function DemoSection() {
 
               <div className={`${sceneClass(8, 16)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Phase 2 Prompt enters Codex" body="The user asks Codex for a scoped auth fix while Agent Sidecar watches the workspace" />
+                  <PhaseHeading title="Phase 2 Prompt enters Codex" body="The user enters a vague Codex prompt that benefits from prompt shaping while Agent Sidecar watches the workspace" />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
@@ -659,12 +659,12 @@ function DemoSection() {
 
               <div className={`${sceneClass(24, 32)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
-                  <PhaseHeading title="Phase 4 Runtime checks execute" body="Agent Sidecar runs the six controls before Codex spends more steps" />
+                  <PhaseHeading title="Phase 4 Runtime checks execute" body="Agent Sidecar checks the optimized prompt, repo state, monitors, tool-cost guardrails, and budget signals before Codex spends more steps" />
                 <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                   <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
-                      <h3 className="mt-2 text-2xl font-semibold">Capabilities execute after the prompt lands</h3>
+                      <h3 className="mt-2 text-2xl font-semibold">The six controls run against the current task state</h3>
                     </div>
                     <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
                       evaluating run
@@ -698,7 +698,7 @@ function DemoSection() {
                 <div className="w-full max-w-5xl">
                   <PhaseHeading
                     title="Phase 5 Codex edits with steering"
-                    body="Codex applies the scoped fix using Agent Sidecar's optimized prompt and low-cost steering ensemble"
+                    body="Codex applies the narrow fix using Agent Sidecar's optimized prompt and optional low-cost steering ensemble"
                   />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
                   <aside className="hidden border-r border-white/10 bg-[#090910] p-4 lg:block">
@@ -745,7 +745,7 @@ function DemoSection() {
                 <div className="w-full max-w-6xl">
                   <PhaseHeading
                     title="Phase 6 Dashboard records the result"
-                    body="The control plane records the auth-refresh fix, the sidecar decision, and the cost saved against the unguarded baseline"
+                    body="The control plane records the decision, validation requirement, guarded cost, baseline cost, and total cost saved"
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">

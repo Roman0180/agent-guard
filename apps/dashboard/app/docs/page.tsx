@@ -13,8 +13,8 @@ const sections = [
 
 const lifecycle = [
   ["Observe", "Hook events from Codex, Claude Code, or another agent are captured as a structured run timeline"],
-  ["Optimize", "Vague prompts are rewritten into compact task contracts before the agent spends more steps"],
-  ["Evaluate", "The sidecar checks monitor signals, tool-cost guardrails, repo map entries, and approved lessons"],
+  ["Optimize", "Vague prompts are rewritten into compact task contracts before downstream decisions"],
+  ["Evaluate", "The sidecar checks prompt output, repo map entries, approved lessons, monitor signals, tool-cost guardrails, and budget pressure"],
   ["Respond", "The agent receives one compact action: allow, warn, block, require validation, or inject concise context"],
   ["Measure", "Costs, tokens, decisions, lessons, and outcomes are saved for replay and baseline comparison"]
 ];
@@ -237,7 +237,7 @@ function SystemDiagram() {
           {[
             ["Ingest", "Normalize hook events and update run state"],
             ["Remember", "Retrieve file memory and approved lessons"],
-            ["Steer", "Apply prompt optimization, monitor signals, and low-cost model ensemble guidance"],
+            ["Decide", "Compose prompt optimization, monitor signals, tool-cost guardrails, and optional low-cost steering"],
             ["Record", "Store traces, decisions, cost signals, and outcomes"]
           ].map(([label, detail]) => (
             <div key={label} className="rounded-xl border border-white/10 bg-black/20 p-3">
