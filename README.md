@@ -17,7 +17,7 @@ This repository currently contains the initial TypeScript monorepo skeleton only
 - `packages/policies`: Future runtime configuration and supervision settings.
 - `packages/steering`: Future low-cost steering model ensemble interface.
 - `packages/lessons`: Future approved lesson memory.
-- `docs`: Product and architecture documentation.
+- `docs`: Product, architecture, MVP, and prompt documentation.
 
 ## Commands
 
@@ -30,3 +30,9 @@ pnpm dev:dashboard
 ```
 
 The daemon defaults to `http://localhost:4319` and exposes `GET /health`.
+
+## Planning docs
+
+- `docs/IMPLEMENTATION_PLAN.md`: source-of-truth product and architecture plan.
+- `docs/MVP_PROMPTS.md`: implementation-ready MVP slices and Codex prompts aligned to the plan.
+- `docs/ARCHITECTURE.md`: higher-level runtime architecture overview.
