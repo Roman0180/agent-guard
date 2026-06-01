@@ -204,11 +204,11 @@ Implement MVP 7 from docs/MVP_PROMPTS.md. Add optional no-op/local HTTP steering
 
 ## Demo Prompt Script
 
-Use this script for landing-page copy, smoke fixtures, and demo checkpoints so the website matches the runtime plan. The first three demo checkpoints are now runnable through the local daemon and CLI: hook setup, prompt ingest, and prompt optimization.
+Use this script for landing-page copy, smoke fixtures, and demo checkpoints so the website matches the runtime plan.
 
-1. **Setup prompt:** `python -m pip install agent-sidecar && agent-sidecar daemon start && agent-sidecar hook install --provider codex`. In this repository, `agent-sidecar hook install --provider codex` renders the provider command metadata and `agent-sidecar hook --provider codex < event.json` posts hook JSON to the daemon.
-2. **Vague user prompt:** `Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?` The daemon normalizes this as a prompt event, persists the raw payload, creates the run, and exposes the timeline through `/api/runs/:id/events`.
-3. **Optimized task contract:** `Task: fix auth refresh so users stay signed in after token renewal. Scope: inspect session persistence, token save path, and auth tests. Constraints: keep changes narrow and avoid unrelated auth refactors. Validation: run targeted auth refresh and login flow tests before final response.` The daemon stores prompt optimization results and exposes a demo replay through `/api/runs/:id/demo`.
+1. **Setup prompt:** `python -m pip install agent-sidecar && agent-sidecar daemon start && agent-sidecar hook install --provider codex`.
+2. **Vague user prompt:** `Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?`
+3. **Optimized task contract:** `Task: fix auth refresh so users stay signed in after token renewal. Scope: inspect session persistence, token save path, and auth tests. Constraints: keep changes narrow and avoid unrelated auth refactors. Validation: run targeted auth refresh and login flow tests before final response.`
 4. **Runtime checkpoint:** six controls run against the prompt, repo state, monitors, and budget signals: runbook memory, repo map cache, trajectory watchdogs, tool-cost guardrails, prompt shaping and compaction, and ensemble steering.
 5. **Decision checkpoint:** return one compact hook response: allow, warn, block, require continuation, require validation, or inject context.
 6. **Dashboard checkpoint:** show the decision, validation requirement, guarded run cost, baseline cost, total cost saved, prompt optimization details, monitor evidence, and feedback controls.
