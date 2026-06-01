@@ -198,5 +198,3 @@ function LogoMark() {
     </span>
   );
 }
-            ["Remember", "Retrieve repo map entries and approved lessons"],
-            ["Steer", "Apply prompt shaping, monitor signals, and low-cost model ensemble guidance"],

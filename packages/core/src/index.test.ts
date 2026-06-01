@@ -10,7 +10,12 @@ import {
   PromptOptimizationResult,
   RunState,
   SteeringModelInput,
-  TaskContract
+  TaskContract,
+  classifyCommand,
+  normalizeClaudeHook,
+  normalizeCodexHook,
+  normalizeCommandSignature,
+  RunStateManager
 } from "./index.js";
 
 const now = "2026-05-31T12:00:00.000Z";
@@ -235,5 +240,106 @@ describe("@agent-sidecar/core schemas", () => {
 
     expect(parsed.status).toBe("approved");
     expect(parsed.text).not.toMatch(/chain[- ]of[- ]thought/i);
+  });
+});
+
+
+describe("event normalization", () => {
+  it("normalizes Codex hook JSON", () => {
+    const event = normalizeCodexHook({
+      id: "codex-1",
+      session_id: "session-1",
+      hook_event_name: "PreToolUse",
+      cwd: "/repo",
+      tool_name: "Bash",
+      tool_input: { command: "rg PlatformLogger src/" },
+      timestamp: now
+    });
+
+    expect(event).toMatchObject({
+      id: "codex-1",
+      runId: "session-1",
+      agent: "codex",
+      eventType: "tool_call",
+      command: { type: "search", normalized: "search:platformlogger:src" }
+    });
+    expect(event.compactMetadata.cwd).toBe("/repo");
+  });
+
+  it("normalizes Claude hook JSON", () => {
+    const event = normalizeClaudeHook({
+      eventType: "PostToolUse",
+      sessionId: "claude-session",
+      toolName: "Bash",
+      toolInput: { command: "npm test" },
+      result: { stdout: "ok", exitCode: 0 },
+      timestamp: now
+    });
+
+    expect(event.agent).toBe("claude-code");
+    expect(event.eventType).toBe("validation");
+    expect(event.validation).toMatchObject({ status: "passed", commandType: "test" });
+  });
+
+  it("classifies commands", () => {
+    expect(classifyCommand('grep -R "PlatformLogger" src')).toBe("search");
+    expect(classifyCommand("dotnet test")).toBe("test");
+    expect(classifyCommand("cargo build")).toBe("build");
+    expect(classifyCommand("git status")).toBe("git");
+    expect(classifyCommand("rm -rf dist")).toBe("delete");
+    expect(classifyCommand("curl https://example.com")).toBe("network");
+    expect(classifyCommand("echo hello")).toBe("unknown");
+  });
+
+  it("normalizes similar search command signatures", () => {
+    expect(normalizeCommandSignature("rg PlatformLogger src/")).toBe("search:platformlogger:src");
+    expect(normalizeCommandSignature('grep -R "PlatformLogger" src')).toBe("search:platformlogger:src");
+  });
+
+  it("extracts user prompts", () => {
+    const event = normalizeCodexHook({ session_id: "session-1", hook_event_name: "UserPromptSubmit", prompt: "Fix the flaky test", timestamp: now });
+
+    expect(event.eventType).toBe("prompt");
+    expect(event.summary).toBe("Fix the flaky test");
+    expect(event.compactMetadata.userPrompt).toBe("Fix the flaky test");
+  });
+});
+
+describe("RunStateManager", () => {
+  it("tracks search commands and repeated command counts", () => {
+    const snapshots: unknown[] = [];
+    const storage = {
+      getLatestRunStateSnapshot: () => snapshots.at(-1) as { state: typeof runState } | undefined,
+      saveRunStateSnapshot: (snapshot: unknown) => snapshots.push(snapshot)
+    };
+    const manager = new RunStateManager(storage as any);
+    const searchEvent = normalizeCodexHook({ id: "s1", session_id: "run-state-1", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "rg PlatformLogger src/" }, timestamp: now });
+
+    manager.applyEvent(searchEvent);
+    const state = manager.applyEvent({ ...searchEvent, id: "s2" });
+
+    expect(state.commandSignatures).toContain("search:platformlogger:src");
+    expect(state.recentCommandSignatures).toEqual(["search:platformlogger:src", "search:platformlogger:src"]);
+    expect(state.repeatedCommandCounts["search:platformlogger:src"]).toBe(2);
+  });
+
+  it("tracks edits and validation status", () => {
+    const snapshots: Array<{ state: typeof runState }> = [];
+    const storage = {
+      getLatestRunStateSnapshot: () => snapshots.at(-1),
+      saveRunStateSnapshot: (snapshot: { state: typeof runState }) => snapshots.push(snapshot)
+    };
+    const manager = new RunStateManager(storage as any);
+    const edit = normalizeCodexHook({ id: "e1", session_id: "run-state-2", hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: "src/index.ts" }, timestamp: now });
+    const afterEdit = manager.applyEvent(edit);
+
+    expect(afterEdit.filesChanged).toContain("src/index.ts");
+    expect(afterEdit.validationSinceLastEdit).toBe(false);
+
+    const testPass = normalizeCodexHook({ id: "v1", session_id: "run-state-2", hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "pnpm test" }, exit_code: 0, timestamp: "2026-05-31T12:01:00.000Z" });
+    const afterValidation = manager.applyEvent(testPass);
+
+    expect(afterValidation.lastValidationPassed).toBe(true);
+    expect(afterValidation.validationSinceLastEdit).toBe(true);
   });
 });
