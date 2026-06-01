@@ -354,7 +354,7 @@ function ArchitectureSection() {
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-red-400/80" />
-              <span className="size-2 rounded-full bg-amber-300/80" />
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">monitor: validation after edit</div>
               <span className="size-2 rounded-full bg-emerald-300/80" />
             </div>
             <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">runtime pipeline</span>
@@ -557,3 +557,4 @@ function LogoMark() {
     </span>
   );
 }
+                                "monitor: validation after edit",

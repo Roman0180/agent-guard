@@ -12,7 +12,7 @@ const sections = [
 
 const lifecycle = [
   ["Observe", "Hook events from Codex, Claude Code, or another agent are captured as a structured run timeline"],
-  ["Evaluate", "The sidecar checks the run against policies, monitor signals, file memory, and approved lessons"],
+  ["Evaluate", "The sidecar checks monitor signals, tool-cost guardrails, repo map entries, and approved lessons"],
   ["Respond", "The agent receives one compact action: allow, warn, block, require validation, or inject concise context"],
   ["Measure", "Costs, tokens, decisions, lessons, and outcomes are saved for replay and baseline comparison"]
 ];
@@ -124,10 +124,12 @@ agent-sidecar hook install --provider claude-code`}</code>
             <SectionTitle icon={Gauge} label="Decisions" title="The agent gets one explicit instruction back" />
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               {[
+                ["allow", "Let a healthy step continue without extra context"],
                 ["warn", "Surface a risk while allowing the run to continue"],
                 ["block", "Stop dangerous commands or known waste loops"],
-                ["require continuation", "Prevent premature final answers until validation evidence exists"],
-                ["inject context", "Add a short approved lesson, file hint, or task contract"]
+                ["require continuation", "Prevent premature final answers when more work is needed"],
+                ["require validation", "Ask the agent to run targeted checks before finalizing"],
+                ["inject context", "Add a short approved lesson, repo-map hint, or task contract"]
               ].map(([label, body]) => (
                 <div key={label} className="rounded-2xl border border-white/10 bg-[#050509] p-4">
                   <h3 className="font-mono text-sm uppercase tracking-[0.14em] text-[#22d3ee]">{label}</h3>
@@ -196,3 +198,5 @@ function LogoMark() {
     </span>
   );
 }
+            ["Remember", "Retrieve repo map entries and approved lessons"],
+            ["Steer", "Apply prompt shaping, monitor signals, and low-cost model ensemble guidance"],

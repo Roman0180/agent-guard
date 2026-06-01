@@ -1,11 +1,11 @@
 # Agent Sidecar Architecture
 
-Agent Sidecar is a terminal-run reliability sidecar for AI coding agents. Users install the package with `pip`, start the sidecar daemon from their shell, and configure Codex, Claude Code, or another agent runtime to send hook events into the sidecar. The daemon owns ingestion, state, policy evaluation, prompt shaping, persistence, API access, and runtime decisions. The dashboard is a replay and control surface; it does not make runtime decisions or read storage directly.
+      +--> repo map cache
 
-```text
-Coding agent hook
-      |
-      v
+Dashboard --> daemon API --> trace, lesson, repo map, configuration, and analytics data
+6. **Memory retrieval**: repo map cache entries and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
+The agent should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: fired monitors, guardrail reason, confidence gates, cost impact, and related trace evidence.
+- `repo_map_entries`: path, summary, ownership hints, validation notes, content hash when available.
 agent-sidecar hook adapter
       |
       v
