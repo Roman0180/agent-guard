@@ -20,6 +20,9 @@ importers:
 
   apps/daemon:
     dependencies:
+      '@agent-sidecar/prompt-optimizer':
+        specifier: workspace:^
+        version: link:../../packages/prompt-optimizer
       '@agent-sidecar/storage':
         specifier: workspace:^
         version: link:../../packages/storage
@@ -131,6 +134,8 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@20.19.41)
+
+  packages/prompt-optimizer: {}
 
   packages/steering:
     devDependencies:
