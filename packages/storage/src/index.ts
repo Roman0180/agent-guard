@@ -63,6 +63,24 @@ export type RunState = {
   interventions?: Partial<Record<InterventionAction, number>>;
   tokenUsage?: JsonRecord;
   costEstimate?: JsonRecord;
+  filesChanged?: string[];
+  filesRead?: string[];
+  filesInspected?: string[];
+  commandSignatures?: string[];
+  recentCommandSignatures?: string[];
+  repeatedCommandCounts?: Record<string, number>;
+  latestErrorSignature?: string;
+  latestErrors?: string[];
+  lastEditAt?: string;
+  lastValidationAt?: string;
+  lastValidationPassed?: boolean;
+  validationCommandCount?: number;
+  toolCallCount?: number;
+  riskEvents?: string[];
+  injectedLessons?: string[];
+  promptOptimizationCount?: number;
+  continuationPromptCount?: number;
+  compactionPromptCount?: number;
 };
 
 export type Decision = {

@@ -512,7 +512,7 @@ function DemoSection() {
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-red-400/80" />
-              <span className="size-2 rounded-full bg-amber-300/80" />
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">monitor: validation after edit</div>
               <span className="size-2 rounded-full bg-emerald-300/80" />
               <span className="ml-3 font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">agent-sidecar-demo</span>
             </div>

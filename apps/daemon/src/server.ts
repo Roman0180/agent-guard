@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 
 import Fastify, { type FastifyInstance } from "fastify";
+import { PromptOptimizer } from "@agent-sidecar/prompt-optimizer";
 import {
   Storage,
   type Decision,
   type Feedback,
   type Lesson,
   type NormalizedAgentEvent,
+  type Policy,
   type PromptOptimizationResult,
+  type RunState,
   type StoredRun
 } from "@agent-sidecar/storage";
 
@@ -25,6 +28,16 @@ export type BuildServerOptions = {
 type HookProvider = "codex" | "claude";
 
 type UnknownRecord = Record<string, unknown>;
+
+type HookIngestResult = {
+  action: Decision["action"];
+  reason: string;
+  message: string;
+  run: StoredRun;
+  event: NormalizedAgentEvent;
+  decision: Decision;
+  prompt_optimization?: PromptOptimizationResult;
+};
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const storage = options.storage ?? new Storage({ databasePath: options.databasePath ?? ":memory:" });
@@ -200,7 +213,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   return server;
 }
 
-function ingestHook(storage: Storage, provider: HookProvider, payload: unknown): { action: "allow"; run: StoredRun; event: NormalizedAgentEvent; decision: Decision } {
+function ingestHook(storage: Storage, provider: HookProvider, payload: unknown): HookIngestResult {
   const now = new Date().toISOString();
   const body = asRecord(payload);
   const runId =
@@ -244,14 +257,20 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
   };
 
   storage.addEvent(event);
-  const decision = createAllowDecision(run.id, event.id);
+  const promptOptimization = maybeOptimizePrompt(storage, run, event, body, now);
+  const decision = promptOptimization
+    ? createPromptOptimizationDecision(run.id, event.id, promptOptimization)
+    : createAllowDecision(run.id, event.id);
   storage.addDecision(decision);
 
   return {
-    action: "allow",
+    action: decision.action,
+    reason: promptOptimization ? "prompt_optimized" : decision.reasonCode,
+    message: decision.message,
     run,
     event,
-    decision
+    decision,
+    ...(promptOptimization ? { prompt_optimization: promptOptimization } : {})
   };
 }
 
@@ -267,6 +286,170 @@ function createAllowDecision(runId: string, eventId: string): Decision {
     reasonCode: "pipeline.default_allow",
     message: "Allowed by default pipeline placeholder.",
     compactMetadata: {}
+  };
+}
+
+function maybeOptimizePrompt(
+  storage: Storage,
+  run: StoredRun,
+  event: NormalizedAgentEvent,
+  body: UnknownRecord,
+  now: string
+): PromptOptimizationResult | undefined {
+  if (event.eventType !== "prompt") {
+    return undefined;
+  }
+
+  const originalPrompt = stringValue(body.prompt) ?? stringValue(body.userPrompt) ?? event.summary;
+  if (!originalPrompt) {
+    return undefined;
+  }
+
+  const runState = createPromptRunState(run, event, now);
+  const policy = storage.getPolicyForRepo(run.repoRoot)?.policy ?? createDefaultPolicy();
+  const optimizer = new PromptOptimizer({
+    now: () => now
+  });
+  const optimization = optimizer.optimize({
+    runId: run.id,
+    eventId: event.id,
+    mode: "initial_task",
+    agent: event.agent,
+    originalPrompt,
+    repoPath: run.repoRoot,
+    eventType: event.eventType,
+    compactRunState: {},
+    policySummary: [],
+    approvedMatchingLessons: [],
+    validationStatus: undefined,
+    latestErrorSignature: undefined,
+    changedFileCount: 0,
+    recentCommandSignatures: [],
+    normalizedEvent: event,
+    runState,
+    policy,
+    approvedLessons: storage.listLessons("approved"),
+    maxPromptLength: 2_400
+  });
+
+  if (!optimization.shouldInject) {
+    return undefined;
+  }
+
+  const injectedOptimization: PromptOptimizationResult = {
+    ...optimization,
+    injected: true
+  };
+  storage.saveRunStateSnapshot({
+    id: randomUUID(),
+    runId: run.id,
+    eventId: event.id,
+    createdAt: now,
+    state: {
+      ...runState,
+      promptOptimizationCount: 1,
+      interventions: {
+        inject_context: 1
+      }
+    }
+  });
+  storage.savePromptOptimization(injectedOptimization, { originalPrompt });
+  return injectedOptimization;
+}
+
+function createPromptOptimizationDecision(
+  runId: string,
+  eventId: string,
+  optimization: PromptOptimizationResult
+): Decision {
+  return {
+    id: randomUUID(),
+    runId,
+    eventId,
+    createdAt: new Date().toISOString(),
+    source: "system",
+    action: "inject_context",
+    severity: "info",
+    reasonCode: "prompt_optimized",
+    message: optimization.optimizedPrompt,
+    continuationPrompt: optimization.optimizedPrompt,
+    lessonIds: optimization.relevantLessons.map((lesson) => lesson.id),
+    compactMetadata: {
+      promptOptimizationId: optimization.id,
+      rewriteReason: optimization.rewriteReason,
+      estimatedTokenDelta: optimization.estimatedTokenDelta,
+      deterministicOrModel: optimization.deterministicOrModel
+    }
+  };
+}
+
+function createPromptRunState(run: StoredRun, event: NormalizedAgentEvent, now: string): RunState {
+  return {
+    runId: run.id,
+    status: run.status,
+    startedAt: run.startedAt,
+    updatedAt: now,
+    agent: event.agent,
+    repoRoot: run.repoRoot,
+    branch: run.branch,
+    taskSummary: run.taskSummary,
+    eventCounts: {
+      prompt: 1
+    },
+    recentCommands: [],
+    commandFrequency: {},
+    editedFiles: [],
+    changedFileCount: 0,
+    estimatedChangedLines: 0,
+    validationSinceLastEdit: false,
+    pendingApprovals: [],
+    interventions: {},
+    tokenUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0
+    },
+    costEstimate: {
+      amountUsd: 0,
+      source: "estimated"
+    },
+    filesChanged: [],
+    filesRead: [],
+    filesInspected: [],
+    commandSignatures: [],
+    recentCommandSignatures: [],
+    repeatedCommandCounts: {},
+    latestErrors: [],
+    validationCommandCount: 0,
+    toolCallCount: 0,
+    riskEvents: [],
+    injectedLessons: [],
+    promptOptimizationCount: 0,
+    continuationPromptCount: 0,
+    compactionPromptCount: 0
+  };
+}
+
+function createDefaultPolicy(): Policy {
+  return {
+    version: 1,
+    failMode: "open",
+    protectedPaths: [],
+    dangerousCommands: [],
+    broadChangeThreshold: {
+      maxFilesChanged: 25,
+      maxLinesChanged: 1_000
+    },
+    validation: {
+      requireAfterEdit: true,
+      acceptedCommands: ["pnpm test", "pnpm typecheck", "pnpm build"]
+    },
+    steering: {
+      enabled: false,
+      providers: [],
+      maxCallsPerRun: 0,
+      maxCostUsdPerRun: 0
+    }
   };
 }
 

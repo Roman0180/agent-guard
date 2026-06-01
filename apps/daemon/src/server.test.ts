@@ -73,7 +73,7 @@ describe("@agent-sidecar/daemon", () => {
 
     expect(hookResponse.statusCode).toBe(201);
     expect(hookResponse.json()).toMatchObject({
-      action: "allow",
+      action: "inject_context",
       run: {
         id: "run-1",
         provider: "codex"
@@ -84,8 +84,8 @@ describe("@agent-sidecar/daemon", () => {
         summary: "Implement the daemon routes."
       },
       decision: {
-        action: "allow",
-        reasonCode: "pipeline.default_allow"
+        action: "inject_context",
+        reasonCode: "prompt_optimized"
       }
     });
 
@@ -109,7 +109,71 @@ describe("@agent-sidecar/daemon", () => {
 
     expect(decisionsResponse.json()).toHaveLength(1);
     expect(decisionsResponse.json()[0]).toMatchObject({
-      action: "allow"
+      action: "inject_context",
+      reasonCode: "prompt_optimized"
     });
+  });
+
+  it("returns injected prompt optimization context for the demo Codex prompt", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false });
+
+    const hookResponse = await server.inject({
+      method: "POST",
+      url: "/hooks/codex",
+      payload: {
+        session_id: "demo-run-2",
+        hook_event_name: "UserPromptSubmit",
+        cwd: ".",
+        prompt: "Fix the logger issue"
+      }
+    });
+
+    const optimizationsResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/demo-run-2/prompt-optimizations"
+    });
+
+    await server.close();
+
+    expect(hookResponse.statusCode).toBe(201);
+    expect(hookResponse.json()).toMatchObject({
+      action: "inject_context",
+      reason: "prompt_optimized",
+      message: expect.stringContaining("Task:\nFix the logger issue"),
+      run: {
+        id: "demo-run-2",
+        provider: "codex",
+        repoRoot: "."
+      },
+      event: {
+        eventType: "prompt",
+        providerEventType: "UserPromptSubmit",
+        summary: "Fix the logger issue"
+      },
+      decision: {
+        action: "inject_context",
+        reasonCode: "prompt_optimized"
+      },
+      prompt_optimization: {
+        mode: "initial_task",
+        taskContract: {
+          task: "Fix the logger issue"
+        },
+        rewriteReason: "Converted a vague prompt into a compact deterministic task contract.",
+        shouldInject: true,
+        injected: true,
+        deterministicOrModel: "deterministic"
+      }
+    });
+
+    expect(optimizationsResponse.statusCode).toBe(200);
+    expect(optimizationsResponse.json()).toEqual([
+      expect.objectContaining({
+        runId: "demo-run-2",
+        mode: "initial_task",
+        optimizedPrompt: expect.stringContaining("Task:\nFix the logger issue")
+      })
+    ]);
   });
 });
