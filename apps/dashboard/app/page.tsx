@@ -940,7 +940,7 @@ function ComparisonCard() {
             tone="emerald"
             cost="$1.41"
             outcome="validated fix"
-            lines={["adds task contract", "blocks premature final", "verifies login flow"]}
+            lines={["adds task contract", "optimized prompt for token usage", "verifies login flow"]}
           />
         </div>
       </div>
