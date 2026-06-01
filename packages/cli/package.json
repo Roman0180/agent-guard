@@ -1,10 +1,10 @@
 {
-  "name": "@agentguard/cli",
+  "name": "@agent-sidecar/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "agentguard": "dist/index.js"
+    "agent-sidecar": "dist/index.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

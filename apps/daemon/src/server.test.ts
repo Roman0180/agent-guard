@@ -9,7 +9,7 @@ import { buildServer } from "./server.js";
 let tempDirs: string[] = [];
 
 async function createTempDatabasePath(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "agentguard-daemon-"));
+  const dir = await mkdtemp(join(tmpdir(), "agent-sidecar-daemon-"));
   tempDirs.push(dir);
   return join(dir, "daemon.sqlite");
 }
@@ -19,7 +19,7 @@ afterEach(async () => {
   tempDirs = [];
 });
 
-describe("@agentguard/daemon", () => {
+describe("@agent-sidecar/daemon", () => {
   it("responds to health checks", async () => {
     const server = buildServer({ logger: false });
 
@@ -33,7 +33,7 @@ describe("@agentguard/daemon", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       status: "ok",
-      service: "agentguard-daemon"
+      service: "agent-sidecar-daemon"
     });
   });
 

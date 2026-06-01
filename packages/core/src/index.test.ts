@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AGENTGUARD_DAEMON_DEFAULT_PORT,
+  AGENT_SIDECAR_DAEMON_DEFAULT_PORT,
   Decision,
   Lesson,
   NormalizedAgentEvent,
@@ -118,9 +118,9 @@ const taskContract = {
   risk_notes: ["Do not include raw conversations in steering inputs."]
 } as const;
 
-describe("@agentguard/core schemas", () => {
+describe("@agent-sidecar/core schemas", () => {
   it("exports shared constants", () => {
-    expect(AGENTGUARD_DAEMON_DEFAULT_PORT).toBe(4737);
+    expect(AGENT_SIDECAR_DAEMON_DEFAULT_PORT).toBe(4737);
   });
 
   it("validates a NormalizedAgentEvent", () => {

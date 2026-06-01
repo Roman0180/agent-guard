@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-describe("@agentguard/dashboard", () => {
+describe("@agent-sidecar/dashboard", () => {
   it("has a dashboard smoke test", () => {
-    expect("AgentGuard Dashboard").toContain("AgentGuard");
+    expect("Agent Sidecar Dashboard").toContain("Agent Sidecar");
   });
 });

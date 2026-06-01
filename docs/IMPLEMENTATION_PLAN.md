@@ -1,44 +1,94 @@
-# AgentGuard Implementation Plan
+# Agent Sidecar Implementation Plan
 
 ## 1. Product Summary
 
-AgentGuard is a local-first runtime reliability layer for AI coding agents such as Codex and Claude Code. It runs as a sidecar beside existing agents instead of replacing them. AgentGuard receives hook events from agent runtimes, normalizes and stores those events locally, retrieves approved reliability patterns, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
+Agent Sidecar is a terminal-run runtime reliability layer for AI coding agents such as Codex and Claude Code. Users install it with `pip`, start the sidecar daemon from their terminal, and configure agent hooks to call the sidecar command. The sidecar receives hook events from agent runtimes, normalizes and stores those events, retrieves approved reliability patterns, evaluates deterministic policies, optionally asks a small steering model for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
 
-AgentGuard also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before hard rules and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving deterministic runtime enforcement.
+Agent Sidecar should make agent runs observable, correctable, cheaper to operate, and measurable. Each run should stream structured telemetry into the sidecar dashboard: hook events, normalized steps, monitor hits, difficulty state, decision reason codes, token and cost signals, validation evidence, and final outcome. The product should not only intervene; it should make the impact of each intervention auditable.
 
-AgentGuard's reuse layer is inspired by the observation that coding agents often waste cost by re-exploring the same dead ends. AgentGuard should capture approved local lessons in a structured operational format: the situation encountered, the dead ends to avoid, and the unlock that worked. Injection must be confidence-gated, short, and explainable.
+The runtime should detect common long-running agent failures while the run is still active: semantic loops, repeated tool calls, skipped verification, silent topic drift, stale evidence, hedging/backtracking, and unbounded context growth. These detections should feed a lightweight difficulty state machine that helps decide whether Agent Sidecar should stay quiet, inject approved guidance, require validation, ask a steering model, or stop wasteful continuation.
 
-The dashboard is the control plane and replay UI, but the core product is the runtime decision pipeline. The MVP should prove that AgentGuard can observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task.
+Agent Sidecar also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before hard rules and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving deterministic runtime enforcement.
+
+Agent Sidecar's reuse layer is inspired by the observation that coding agents often waste cost by re-exploring the same dead ends. Agent Sidecar should capture approved local lessons in a structured operational format: the situation encountered, the dead ends to avoid, and the unlock that worked. Injection must be confidence-gated, short, explainable, and scoped to the repo or failure mode that justified it.
+
+The dashboard is the control plane and replay UI, but the core product is the runtime decision pipeline. The MVP should prove that Agent Sidecar can observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task. A later evaluation harness should compare guarded runs against baseline runs so the product can report token, cost, validation, and success deltas instead of relying on anecdotes.
 
 Primary user workflow:
 
-1. Install the `agentguard` CLI.
-2. Start the local daemon.
-3. Configure Codex or Claude Code hooks to call AgentGuard.
+1. Install the package with `python -m pip install agent-sidecar`.
+2. Start the sidecar from the user’s terminal with `agent-sidecar daemon start`.
+3. Configure Codex or Claude Code hooks to call Agent Sidecar.
 4. Run the coding agent normally.
-5. Review traces, decisions, policies, lessons, and analytics in the local dashboard.
+5. Review traces, decisions, policies, lessons, and analytics in the sidecar dashboard.
+
+Install path:
+
+```bash
+python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+```
+
+### Runtime Lifecycle
+
+The runtime pipeline runs between agent steps. It should keep the agent’s working history clean and return only the decision or short injected guidance required for the next step.
+
+1. `run_start`: create a run record with provider, model, repo, task, pricing profile, and config snapshot.
+2. `event_received`: persist the raw hook payload and attach provider metadata.
+3. `normalize`: convert provider-specific payloads into stable command, read, edit, validation, tool, usage, finalization, and error events.
+4. `state_update`: update run state, edited paths, validation freshness, repeated-tool counters, token/cost totals, and difficulty state.
+5. `trajectory_assessment`: run deterministic monitors for loops, skipped validation, drift, stale evidence, risky tools, and cost pressure.
+6. `memory_gate`: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.
+7. `prompt_optimization`: create a task contract, continuation prompt, validation prompt, compaction output, or short injected context when useful.
+8. `policy_decision`: evaluate hard rules first; optionally call a steering model only for configured ambiguous cases.
+9. `record`: store monitor results, decision source, cost rollup, injected context, and outcome labels.
+10. `respond`: return a provider-compatible action before the agent continues.
+
+### Cost Calculation
+
+Every cost number shown in the dashboard must be explainable from recorded usage and pricing data.
+
+```text
+step_cost =
+  input_tokens * input_price_per_token
+  + output_tokens * output_price_per_token
+  + cache_write_tokens * cache_write_price_per_token
+  + cache_read_tokens * cache_read_price_per_token
+
+run_cost = sum(step_cost for each step)
+savings_for_run = baseline_run_cost - guarded_run_cost
+total_cost_saved = sum(savings_for_run for matched runs)
+```
+
+Controlled A/B arms can be labeled as controlled evidence. Historical matching, synthetic replay, or heuristic baselines must be labeled as estimated or correlated. Negative savings should remain visible so regressions are not hidden behind positive totals.
 
 ## 2. MVP Scope
 
 The MVP should include:
 
-- TypeScript monorepo with shared packages and app workspaces.
-- Local Fastify daemon that exposes hook ingestion and dashboard APIs.
-- `agentguard` CLI for starting the daemon, installing hook snippets, sending hook events, and checking status.
+- Pip-installable `agent-sidecar` package that exposes the terminal CLI.
+- Packaged daemon that exposes hook ingestion and dashboard APIs after `agent-sidecar daemon start`.
+- Hook installer commands for Codex, Claude Code, and generic JSON hooks.
+- Internal TypeScript or Python services may be used behind the CLI, but the user-facing install path should be `pip`.
 - SQLite-backed local storage.
 - Shared event schemas for raw events, normalized events, decisions, run state, policies, lessons, and analytics.
 - Hook adapters for Codex and Claude Code, starting with a generic JSON hook protocol and thin provider-specific normalization.
 - Deterministic hard rule engine for low-cost decisions.
+- Runtime trajectory monitors for semantic loops, repeated tools, skipped verification, topic drift, stale evidence, hedging/backtracking, and context bloat.
+- Lightweight difficulty state machine for classifying run health and deciding whether to stay quiet, steer, validate, or stop waste.
 - Prompt optimization layer for task contracts, continuation prompts, compaction prompts, and approved lesson injection.
 - Confidence-gated reasoning reuse with approved local patterns that capture situation, dead ends, and unlock.
 - Semantic file memory with compact per-file summaries, validation notes, and last-observed hashes.
 - Tool supervision for redundant fetches, repeated reads, repeated searches, and risky tool calls.
 - Reasoning-aware context pruning that preserves constraints, validation evidence, and dead-end history.
-- Lightweight difficulty-state tracking to decide whether to inject context, ask steering, require validation, or stay quiet.
 - Optional small steering model interface for ambiguous decisions, disabled by default or configured explicitly.
 - Local dashboard with runs, trace replay, policies, lessons, analytics, and feedback pages.
+- Per-step observability in the dashboard: run health, fired monitors, decisions, tokens, cost estimates, validation evidence, and final outcome.
+- Baseline comparison or A/B evaluation scaffolding so guarded and unguarded runs can be compared later.
 - Lesson memory with candidate, approved, disabled, and expired states.
-- Basic cost and token accounting using event metadata when available and estimation when unavailable.
+- Basic cost and token accounting using event metadata, provider pricing profiles, baseline links, and explicit controlled/correlated labels.
 - Fail-open daemon unavailable behavior by default, with fail-closed configuration.
 
 Initial hard rules:
@@ -61,6 +111,24 @@ Initial steering model use cases:
 - Broad edit classification.
 - Approved lesson selection.
 - Failure category classification.
+
+Initial runtime monitor categories:
+
+- Semantic loop monitor: detects repeated attempts with no new evidence.
+- Verification monitor: detects finalization attempts after edits without accepted validation.
+- Drift monitor: detects movement away from the original task contract.
+- Tool repetition monitor: detects repeated reads, searches, fetches, and commands.
+- Stale evidence monitor: detects conclusions based on superseded files or old command output.
+- Cost pressure monitor: detects long runs with low progress and high token accumulation.
+
+Initial capability modules:
+
+1. **Scoped lesson recall**: convert reviewed successful traces into local lessons that can be matched by repo, task shape, failure signal, confidence, provenance, and cooldown. A lesson may be injected only when the matching gate explains why the current run is close enough to the saved situation.
+2. **Hash-aware file memory**: maintain compact per-file summaries, ownership hints, exported symbols, validation notes, and last-observed hashes. The sidecar should prefer these summaries when files are unchanged, and should explain why a file-memory hint was safe to reuse.
+3. **Runtime loop monitors**: detect exact command repetition, repeated file reads, stale searches, semantic retries, old evidence, and low-progress high-cost runs. Monitors should return supporting evidence, cooldown state, and a narrow recovery suggestion.
+4. **Tool policy supervision**: inspect shell commands, file edits, searches, fetches, and validation commands before they add risk or cost. The first hard-rule set should cover dangerous shell commands, protected paths, broad edits, redundant fetches, repeated searches, and missing validation.
+5. **Task-context compression**: preserve the durable task contract, active constraints, validation evidence, accepted lessons, and unresolved risks while pruning stale tool output and low-value turns. Compression should record what was kept, what was dropped, and estimated token delta.
+6. **Steering direction**: keep deterministic rules as the default path. When hard rules cannot classify the situation and steering is enabled, send a compact state summary to the configured steering model and request a narrow next-step recommendation. Store the steering reason code, confidence, model id, prompt version, and fallback action. Steering must remain off or local/configured by default and must not receive raw traces unless the user explicitly enables that mode.
 
 ## 3. Non-Goals
 
@@ -88,10 +156,10 @@ The MVP should not attempt to:
           │ hook event JSON
           ▼
 ┌────────────────────┐
-│ agentguard CLI     │
+│ agent-sidecar CLI  │
 │ hook adapter       │
 └─────────┬──────────┘
-          │ HTTP localhost
+          │ daemon request
           ▼
 ┌──────────────────────────────────────────────────────┐
 │ apps/daemon                                           │
@@ -475,7 +543,7 @@ type PatternMatch = {
 };
 ```
 
-Pattern injection must be confidence-gated. The runtime should store matches even when `shouldInject` is false so the dashboard can explain why AgentGuard stayed quiet.
+Pattern injection must be confidence-gated. The runtime should store matches even when `shouldInject` is false so the dashboard can explain why Agent Sidecar stayed quiet.
 
 ### Difficulty State
 
@@ -489,7 +557,7 @@ type DifficultyState = {
 };
 ```
 
-Difficulty state is a compact runtime signal, not an orchestration system. It helps AgentGuard decide whether to inject context, ask steering, require validation, or suppress low-confidence interventions.
+Difficulty state is a compact runtime signal, not an orchestration system. It helps Agent Sidecar decide whether to inject context, ask steering, require validation, or suppress low-confidence interventions.
 
 ### Prompt Optimization
 
@@ -554,31 +622,33 @@ Example optimization:
 
 ```text
 Original prompt:
-Fix the logger issue in Queue Service 2.
+Fix the logger issue in the worker service.
 
 Optimized prompt:
-Task: Fix the Queue Service 2 logger issue.
-Scope: Inspect current logging setup, dependency injection registration, configuration, and tests before editing.
+Task: Fix the worker service logger issue.
+Scope: Inspect current logging setup, service registration, configuration, and tests before editing.
 Constraints: Keep changes minimal. Do not refactor unrelated services.
-Validation: Run targeted Queue Service 2 build/tests after edits.
-Relevant lesson: For C# DI/logging failures, inspect service registration before constructor or test changes.
+Validation: Run targeted worker service build/tests after edits.
+Relevant lesson: For service logger failures, inspect registration and config binding before changing tests.
 ```
 
 ## 7. Hook Integration Strategy
 
-The CLI should expose a stable local hook command:
+The pip-installed CLI should expose stable terminal commands:
 
 ```bash
-agentguard hook --provider codex
-agentguard hook --provider claude-code
-agentguard hook --provider generic
+python -m pip install agent-sidecar
+agent-sidecar daemon start
+agent-sidecar hook install --provider codex
+agent-sidecar hook install --provider claude-code
+agent-sidecar hook --provider generic
 ```
 
 The hook command should:
 
 1. Read JSON from stdin.
 2. Add provider and local metadata.
-3. POST to the local daemon.
+3. Send the event to the running sidecar daemon.
 4. Print a provider-compatible response.
 5. Fail open if the daemon is unavailable and policy is fail-open.
 6. Fail closed if explicitly configured.
@@ -589,7 +659,7 @@ Codex integration should start with documented hook event shapes available in th
 
 ## 8. Event Normalization Strategy
 
-Normalization converts provider-specific events into stable AgentGuard events.
+Normalization converts provider-specific events into stable Agent Sidecar events.
 
 Normalization goals:
 
@@ -822,7 +892,7 @@ Initial provider strategy:
 
 Lessons are structured memory items that require approval before runtime injection. They should help avoid repeated mistakes without storing raw reasoning.
 
-AgentGuard lessons should use a compact three-part operational format:
+Agent Sidecar lessons should use a compact three-part operational format:
 
 - Situation: when this lesson applies.
 - Dead ends: specific approaches, commands, assumptions, or files that wasted work.
@@ -872,7 +942,7 @@ Semantic file memory stores compact local summaries of files the agent has alrea
 Lifecycle:
 
 1. File read, search, edit, or validation events identify candidate files.
-2. AgentGuard records path, hash when available, language hints, exported symbols, responsibilities, and validation notes.
+2. Agent Sidecar records path, hash when available, language hints, exported symbols, responsibilities, and validation notes.
 3. If the file changes, the memory is marked stale until refreshed.
 4. Future runs retrieve matching file memory by repo, path, symbols, task terms, and confidence.
 5. Prompt optimizer injects only compact file-memory hints when relevant.
@@ -909,7 +979,7 @@ The pruning layer should emit explainable metadata:
 
 ## 14. Dashboard Design
 
-The dashboard should be a local Next.js app served either by its own dev server in development or by the daemon in packaged mode.
+The dashboard should be served by the sidecar in packaged mode and by its own dev server only during development. Customers should not need to clone the repository or start a Node dev server.
 
 Pages:
 
@@ -953,6 +1023,7 @@ MVP UI priorities:
 
 Analytics should include:
 
+- Total cost saved, with the baseline method clearly labeled.
 - Cost per successful task when cost data exists.
 - Estimated tokens per successful task.
 - Success rate.
@@ -977,6 +1048,8 @@ Analytics should include:
 - Repeated tool calls avoided.
 
 Prompt optimization analytics should clearly label correlation as correlation unless an explicit A/B evaluation exists. For example, "runs with prompt optimization had lower repeated tool-call rate" must not be presented as causal unless controlled evaluation is implemented.
+
+Cost analytics should be computed from per-step usage metadata and a versioned price table. When a provider does not return complete usage metadata, the dashboard should mark the affected costs as estimated. The cost report should store `baseline_run_id`, `baseline_method`, `guarded_cost_usd`, `baseline_cost_usd`, `savings_usd`, `token_delta`, and `evidence_label` so every “total cost saved” number can be traced back to individual runs.
 
 ## 15. Storage Schema
 
@@ -1327,9 +1400,9 @@ Exit criteria:
 
 ### Milestone 3: CLI and Generic Hook Adapter
 
-- Implement `agentguard status`.
-- Implement `agentguard daemon start`.
-- Implement `agentguard hook --provider generic`.
+- Implement `agent-sidecar status`.
+- Implement `agent-sidecar daemon start`.
+- Implement `agent-sidecar hook --provider generic`.
 - Add fail-open and fail-closed behavior.
 
 Exit criteria:
@@ -1383,7 +1456,7 @@ Exit criteria:
 
 ### Milestone 7: Dashboard MVP
 
-- Build local dashboard shell.
+- Build sidecar dashboard shell.
 - Add runs list.
 - Add trace replay.
 - Add decision detail cards.
@@ -1392,7 +1465,7 @@ Exit criteria:
 
 Exit criteria:
 
-- A user can inspect a run, see optimized prompts, pattern matches, file-memory hints, tool-supervision events, and why AgentGuard intervened, then mark feedback locally.
+- A user can inspect a run, see optimized prompts, pattern matches, file-memory hints, tool-supervision events, and why Agent Sidecar intervened, then mark feedback locally.
 
 ### Milestone 8: Lessons
 
@@ -1458,7 +1531,7 @@ Exit criteria:
 
 Exit criteria:
 
-- A user can install AgentGuard locally, configure at least one agent, run a real task, and review the run in the dashboard.
+- A user can install Agent Sidecar locally, configure at least one agent, run a real task, and review the run in the dashboard.
 
 ## 19. Risks and Mitigations
 
@@ -1536,7 +1609,7 @@ Mitigation: Require situation/dead-end/unlock fields, structured triggers, appro
 
 ### Pattern Over-Injection
 
-Risk: AgentGuard could inject too many patterns and bloat prompts or bias the agent toward the wrong prior solution.
+Risk: Agent Sidecar could inject too many patterns and bloat prompts or bias the agent toward the wrong prior solution.
 
 Mitigation: Inject at most 1-3 lessons, require confidence thresholds, log non-injected matches, show provenance, and track helpful/unhelpful feedback.
 

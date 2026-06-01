@@ -9,11 +9,11 @@ import {
   type NormalizedAgentEvent,
   type PromptOptimizationResult,
   type StoredRun
-} from "@agentguard/storage";
+} from "@agent-sidecar/storage";
 
 export type HealthResponse = {
   status: "ok";
-  service: "agentguard-daemon";
+  service: "agent-sidecar-daemon";
 };
 
 export type BuildServerOptions = {
@@ -38,7 +38,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 
   server.get("/health", async (): Promise<HealthResponse> => ({
     status: "ok",
-    service: "agentguard-daemon"
+    service: "agent-sidecar-daemon"
   }));
 
   server.post("/api/runs", async (request, reply) => {
