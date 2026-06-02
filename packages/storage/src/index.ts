@@ -341,6 +341,48 @@ export class Storage {
     return run;
   }
 
+  updateRunFromEvent(event: StoredEvent): StoredRun | undefined {
+    const existing = this.getRun(event.runId);
+    if (!existing) {
+      return undefined;
+    }
+
+    const inputTokens = numberFromRecord(event.tokenUsage, ["inputTokens", "input_tokens", "prompt_tokens"]);
+    const outputTokens = numberFromRecord(event.tokenUsage, ["outputTokens", "output_tokens", "completion_tokens"]);
+    const costUsd = numberFromRecord(event.costEstimate, ["amountUsd", "amount_usd", "costUsd", "cost_usd"]);
+    const completed = event.eventType === "run_finished";
+    const status = completed ? "completed" : existing.status;
+    const taskSummary = event.eventType === "prompt" ? event.summary : existing.taskSummary;
+
+    this.db
+      .prepare(
+        `
+        UPDATE runs
+        SET
+          task_summary = @taskSummary,
+          status = @status,
+          updated_at = @updatedAt,
+          completed_at = COALESCE(@completedAt, completed_at),
+          total_input_tokens = total_input_tokens + @inputTokens,
+          total_output_tokens = total_output_tokens + @outputTokens,
+          total_estimated_cost_usd = total_estimated_cost_usd + @costUsd
+        WHERE id = @runId
+      `
+      )
+      .run({
+        runId: event.runId,
+        taskSummary: taskSummary ?? null,
+        status,
+        updatedAt: event.timestamp,
+        completedAt: completed ? event.timestamp : null,
+        inputTokens,
+        outputTokens,
+        costUsd
+      });
+
+    return this.getRun(event.runId);
+  }
+
   listRuns(limit = 100): StoredRun[] {
     const rows = this.db
       .prepare("SELECT * FROM runs ORDER BY updated_at DESC LIMIT ?")
@@ -879,6 +921,21 @@ function lessonParams(lesson: Lesson): Record<string, unknown> {
     expiresAt: lesson.expiresAt ?? null,
     lessonJson: JSON.stringify(stripUndefined(lesson))
   };
+}
+
+function numberFromRecord(record: JsonRecord | undefined, keys: string[]): number {
+  if (!record) {
+    return 0;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return 0;
 }
 
 function stripUndefined<T>(value: T): T {
