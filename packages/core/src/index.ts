@@ -365,6 +365,9 @@ export const TaskContract = z
     task: ShortText,
     scope: z.array(z.string().max(500)).max(50),
     constraints: z.array(z.string().max(500)).max(50),
+    acceptance_criteria: z.array(z.string().max(500)).max(50),
+    pr_boundaries: z.array(z.string().max(500)).max(50),
+    test_expectations: z.array(z.string().max(500)).max(50),
     validation_requirements: z.array(z.string().max(500)).max(50),
     relevant_lessons: z.array(z.string().max(500)).max(10),
     risk_notes: z.array(z.string().max(500)).max(25)
@@ -389,6 +392,17 @@ export const PromptOptimizationInput = z
     latestErrorSignature: z.string().max(500).optional(),
     changedFileCount: z.number().int().nonnegative().default(0),
     recentCommandSignatures: z.array(z.string().max(500)).max(25).default([]),
+    contextSnapshot: z
+      .object({
+        repoType: z.string().max(200).optional(),
+        agentsMd: z.array(z.string().max(2_000)).max(20).default([]),
+        previousPlans: z.array(z.string().max(2_000)).max(20).default([]),
+        fileTree: z.array(z.string().max(1_000)).max(500).default([]),
+        activeBranch: z.string().max(500).optional(),
+        relevantDiffs: z.array(z.string().max(2_000)).max(50).default([])
+      })
+      .strict()
+      .optional(),
     normalizedEvent: NormalizedAgentEvent,
     runState: RunState,
     policy: Policy,
@@ -404,7 +418,10 @@ export const PromptOptimizationResult = z
     runId: Identifier,
     eventId: Identifier,
     mode: PromptRewriteMode,
+    originalPrompt: z.string().max(8_000).optional(),
     optimizedPrompt: z.string().min(1).max(20_000),
+    estimatedOptimizedTokens: z.number().int().nonnegative(),
+    resultQuality: z.enum(["unknown", "accepted", "needs_followup", "failed"]).default("unknown"),
     taskContract: TaskContract,
     constraints: z.array(z.string().max(500)).max(50),
     validationRequirements: z.array(z.string().max(500)).max(50),

@@ -391,13 +391,13 @@ Initial monitor and tool-cost guardrail actions:</li>
 <p>Start the sidecar from the user’s terminal with <code>agent-sidecar daemon start</code>.</p>
 </li>
 <li>
-<p>Configure Codex or Claude Code hooks to call Agent Sidecar.</p>
+<p>Run Codex through Agent Sidecar with <code>agent-sidecar codex &quot;&lt;task&gt;&quot;</code>.</p>
 </li>
 <li>
-<p>Run the coding agent normally.</p>
+<p>Let the sidecar retrieve context, rewrite the task, submit the optimized prompt to Codex, and supervise runtime hooks.</p>
 </li>
 <li>
-<p>Review traces, decisions, monitors, lessons, and analytics in the sidecar dashboard.</p>
+<p>Review original prompts, optimized prompts, token estimates, result quality, traces, decisions, monitors, lessons, and analytics in the sidecar dashboard.</p>
 </li>
 </ol>
 <p>Install path:</p>
@@ -1732,12 +1732,12 @@ repoMapEntryIds?: string[];</li>
 <li>Implement lesson injection.</li>
 <li>Implement dead-end-to-avoid rendering.</li>
 <li>Implement repo-map hint rendering.</li>
-<li>Store prompt optimization results.</li>
+<li>Store prompt optimization results, context snapshot metadata, token estimates, and result quality.</li>
 <li>Add unit tests.</li>
 </ul>
 <p>Exit criteria:</p>
 <ul>
-<li>Vague prompt fixtures produce compact task contracts.</li>
+<li>Task-first prompt fixtures produce compact task contracts with acceptance criteria, PR boundaries, and test expectations.</li>
 <li>Validation-missing <code>Stop</code> fixtures produce short continuation prompts.</li>
 <li>Approved relevant lessons can be injected while disabled lessons are ignored.</li>
 <li>High-confidence dead-end patterns render as short avoidance hints.</li>
@@ -1780,11 +1780,11 @@ repoMapEntryIds?: string[];</li>
 </ol>
 <p>The landing demo should model the same runtime flow the product implements:</p>
 <ol>
-<li>User installs Agent Sidecar, starts the daemon, and attaches Codex hooks.</li>
-<li>User enters a vague Codex prompt that benefits from prompt shaping.</li>
-<li>Agent Sidecar converts the prompt into a compact task brief before Codex continues.</li>
-<li>The six controls run against the prompt, repo state, monitors, and budget signals.</li>
-<li>Codex edits code using the optimized prompt and ensemble steering output.</li>
+<li>User installs Agent Sidecar, starts the daemon, and submits Codex tasks through Agent Sidecar.</li>
+<li>User enters the task into Agent Sidecar instead of typing directly into Codex.</li>
+<li>Agent Sidecar retrieves repo type, AGENTS.md, previous plans, file tree, active branch, and relevant diffs, then rewrites the prompt.</li>
+<li>The rewrite removes fluff and adds constraints, acceptance criteria, PR boundaries, and test expectations.</li>
+<li>Agent Sidecar submits the optimized prompt to Codex and records original prompt, optimized prompt, token estimate, result quality, decisions, and validation evidence.</li>
 <li>The dashboard records the decision, validation requirement, guarded run cost, baseline cost, and total cost saved.</li>
 </ol>
 <p>The docs page should stay higher level than this plan. It should explain install, how it works, architecture, decisions, and cost math without exposing every internal package or schema detail.</p>
@@ -1855,7 +1855,7 @@ repoMapEntryIds?: string[];</li>
 <h3 id="milestone-12-packaging-and-real-agent-trials">Milestone 12: Packaging and Real Agent Trials</h3>
 <ul>
 <li>Package CLI.</li>
-<li>Document Codex and Claude Code hook setup.</li>
+<li>Document task-first <code>agent-sidecar codex</code> setup plus Codex and Claude Code hook setup for runtime supervision.</li>
 <li>Run real local trials.</li>
 <li>Tune default monitors and policy examples.</li>
 </ul>

@@ -2,13 +2,13 @@
 
 ## 1. Product Summary
 
-Agent Sidecar is a terminal-run runtime reliability layer for AI coding agents such as Codex and Claude Code. Users install it with `pip`, start the sidecar daemon from their terminal, and configure agent hooks to call the sidecar command. The sidecar receives hook events from agent runtimes, normalizes and stores those events, retrieves approved reliability patterns and repo-map entries, evaluates runtime monitors and tool-cost guardrail checks, optionally asks an ensemble of cheaper steering models for ambiguous cases, and returns decisions that can warn, block, require continuation, inject context, or require validation.
+Agent Sidecar is a terminal-run prompt control plane and runtime reliability layer for AI coding agents such as Codex. Users install it with `pip`, start the sidecar daemon from their terminal, and enter coding tasks into Agent Sidecar instead of typing directly into Codex. The sidecar retrieves repo context, rewrites the task into a compact Codex-ready prompt, submits the optimized prompt to Codex, records prompt lineage and result quality, and then uses hooks to supervise the active run.
 
 Agent Sidecar should make agent runs observable, correctable, cheaper to operate, and measurable. Each run should stream structured telemetry into the sidecar dashboard: hook events, normalized steps, monitor hits, difficulty state, decision reason codes, token and cost signals, validation evidence, and final outcome. The product should not only intervene; it should make the impact of each intervention auditable.
 
 The runtime should detect common long-running agent failures while the run is still active: semantic loops, repeated tool calls, skipped verification, silent topic drift, stale evidence, hedging/backtracking, and unbounded context growth. These detections should feed a lightweight difficulty state machine that helps decide whether Agent Sidecar should stay quiet, inject approved guidance, require validation, ask the steering ensemble, or stop wasteful continuation.
 
-Agent Sidecar also includes a prompt optimization layer. This layer does not replace the runtime decision pipeline. It runs before monitor evaluation and steering so the agent starts with, or continues from, a compact task contract instead of vague or stale prompt context. Prompt optimization should reduce wasted steps and downstream tokens while preserving runtime monitoring, tool-cost guardrails, and steering controls.
+Agent Sidecar's prompt optimization layer is now the entry point for Codex tasks. It runs before Codex receives the task, retrieves local context, removes fluff, adds constraints, acceptance criteria, PR boundaries, and test expectations, and records the original prompt, optimized prompt, token estimate, and result quality. Runtime monitoring, tool-cost guardrails, validation requirements, and optional steering still run after submission.
 
 
 ### Business Framing
@@ -25,33 +25,44 @@ Initial monitor and tool-cost guardrail actions:
 
 1. Install the package with `python -m pip install agent-sidecar`.
 2. Start the sidecar from the user’s terminal with `agent-sidecar daemon start`.
-3. Configure Codex or Claude Code hooks to call Agent Sidecar.
-4. Run the coding agent normally.
-5. Review traces, decisions, monitors, lessons, and analytics in the sidecar dashboard.
+3. Run Codex through Agent Sidecar with `agent-sidecar codex "<task>"`.
+4. Let the sidecar retrieve context, rewrite the prompt, submit the optimized task to Codex, and supervise the run.
+5. Review original prompts, optimized prompts, token estimates, result quality, traces, decisions, monitors, lessons, and analytics in the sidecar dashboard.
 
 Install path:
 
 ```bash
 python -m pip install agent-sidecar
 agent-sidecar daemon start
+agent-sidecar codex "Fix the auth refresh bug"
 agent-sidecar hook install --provider codex
-agent-sidecar hook install --provider claude-code
 ```
+
+### Task Submission Lifecycle
+
+The first product path is task-first rather than hook-first. The user enters a task into Agent Sidecar; Agent Sidecar retrieves context and submits the optimized prompt to Codex. Hooks remain important after submission for runtime supervision.
+
+1. `task_received`: store the original prompt, provider target, repo, branch, pricing profile, and config snapshot.
+2. `context_retrieval`: collect repo type, applicable `AGENTS.md` instructions, previous plans, compact file tree, active branch, and relevant diffs.
+3. `prompt_rewrite`: remove fluff, preserve intent, and add constraints, acceptance criteria, PR boundaries, and test expectations.
+4. `token_estimate`: estimate original and optimized prompt tokens before Codex spend begins.
+5. `submit_to_codex`: pass the optimized prompt to Codex as the task contract.
+6. `run_supervision`: ingest hook events, normalize steps, update state, run monitors and tool-cost guardrails, and require validation when needed.
+7. `record`: store original prompt, optimized prompt, context snapshot metadata, token estimate, decisions, validation evidence, and result quality.
+8. `respond`: surface compact decisions during the run and show the full lineage in the dashboard.
 
 ### Runtime Lifecycle
 
-The runtime pipeline runs between agent steps. It should keep the agent’s working history clean and return only the decision or short injected guidance required for the next step.
+The runtime pipeline runs between Codex steps after the optimized prompt has been submitted. It should keep the agent’s working history clean and return only the decision or short injected guidance required for the next step.
 
-1. `run_start`: create a run record with provider, model, repo, task, pricing profile, and config snapshot.
-2. `event_received`: persist the raw hook payload and attach provider metadata.
-3. `normalize`: convert provider-specific payloads into stable command, read, edit, validation, tool, usage, finalization, and error events.
-4. `state_update`: update run state, edited paths, validation freshness, repeated-tool counters, token/cost totals, and difficulty state.
-5. `trajectory_assessment`: run deterministic monitors for loops, skipped validation, drift, stale evidence, risky tools, and cost pressure.
-6. `memory_gate`: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.
-7. `prompt_optimization`: create a task contract, continuation prompt, validation prompt, compaction output, or short injected context when useful.
-8. `decision_steering`: compose monitor outputs, confidence gates, prompt optimization results, and optional cheaper-model ensemble guidance into one response.
-9. `record`: store monitor results, decision source, cost rollup, injected context, and outcome labels.
-10. `respond`: return a provider-compatible action before the agent continues.
+1. `event_received`: persist the raw hook payload and attach provider metadata.
+2. `normalize`: convert provider-specific payloads into stable command, read, edit, validation, tool, usage, finalization, and error events.
+3. `state_update`: update run state, edited paths, validation freshness, repeated-tool counters, token/cost totals, and difficulty state.
+4. `trajectory_assessment`: run deterministic monitors for loops, skipped validation, drift, stale evidence, risky tools, and cost pressure.
+5. `memory_gate`: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.
+6. `decision_steering`: compose monitor outputs, confidence gates, prompt lineage, and optional cheaper-model ensemble guidance into one response.
+7. `record`: store monitor results, decision source, cost rollup, injected context, and outcome labels.
+8. `respond`: return a provider-compatible action before Codex continues.
 
 ### Cost Calculation
 
@@ -649,8 +660,8 @@ The pip-installed CLI should expose stable terminal commands:
 ```bash
 python -m pip install agent-sidecar
 agent-sidecar daemon start
+agent-sidecar codex "Fix the auth refresh bug"
 agent-sidecar hook install --provider codex
-agent-sidecar hook install --provider claude-code
 agent-sidecar hook --provider generic
 ```
 
@@ -1352,7 +1363,7 @@ End-to-end smoke tests:
 - Confirm dashboard APIs show run, events, decisions, and analytics.
 - Send run with edit and no validation before final attempt.
 - Confirm validation block decision.
-- Send prompt optimization fixture and confirm dashboard can display original prompt, optimized prompt, task contract, rewrite reason, injection status, deterministic/model badge, and injected lessons.
+- Send prompt optimization fixture and confirm dashboard can display original prompt, optimized prompt, task contract, context snapshot metadata, token estimate, result quality, rewrite reason, submission/injection status, deterministic/model badge, and injected lessons.
 - Send repeated file-read and repeated-search fixtures and confirm tool supervision records are created.
 - Send matching lesson fixtures and confirm only high-confidence approved patterns are injected.
 - Run a local synthetic baseline/treatment comparison and confirm analytics label it as correlation unless the fixture is explicitly configured as controlled.
@@ -1503,17 +1514,17 @@ Website-facing controls:
 2. Repo map cache.
 3. Trajectory watchdogs.
 4. Tool-cost guardrails.
-5. Prompt shaping and compaction.
+5. Task-first prompt shaping.
 6. Ensemble steering.
 
 The landing demo should model the same runtime flow the product implements:
 
-1. User installs Agent Sidecar, starts the daemon, and attaches Codex hooks.
-2. User enters a vague Codex prompt that benefits from prompt shaping.
-3. Agent Sidecar converts the prompt into a compact task brief before Codex continues.
-4. The six controls run against the prompt, repo state, monitors, and budget signals.
-5. Codex edits code using the optimized prompt and ensemble steering output.
-6. The dashboard records the decision, validation requirement, guarded run cost, baseline cost, and total cost saved.
+1. User installs Agent Sidecar, starts the daemon, and submits a task through `agent-sidecar codex`.
+2. User enters the task into Agent Sidecar instead of typing directly into Codex.
+3. Agent Sidecar retrieves repo type, `AGENTS.md`, previous plans, file tree, active branch, and relevant diffs.
+4. Agent Sidecar rewrites the prompt by removing fluff and adding constraints, acceptance criteria, PR boundaries, and test expectations.
+5. Agent Sidecar submits the optimized prompt to Codex, then supervises Codex with hooks.
+6. The dashboard records original prompt, optimized prompt, token estimate, result quality, decisions, validation evidence, guarded run cost, baseline cost, and total cost saved.
 
 The docs page should stay higher level than this plan. It should explain install, how it works, architecture, decisions, and cost math without exposing every internal package or schema detail.
 
@@ -1583,7 +1594,7 @@ Exit criteria:
 ### Milestone 12: Packaging and Real Agent Trials
 
 - Package CLI.
-- Document Codex and Claude Code hook setup.
+- Document task-first `agent-sidecar codex` setup plus Codex and Claude Code hook setup for runtime supervision.
 - Run real local trials.
 - Tune default monitors and policy examples.
 
