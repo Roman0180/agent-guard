@@ -1,28 +1,38 @@
 # Agent Sidecar Architecture
 
-Agent Sidecar is a terminal-run reliability sidecar for AI coding agents. Users install the package with `pip`, start the sidecar daemon from their shell, and configure Codex, Claude Code, or another agent runtime to send hook events into the sidecar. The daemon owns ingestion, state, prompt optimization, monitor evaluation, model-ensemble steering, persistence, API access, and runtime decisions. The dashboard is a replay and control surface; it does not make runtime decisions or read storage directly.
+Agent Sidecar is a terminal-run prompt control plane for AI coding agents. Users enter a task into the sidecar instead of typing directly into Codex. The sidecar retrieves local context, rewrites the request into a compact task contract, submits the optimized prompt to Codex, and records the prompt lineage and result quality for replay and measurement. Runtime hooks still capture later agent events so the same sidecar can warn, block, require validation, or inject continuation context while the run is active.
 
 ```text
-agent-sidecar hook adapter
+User enters task
       |
       v
 Terminal sidecar daemon
       |
-      +--> event normalization
-      +--> run-state update
-      +--> trajectory monitors
-      +--> semantic file memory
-      +--> approved lesson retrieval
-      +--> prompt optimization
-      +--> runtime monitors
-      +--> cheaper steering model ensemble
-      +--> cost and token accounting
-      +--> SQLite trace storage
+      +--> retrieve context
+      |      - repo type
+      |      - AGENTS.md instructions
+      |      - previous plans
+      |      - file tree
+      |      - active branch
+      |      - relevant diffs
       |
-      v
-Decision response
+      +--> rewrite prompt
+      |      - remove fluff
+      |      - add constraints
+      |      - add acceptance criteria
+      |      - add PR boundaries
+      |      - add test expectations
+      |
+      +--> submit optimized prompt to Codex
+      |
+      +--> record lineage and outcome
+             - original prompt
+             - optimized prompt
+             - token estimate
+             - result quality
 
-Dashboard --> daemon API --> trace, lesson, repo map, policy, and analytics data
+Codex hook events --> sidecar runtime monitors --> compact decisions
+Dashboard --> daemon API --> traces, prompts, context, policies, lessons, and analytics
 ```
 
 ## Installation And Runtime Shape
@@ -32,26 +42,38 @@ The product should install and run from the user’s terminal:
 ```bash
 python -m pip install agent-sidecar
 agent-sidecar daemon start
-agent-sidecar hook install --provider codex
-agent-sidecar hook install --provider claude-code
+agent-sidecar codex "Fix the auth refresh bug"
 ```
 
-The `agent-sidecar` Python package should expose a stable CLI. Internally it can start packaged services, open the dashboard, manage configuration, and install hook snippets. The important boundary is that the agent runtime calls the sidecar hook command and receives a structured decision response. If the daemon is unavailable, the hook command follows the configured availability policy: fail open by default, fail closed when explicitly configured.
+The `agent-sidecar` Python package should expose a stable CLI. The primary Codex path is task-first: the user gives the task to Agent Sidecar, Agent Sidecar gathers context and rewrites the prompt, then the sidecar launches or submits to Codex with the optimized prompt. Hook installation remains available for in-run supervision and for runtimes that can only call external tools after a session starts.
 
-## Runtime Lifecycle
+If the daemon is unavailable, the CLI follows the configured availability policy: fail open by default by passing the original prompt to Codex, or fail closed when explicitly configured.
 
-The sidecar acts between agent steps. It should not rewrite the agent’s full message history, and it should not accumulate unbounded guidance. Each decision is derived from the current event, durable run state, approved memory, monitor signals, and configured steering budget.
+## Task Submission Lifecycle
 
-1. **Run start**: the first hook event creates a run record with provider, model, repository, task metadata, pricing profile, and configuration snapshot.
-2. **Step ingest**: every hook payload is captured as raw JSON, assigned a stable event id, and associated with a run id.
-3. **Normalization**: provider-specific payloads are converted into normalized step records: command, file read, edit, validation, tool call, model usage, finalization attempt, or error.
-4. **Run-state update**: the daemon updates counters for edited paths, validation freshness, repeated tools, recent files, cost, tokens, monitor history, and difficulty state.
-5. **Memory gate**: semantic file memory and approved lessons are retrieved only when scope, confidence, and cooldown gates pass.
-6. **Prompt optimization**: the sidecar may produce a compact task contract, continuation prompt, validation reminder, compaction output, or short context injection.
-7. **Trajectory assessment**: deterministic monitors and tool-cost guardrails evaluate loops, repeated reads, stale evidence, skipped validation, drift, risky tools, and cost pressure.
-8. **Decision evaluation**: prompt outputs, monitor results, confidence gates, and optional cheaper steering models are composed into one action: allow, warn, block, require continuation, inject context, or require validation.
-9. **Persistence**: the daemon stores raw event, normalized event, monitors fired, decision, cost rollup, prompt optimization output, and outcome labels.
-10. **Response**: the hook command returns a decision object to the agent runtime before the agent continues.
+The sidecar owns the initial prompt boundary. It should not pass a vague or context-free task to Codex when local context is available.
+
+1. **Task received**: store the user’s original task, provider target, repo root, requested model when known, pricing profile, and configuration snapshot.
+2. **Context retrieval**: collect repo type, applicable `AGENTS.md` instructions, previous plans, compact file tree, active branch, and relevant diffs. Keep context local and compact by default.
+3. **Prompt rewrite**: remove conversational fluff, preserve the user’s intent, add constraints, acceptance criteria, PR boundaries, and test expectations.
+4. **Token estimate**: estimate original and optimized prompt tokens before submission so the dashboard can show prompt delta and cost expectations.
+5. **Submit to Codex**: send the optimized prompt to Codex as the task contract. Codex should not need to infer missing scope, validation, or PR boundaries from the original user wording.
+6. **Runtime supervision**: ingest Codex hook events during the run, normalize them, update run state, and apply monitors, tool-cost guardrails, lesson injection, and validation requirements.
+7. **Record result**: persist original prompt, optimized prompt, context snapshot metadata, estimated token delta, decisions, validation evidence, and result quality.
+8. **Replay and measure**: expose the full prompt lineage and outcome through daemon APIs for the dashboard.
+
+## Runtime Supervision Lifecycle
+
+After Codex starts, the sidecar still acts between agent steps. It should not rewrite the full agent message history or accumulate unbounded guidance. Each decision is derived from the current event, durable run state, approved memory, monitor signals, and configured steering budget.
+
+1. **Step ingest**: capture each hook payload as raw JSON, assign a stable event id, and associate it with a run id.
+2. **Normalization**: convert provider-specific payloads into normalized step records: command, file read, edit, validation, tool call, model usage, finalization attempt, or error.
+3. **Run-state update**: update counters for edited paths, validation freshness, repeated tools, recent files, cost, tokens, monitor history, and difficulty state.
+4. **Memory gate**: retrieve semantic file memory and approved lessons only when scope, confidence, and cooldown gates pass.
+5. **Trajectory assessment**: deterministic monitors and tool-cost guardrails evaluate loops, repeated reads, stale evidence, skipped validation, drift, risky tools, and cost pressure.
+6. **Decision evaluation**: monitor results, confidence gates, prompt lineage, and optional cheaper steering models are composed into one action: allow, warn, block, require continuation, inject context, or require validation.
+7. **Persistence**: store raw event, normalized event, monitors fired, decision, cost rollup, prompt optimization output, and outcome labels.
+8. **Response**: return a compact decision object to the agent runtime before the agent continues.
 
 ## Decision Contract
 
@@ -68,7 +90,7 @@ Decision responses should be explicit and small:
 }
 ```
 
-The agent should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: fired monitors, supervision reason, confidence gates, cost impact, and related trace evidence.
+Codex should see only the relevant decision text or injected context for that step. The dashboard stores the larger explanation: context snapshot, prompt rewrite reason, fired monitors, supervision reason, confidence gates, cost impact, and related trace evidence.
 
 ## State And Storage
 
@@ -77,6 +99,8 @@ SQLite is the MVP storage layer. The daemon owns all reads and writes. The dashb
 Minimum durable entities:
 
 - `runs`: provider, model, repo, task, status, outcome, cost, tokens, start/end timestamps.
+- `context_snapshots`: repo type, applicable `AGENTS.md` summaries, previous plan references, compact file tree, active branch, relevant diff summaries, created timestamp.
+- `prompt_optimizations`: original prompt, optimized prompt, task contract, token estimate, rewrite reason, injection/submission status, result quality.
 - `raw_events`: original hook payloads, source provider, received timestamp.
 - `normalized_events`: stable event type, paths, command, validation signal, usage metadata.
 - `decisions`: action, reason code, monitor/model source, severity, message, injected context.
@@ -109,18 +133,17 @@ If the baseline comes from a randomized control arm, the dashboard may label the
 
 ## Reliability Capabilities
 
-Agent Sidecar should cover these minimum runtime reliability capabilities:
+Agent Sidecar should cover these minimum reliability capabilities:
 
+- Task-first submission: users enter tasks into the sidecar, not directly into Codex, so context retrieval and prompt rewriting happen before agent spend begins.
+- Context retrieval: collect repo type, `AGENTS.md`, previous plans, file tree, active branch, and relevant diffs as compact prompt inputs.
+- Prompt rewriting: remove fluff, add constraints, acceptance criteria, PR boundaries, and test expectations.
+- Prompt lineage: record original prompt, optimized prompt, token estimate, and result quality.
 - Runbook memory: retrieve reviewed local fix notes only when repo scope, task shape, failure signal, and confidence gates match.
 - Dead-end avoidance: store operational guidance as a situation, avoided paths, and the unlock that worked.
 - Repo map cache: reuse compact file summaries, ownership hints, and validation notes when file hashes show the context is still current.
 - Trajectory watchdogs: detect repeated commands, repeated file reads, semantic retries, stale evidence, drift, and low-progress high-cost runs.
 - Tool-cost guardrails: identify redundant fetches, repeated searches, broad edits, protected paths, and risky commands before they compound cost or damage.
-- Prompt shaping and compaction: rewrite vague prompts into compact task briefs, preserve durable state, active constraints, validation requirements, and approved notes, and drop noisy or stale context.
-- Ensemble steering: use cheaper configured models to steer Codex and Claude Code through ambiguous next steps while keeping the steering budget lower than the avoided agent spend.
-- Reasoning-aware pruning: remove low-value context based on task state, validation evidence, and dead-end history rather than token count alone.
+- Ensemble steering: use cheaper configured models to steer Codex through ambiguous next steps while keeping the steering budget lower than avoided agent spend.
 - Confidence-gated injection: inject patterns only when structured triggers and similarity scores clear configurable thresholds.
-- Difficulty-state tracking: maintain a lightweight state such as `fast`, `normal`, `slow`, or `skip` to guide whether the sidecar should inject context, ask steering, require validation, or stay quiet.
 - Cost-per-success evaluation: compare guarded and unguarded runs and label results as controlled, estimated, or correlated depending on the evaluation design.
-
-These capabilities are terminal-run and local by default. Shared or cloud pattern libraries are a future opt-in feature and must use scrubbed, approved, operational lessons rather than raw traces.
