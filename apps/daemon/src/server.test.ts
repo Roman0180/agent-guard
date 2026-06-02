@@ -134,6 +134,11 @@ describe("@agent-sidecar/daemon", () => {
       url: "/api/runs/demo-run-2/prompt-optimizations"
     });
 
+    const demoResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/demo-run-2/demo"
+    });
+
     await server.close();
 
     expect(hookResponse.statusCode).toBe(201);
@@ -175,5 +180,110 @@ describe("@agent-sidecar/daemon", () => {
         optimizedPrompt: expect.stringContaining("Task:\nFix the logger issue")
       })
     ]);
+    expect(demoResponse.statusCode).toBe(200);
+    expect(demoResponse.json()).toMatchObject({
+      run: { id: "demo-run-2" },
+      checkpoints: [
+        { id: "hook-setup", status: "complete" },
+        { id: "prompt-ingest", status: "complete" },
+        { id: "prompt-optimization", status: "complete" },
+        { id: "run-state" }
+      ],
+      promptOptimizations: [
+        {
+          originalPrompt: "Fix the logger issue",
+          result: { mode: "initial_task" }
+        }
+      ]
+    });
   });
+  it("ingests generic hooks and updates run state across prompt, tool, edit, and validation events", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-prompt",
+        runId: "generic-run-1",
+        providerEventType: "UserPromptSubmit",
+        cwd: "/repo",
+        prompt: "Fix login refresh"
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-search",
+        runId: "generic-run-1",
+        providerEventType: "PreToolUse",
+        cwd: "/repo",
+        toolName: "Bash",
+        toolInput: { command: "rg refreshSession src/auth" }
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-edit",
+        runId: "generic-run-1",
+        providerEventType: "FileEdit",
+        cwd: "/repo",
+        toolName: "Edit",
+        touchedPaths: ["src/auth/session.ts"]
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-test",
+        runId: "generic-run-1",
+        providerEventType: "PostToolUse",
+        cwd: "/repo",
+        toolName: "Bash",
+        toolInput: { command: "pnpm test" },
+        result: { exitCode: 0, stdout: "ok" }
+      }
+    });
+
+    const eventsResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/generic-run-1/events"
+    });
+    const stateResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/generic-run-1/state"
+    });
+
+    await server.close();
+
+    expect(eventsResponse.statusCode).toBe(200);
+    expect(eventsResponse.json().map((event: { eventType: string }) => event.eventType)).toEqual([
+      "prompt",
+      "tool_call",
+      "file_edit",
+      "validation"
+    ]);
+    expect(stateResponse.statusCode).toBe(200);
+    expect(stateResponse.json().state).toMatchObject({
+      runId: "generic-run-1",
+      eventCounts: {
+        prompt: 1,
+        tool_call: 1,
+        file_edit: 1,
+        validation: 1
+      },
+      filesChanged: ["src/auth/session.ts"],
+      validationSinceLastEdit: true,
+      validationCommandCount: 1
+    });
+  });
+
 });

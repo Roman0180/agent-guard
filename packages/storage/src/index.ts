@@ -144,6 +144,11 @@ export type TaskContract = {
   risk_notes: string[];
 };
 
+export type PromptOptimizationRecord = {
+  result: PromptOptimizationResult;
+  originalPrompt?: string;
+};
+
 export type PromptOptimizationResult = {
   id: string;
   runId: string;
@@ -664,6 +669,23 @@ export class Storage {
       .all(runId) as PromptOptimizationRow[];
 
     return rows.map((row) => JSON.parse(row.result_json) as PromptOptimizationResult);
+  }
+
+  getPromptOptimizationRecordsForRun(runId: string): PromptOptimizationRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT * FROM prompt_optimizations
+        WHERE run_id = ?
+        ORDER BY created_at ASC, id ASC
+      `
+      )
+      .all(runId) as PromptOptimizationRow[];
+
+    return rows.map((row) => ({
+      result: JSON.parse(row.result_json) as PromptOptimizationResult,
+      originalPrompt: row.original_prompt ?? undefined
+    }));
   }
 
   private getLesson(id: string): Lesson | undefined {

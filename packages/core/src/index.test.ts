@@ -14,6 +14,7 @@ import {
   classifyCommand,
   normalizeClaudeHook,
   normalizeCodexHook,
+  normalizeGenericHook,
   normalizeCommandSignature,
   RunStateManager
 } from "./index.js";
@@ -268,6 +269,23 @@ describe("event normalization", () => {
       command: { type: "search", normalized: "search:platformlogger:src" }
     });
     expect(event.compactMetadata.cwd).toBe("/repo");
+  });
+
+  it("normalizes generic hook JSON", () => {
+    const event = normalizeGenericHook({
+      id: "generic-1",
+      runId: "generic-run",
+      providerEventType: "PreToolUse",
+      cwd: "/repo",
+      toolName: "Bash",
+      toolInput: { command: "pnpm build" },
+      result: { exitCode: 0 },
+      timestamp: now
+    });
+
+    expect(event.agent).toBe("generic");
+    expect(event.eventType).toBe("validation");
+    expect(event.command).toMatchObject({ type: "build", normalized: "build:pnpm" });
   });
 
   it("normalizes Claude hook JSON", () => {

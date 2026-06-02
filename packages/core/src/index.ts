@@ -638,6 +638,10 @@ export function normalizeClaudeHook(raw: unknown): NormalizedAgentEvent {
   return normalizeAnyHook(raw, "claude-code");
 }
 
+export function normalizeGenericHook(raw: unknown): NormalizedAgentEvent {
+  return normalizeAnyHook(raw, "generic");
+}
+
 export type RunStateStorage = {
   getLatestRunStateSnapshot(runId: string): { state: RunState } | undefined;
   saveRunStateSnapshot(snapshot: { id: string; runId: string; eventId: string; createdAt: string; state: RunState }): unknown;
