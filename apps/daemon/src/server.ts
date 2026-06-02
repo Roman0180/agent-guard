@@ -9,7 +9,7 @@ import {
   normalizeCodexHook,
   normalizeGenericHook
 } from "@agent-sidecar/core";
-import { PromptOptimizer } from "@agent-sidecar/prompt-optimizer";
+import { PromptOptimizer, type PromptOptimizationInput } from "@agent-sidecar/prompt-optimizer";
 import {
   Storage,
   type Decision,
@@ -32,6 +32,13 @@ export type BuildServerOptions = {
   storage?: Storage;
   databasePath?: string;
   logger?: boolean;
+  localPromptOptimizer?: {
+    enabled?: boolean;
+    baseUrl?: string;
+    model?: string;
+    timeoutMs?: number;
+    fetch?: typeof fetch;
+  };
 };
 
 type HookProvider = "codex" | "claude" | "generic";
@@ -52,6 +59,16 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const storage = options.storage ?? new Storage({ databasePath: options.databasePath ?? ":memory:" });
   const server = Fastify({
     logger: options.logger ?? true
+  });
+
+  server.addHook("onRequest", async (request, reply) => {
+    reply.header("Access-Control-Allow-Origin", "*");
+    reply.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    reply.header("Access-Control-Allow-Headers", "content-type");
+
+    if (request.method === "OPTIONS") {
+      return reply.code(204).send();
+    }
   });
 
   server.addHook("onClose", async () => {
@@ -125,6 +142,21 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     );
   });
 
+  server.get<{ Params: { id: string } }>("/api/dashboard/runs/:id", async (request, reply) => {
+    const run = storage.getRun(request.params.id);
+    if (!run) {
+      return reply.code(404).send({ error: "run_not_found" });
+    }
+
+    return createDemoReplay(
+      run,
+      storage.listEventsForRun(run.id),
+      storage.listDecisionsForRun(run.id),
+      storage.getPromptOptimizationRecordsForRun(run.id),
+      storage.getLatestRunStateSnapshot(run.id)
+    );
+  });
+
   server.get<{ Params: { id: string } }>("/api/runs/:id/state", async (request, reply) => {
     const snapshot = storage.getLatestRunStateSnapshot(request.params.id);
     if (!snapshot) {
@@ -138,6 +170,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     const event = request.body as NormalizedAgentEvent & { rawPayload?: unknown };
     ensureRun(storage, event.runId, event.agent);
     storage.addEvent(event);
+    storage.updateRunFromEvent(event);
     return reply.code(201).send(event);
   });
 
@@ -164,17 +197,17 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   });
 
   server.post("/hooks/generic", async (request, reply) => {
-    const result = ingestHook(storage, "generic", request.body);
+    const result = await ingestHook(storage, "generic", request.body, options);
     return reply.code(201).send(result);
   });
 
   server.post("/hooks/codex", async (request, reply) => {
-    const result = ingestHook(storage, "codex", request.body);
+    const result = await ingestHook(storage, "codex", request.body, options);
     return reply.code(201).send(result);
   });
 
   server.post("/hooks/claude", async (request, reply) => {
-    const result = ingestHook(storage, "claude", request.body);
+    const result = await ingestHook(storage, "claude", request.body, options);
     return reply.code(201).send(result);
   });
 
@@ -251,7 +284,12 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   return server;
 }
 
-function ingestHook(storage: Storage, provider: HookProvider, payload: unknown): HookIngestResult {
+async function ingestHook(
+  storage: Storage,
+  provider: HookProvider,
+  payload: unknown,
+  options: BuildServerOptions = {}
+): Promise<HookIngestResult> {
   const now = new Date().toISOString();
   const body = asRecord(payload);
   const runId =
@@ -266,7 +304,7 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
   if (!run) {
     run = {
       id: runId,
-      provider: provider === "codex" ? "codex" : "claude-code",
+      provider: provider === "codex" ? "codex" : provider === "claude" ? "claude-code" : "generic",
       externalId: stringValue(body.runExternalId) ?? stringValue(body.sessionExternalId),
       repoRoot: stringValue(body.repoRoot) ?? stringValue(body.cwd),
       branch: stringValue(body.branch),
@@ -296,6 +334,7 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
   };
 
   storage.addEvent(event);
+  const updatedRun = storage.updateRunFromEvent(event) ?? run;
   const runStateManager = new RunStateManager({
     getLatestRunStateSnapshot: (runId) => {
       const snapshot = storage.getLatestRunStateSnapshot(runId);
@@ -308,7 +347,7 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
   });
   const { rawPayload: _rawPayload, ...eventForState } = event;
   const runState = runStateManager.applyEvent(CoreNormalizedAgentEventSchema.parse(eventForState)) as RunState;
-  const promptOptimization = maybeOptimizePrompt(storage, run, event, body, now, runState);
+  const promptOptimization = await maybeOptimizePrompt(storage, run, event, body, now, runState, options);
   const decision = promptOptimization
     ? createPromptOptimizationDecision(run.id, event.id, promptOptimization)
     : createAllowDecision(run.id, event.id);
@@ -318,7 +357,7 @@ function ingestHook(storage: Storage, provider: HookProvider, payload: unknown):
     action: decision.action,
     reason: promptOptimization ? "prompt_optimized" : decision.reasonCode,
     message: decision.message,
-    run,
+    run: updatedRun,
     event,
     decision,
     ...(promptOptimization ? { prompt_optimization: promptOptimization } : {})
@@ -407,14 +446,15 @@ function createAllowDecision(runId: string, eventId: string): Decision {
   };
 }
 
-function maybeOptimizePrompt(
+async function maybeOptimizePrompt(
   storage: Storage,
   run: StoredRun,
   event: NormalizedAgentEvent,
   body: UnknownRecord,
   now: string,
-  runState: RunState
-): PromptOptimizationResult | undefined {
+  runState: RunState,
+  options: BuildServerOptions = {}
+): Promise<PromptOptimizationResult | undefined> {
   if (event.eventType !== "prompt") {
     return undefined;
   }
@@ -426,9 +466,10 @@ function maybeOptimizePrompt(
 
   const policy = storage.getPolicyForRepo(run.repoRoot)?.policy ?? createDefaultPolicy();
   const optimizer = new PromptOptimizer({
-    now: () => now
+    now: () => now,
+    localModel: options.localPromptOptimizer
   });
-  const optimization = optimizer.optimize({
+  const optimizationInput: PromptOptimizationInput = {
     runId: run.id,
     eventId: event.id,
     mode: "initial_task",
@@ -448,9 +489,9 @@ function maybeOptimizePrompt(
     policy,
     approvedLessons: storage.listLessons("approved"),
     maxPromptLength: 2_400
-  });
-
-  if (!optimization.shouldInject) {
+  };
+  const optimization = await optimizer.optimizeWithLocalModel(optimizationInput).catch(() => undefined);
+  if (!optimization?.shouldInject) {
     return undefined;
   }
 
