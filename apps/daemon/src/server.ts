@@ -477,7 +477,7 @@ async function maybeOptimizePrompt(
     originalPrompt,
     repoPath: run.repoRoot,
     eventType: event.eventType,
-    compactRunState: {},
+    compactRunState: asRecord(body.contextSnapshot),
     policySummary: [],
     approvedMatchingLessons: [],
     validationStatus: undefined,

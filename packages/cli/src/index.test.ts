@@ -33,6 +33,41 @@ describe("@agent-sidecar/cli", () => {
     );
   });
 
+  it("submits a plain user task with repo context and no user-supplied token fields", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      action: "inject_context",
+      prompt_optimization: {
+        optimizedPrompt: "Task:\nFix auth with validation."
+      }
+    }), { status: 201 }));
+
+    const result = await runCli(["codex", "Fix", "auth"], {
+      fetch: fetchMock as never,
+      cwd: "/tmp/not-a-real-repo"
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      optimizedPromptForCodex: "Task:\nFix auth with validation."
+    });
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(firstCall[1].body)) as Record<string, unknown>;
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4319/hooks/codex",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(body).toMatchObject({
+      providerEventType: "UserPromptSubmit",
+      prompt: "Fix auth",
+      sidecarSubmission: true,
+      contextSnapshot: {
+        repoType: "unknown"
+      }
+    });
+    expect(body).not.toHaveProperty("tokenUsage");
+    expect(body).not.toHaveProperty("costEstimate");
+  });
+
   it("fails open when hook delivery cannot reach the daemon", async () => {
     const fetchMock = vi.fn(async () => {
       throw new Error("connection refused");

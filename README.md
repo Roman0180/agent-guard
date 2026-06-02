@@ -34,6 +34,25 @@ The daemon defaults to `http://localhost:4319` and exposes `GET /health`.
 
 The marketing website remains at the dashboard app root (`/`). The local runtime dashboard is a separate route at `/dashboard` when running `pnpm dev:dashboard`.
 
+## Task-first usage
+
+Users should enter plain tasks into Agent Sidecar rather than constructing hook JSON or supplying token usage:
+
+```bash
+node packages/cli/dist/index.js codex "Fix login refresh token bug"
+```
+
+The sidecar collects local repo context before prompt optimization:
+
+- repo type
+- `AGENTS.md`
+- previous plans
+- file tree
+- active branch
+- relevant diffs
+
+It then asks the local prompt model to rewrite the task, records the original prompt and optimized prompt, and returns the optimized prompt that should be submitted to Codex. Token estimates and cost rollups are sidecar responsibilities; the user does not type those values.
+
 ## Local prompt optimization
 
 Prompt optimization is model-assisted at runtime and defaults to Ollama on this laptop:

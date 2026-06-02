@@ -164,7 +164,7 @@ describe("PromptOptimizer", () => {
       localModel: {
         enabled: true,
         model: "deepseek-r1:1.5b",
-        fetch: async (_url, init) => {
+        fetch: async (_url: string | URL | Request, init?: RequestInit) => {
           requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
           return new Response(JSON.stringify({
             message: {

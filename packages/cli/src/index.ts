@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type CliResult = {
@@ -16,6 +17,7 @@ export type CliIo = {
   fetch?: typeof fetch;
   env?: Record<string, string | undefined>;
   spawn?: typeof spawn;
+  cwd?: string;
 };
 
 const DEFAULT_DAEMON_URL = "http://127.0.0.1:4319";
@@ -66,11 +68,25 @@ export async function runCli(argv: string[], io: CliIo = {}): Promise<CliResult>
     return postHook(fetchImpl, daemonUrl, provider, payload, env);
   }
 
+  if (command === "codex" || command === "task") {
+    const prompt = parseTaskPrompt([subcommand ?? "", ...rest], io.stdin);
+    if (!prompt) {
+      return fail(1, `missing task prompt\n${renderHelp()}`);
+    }
+
+    return postTaskPrompt(fetchImpl, daemonUrl, prompt, io.cwd ?? process.cwd());
+  }
+
   return fail(1, `unknown command: ${argv.join(" ")}\n${renderHelp()}`);
 }
 
 function renderHelp(): string {
-  return `agent-sidecar\n\nCommands:\n  agent-sidecar status\n  agent-sidecar daemon start [--dry-run]\n  agent-sidecar hook --provider generic|codex|claude-code < event.json\n  agent-sidecar hook install --provider codex|claude-code\n`;
+  return `agent-sidecar\n\nCommands:\n  agent-sidecar status\n  agent-sidecar daemon start [--dry-run]\n  agent-sidecar codex "task prompt"\n  agent-sidecar hook --provider generic|codex|claude-code < event.json\n  agent-sidecar hook install --provider codex|claude-code\n`;
+}
+
+function parseTaskPrompt(args: string[], stdin?: string): string {
+  const inline = args.filter(Boolean).join(" ").trim();
+  return inline || (stdin ?? "").trim();
 }
 
 function parseProvider(args: string[]): HookProvider {
@@ -117,6 +133,104 @@ async function postHook(
       stdout: `${JSON.stringify(fallback)}\n`,
       stderr: failMode === "closed" ? `${fallback.message}\n` : ""
     };
+  }
+}
+
+async function postTaskPrompt(
+  fetchImpl: typeof fetch,
+  daemonUrl: string,
+  prompt: string,
+  cwd: string
+): Promise<CliResult> {
+  const payload = {
+    id: randomUUID(),
+    runId: randomUUID(),
+    providerEventType: "UserPromptSubmit",
+    prompt,
+    cwd,
+    repoRoot: cwd,
+    branch: readGitBranch(cwd),
+    sidecarSubmission: true,
+    contextSnapshot: collectRepoContext(cwd)
+  };
+
+  const result = await postHook(fetchImpl, daemonUrl, "codex", payload, {});
+  if (result.exitCode !== 0) {
+    return result;
+  }
+
+  try {
+    const response = JSON.parse(result.stdout) as { message?: string; prompt_optimization?: { optimizedPrompt?: string } };
+    return ok(`${JSON.stringify({
+      ...response,
+      optimizedPromptForCodex: response.prompt_optimization?.optimizedPrompt ?? response.message
+    }, null, 2)}\n`);
+  } catch {
+    return result;
+  }
+}
+
+function collectRepoContext(cwd: string): Record<string, unknown> {
+  return {
+    repoType: detectRepoType(cwd),
+    agentsInstructions: readOptionalFile(join(cwd, "AGENTS.md"), 2_000),
+    previousPlans: readPreviousPlans(cwd),
+    fileTree: readFileTree(cwd),
+    activeBranch: readGitBranch(cwd),
+    relevantDiffs: readGitDiff(cwd)
+  };
+}
+
+function detectRepoType(cwd: string): string {
+  if (existsSync(join(cwd, "package.json"))) return "node";
+  if (existsSync(join(cwd, "pyproject.toml"))) return "python";
+  if (existsSync(join(cwd, "Cargo.toml"))) return "rust";
+  if (existsSync(join(cwd, "go.mod"))) return "go";
+  return "unknown";
+}
+
+function readPreviousPlans(cwd: string): string[] {
+  return ["docs/IMPLEMENTATION_PLAN.md", "docs/MVP_PROMPTS.md"]
+    .map((path) => {
+      const content = readOptionalFile(join(cwd, path), 800);
+      return content ? `${path}\n${content}` : undefined;
+    })
+    .filter((value): value is string => Boolean(value));
+}
+
+function readFileTree(cwd: string): string[] {
+  try {
+    return execFileSync("git", ["ls-files"], { cwd, encoding: "utf8", timeout: 2_000 })
+      .split("\n")
+      .filter(Boolean)
+      .slice(0, 100);
+  } catch {
+    return [];
+  }
+}
+
+function readGitBranch(cwd: string): string | undefined {
+  try {
+    return execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8", timeout: 2_000 }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readGitDiff(cwd: string): string {
+  try {
+    return execFileSync("git", ["diff", "--stat"], { cwd, encoding: "utf8", timeout: 2_000 }).slice(0, 1_500);
+  } catch {
+    return "";
+  }
+}
+
+function readOptionalFile(path: string, maxLength: number): string {
+  try {
+    if (!existsSync(path)) return "";
+    return readFileSync(path, "utf8").slice(0, maxLength);
+  } catch {
+    return "";
   }
 }
 

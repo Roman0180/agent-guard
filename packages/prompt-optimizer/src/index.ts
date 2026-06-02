@@ -6,6 +6,7 @@ export type TaskContract = { task: string; scope: string[]; constraints: string[
 export type ContextSnapshot = { repoType?: string; agentsMd?: string[]; previousPlans?: string[]; fileTree?: string[]; activeBranch?: string; relevantDiffs?: string[] };
 export type PromptOptimizationInput = { runId: string; eventId: string; mode: PromptRewriteMode; agent: AgentKind; originalPrompt?: string; original_prompt?: string; repoPath?: string; eventType?: HookEventType; compactRunState?: Record<string, unknown>; policySummary?: string[]; approvedMatchingLessons?: Lesson[]; validationStatus?: string; latestErrorSignature?: string; changedFileCount: number; recentCommandSignatures: string[]; contextSnapshot?: ContextSnapshot; normalizedEvent: { summary: string; compactMetadata?: Record<string, unknown> } & Record<string, unknown>; runState: Record<string, unknown>; policy: { protectedPaths: string[] } & Record<string, unknown>; approvedLessons: Lesson[]; maxPromptLength: number };
 export type PromptOptimizationResult = { id: string; runId: string; eventId: string; mode: PromptRewriteMode; originalPrompt?: string; optimizedPrompt: string; estimatedOptimizedTokens: number; resultQuality: "unknown" | "accepted" | "needs_followup" | "failed"; taskContract: TaskContract; constraints: string[]; validationRequirements: string[]; relevantLessons: Lesson[]; riskNotes: string[]; estimatedTokenDelta: number; rewriteReason: string; shouldInject: boolean; injected: boolean; deterministicOrModel: "deterministic" | "model_assisted"; createdAt: string };
+export type LocalModelPromptOptimizerOptions = { enabled?: boolean; baseUrl?: string; model?: string; timeoutMs?: number; fetch?: typeof fetch };
 
 export type PromptOptimizerOptions = {
   maxPromptLength?: number;
@@ -90,19 +91,24 @@ export class PromptOptimizer {
     const optimizedPrompt = truncatePrompt(assisted.optimizedPrompt, maxLength);
     const taskContract = assisted.taskContract ?? emptyTaskContract(input);
     const lessons = selectRelevantLessons(input).slice(0, 3);
+    const originalPrompt = input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary;
+    const estimatedOptimizedTokens = estimateTokens(optimizedPrompt);
 
     return {
       id: this.idFactory(),
       runId: input.runId,
       eventId: input.eventId,
       mode: input.mode,
+      originalPrompt,
       optimizedPrompt,
+      estimatedOptimizedTokens,
+      resultQuality: "unknown",
       taskContract,
       constraints: taskContract.constraints,
       validationRequirements: taskContract.validation_requirements,
       relevantLessons: lessons,
       riskNotes: taskContract.risk_notes,
-      estimatedTokenDelta: estimateTokens(optimizedPrompt) - estimateTokens(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary),
+      estimatedTokenDelta: estimatedOptimizedTokens - estimateTokens(originalPrompt),
       rewriteReason: assisted.rewriteReason || `Optimized by local model ${this.localModel.model}.`,
       shouldInject: assisted.shouldInject,
       injected: false,
@@ -131,13 +137,13 @@ async function requestLocalModelOptimization(
         think: false,
         options: {
           temperature: 0,
-          num_predict: 450
+          num_predict: 900
         },
         messages: [
           {
             role: "system",
             content:
-              "Return only minified JSON. No markdown. No explanation. Schema: {\"shouldInject\":true,\"optimizedPrompt\":\"Task: ...\\n\\nLikely areas to inspect:\\n- ...\\n\\nImplementation approach:\\n- ...\\n\\nConstraints:\\n- ...\\n\\nValidation:\\n- ...\",\"rewriteReason\":\"...\",\"taskContract\":{\"task\":\"...\",\"scope\":[],\"constraints\":[],\"validation_requirements\":[],\"relevant_lessons\":[],\"risk_notes\":[]}}. Every user prompt is missing operational detail before it is sent to a coding agent. DeepSeek R1 must fill in that missing detail. The optimizedPrompt must be a multi-section task brief and must be substantially more detailed than the original prompt. Include likely files or areas to inspect, concrete implementation steps, constraints, risks, and validation commands. Preserve user intent, but do not simply restate the prompt. Never say the original prompt is already concise enough. Always return shouldInject true unless the prompt is unsafe or unrelated to coding."
+              "Return only minified JSON. No markdown. No explanation. Schema: {\"shouldInject\":true,\"optimizedPrompt\":\"Task: ...\\n\\nLikely areas to inspect:\\n- ...\\n\\nImplementation approach:\\n- ...\\n\\nConstraints:\\n- ...\\n\\nAcceptance criteria:\\n- ...\\n\\nPR boundaries:\\n- ...\\n\\nTest expectations:\\n- ...\\n\\nValidation:\\n- ...\",\"rewriteReason\":\"...\",\"taskContract\":{\"task\":\"...\",\"scope\":[],\"constraints\":[],\"acceptance_criteria\":[],\"pr_boundaries\":[],\"test_expectations\":[],\"validation_requirements\":[],\"relevant_lessons\":[],\"risk_notes\":[]}}. Every user prompt is missing operational detail before it is sent to a coding agent. DeepSeek R1 must fill in that missing detail. The optimizedPrompt must be a multi-section task brief and must be substantially more detailed than the original prompt. Include likely files or areas to inspect, concrete implementation steps, constraints, acceptance criteria, PR boundaries, risks, test expectations, and validation commands. Preserve user intent, but do not simply restate the prompt. Never say the original prompt is already concise enough. Always return shouldInject true unless the prompt is unsafe or unrelated to coding."
           },
           {
             role: "user",
@@ -147,7 +153,8 @@ async function requestLocalModelOptimization(
               input.repoPath ? `Repo: ${input.repoPath}` : undefined,
               input.validationStatus ? `Validation: ${input.validationStatus}` : undefined,
               input.latestErrorSignature ? `Latest error: ${input.latestErrorSignature}` : undefined,
-              input.recentCommandSignatures.length ? `Recent commands: ${input.recentCommandSignatures.slice(-5).join(", ")}` : undefined
+              input.recentCommandSignatures.length ? `Recent commands: ${input.recentCommandSignatures.slice(-5).join(", ")}` : undefined,
+              renderContextSnapshot(input.compactRunState)
             ].filter(Boolean).join("\n")
           }
         ]
@@ -186,6 +193,32 @@ async function requestLocalModelOptimization(
   }
 }
 
+function renderContextSnapshot(snapshot: Record<string, unknown> | undefined): string | undefined {
+  if (!snapshot || Object.keys(snapshot).length === 0) {
+    return undefined;
+  }
+
+  const fileTree = toStringArray(snapshot.fileTree).slice(0, 80);
+  const previousPlans = toStringArray(snapshot.previousPlans).slice(0, 2);
+  const agentsInstructions =
+    typeof snapshot.agentsInstructions === "string" ? snapshot.agentsInstructions : toStringArray(snapshot.agentsMd).join("\n\n");
+  const relevantDiffs =
+    typeof snapshot.relevantDiffs === "string" ? snapshot.relevantDiffs : toStringArray(snapshot.relevantDiffs).join("\n");
+  return [
+    "Sidecar repo context:",
+    typeof snapshot.repoType === "string" ? `Repo type: ${snapshot.repoType}` : undefined,
+    typeof snapshot.activeBranch === "string" ? `Active branch: ${snapshot.activeBranch}` : undefined,
+    agentsInstructions.trim()
+      ? `AGENTS.md excerpt:\n${agentsInstructions.slice(0, 1_500)}`
+      : undefined,
+    previousPlans.length ? `Previous plans:\n${previousPlans.join("\n\n").slice(0, 2_000)}` : undefined,
+    fileTree.length ? `File tree excerpt:\n${fileTree.join("\n")}` : undefined,
+    relevantDiffs.trim()
+      ? `Relevant diff stat:\n${relevantDiffs.slice(0, 1_500)}`
+      : undefined
+  ].filter(Boolean).join("\n\n");
+}
+
 function isExpandedPrompt(input: PromptOptimizationInput, optimizedPrompt: string): boolean {
   const original = clean(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary).toLowerCase();
   const optimized = clean(optimizedPrompt).toLowerCase();
@@ -200,6 +233,9 @@ function emptyTaskContract(input: PromptOptimizationInput): TaskContract {
     task: task || "Complete the requested coding task.",
     scope: [],
     constraints: [],
+    acceptance_criteria: [],
+    pr_boundaries: [],
+    test_expectations: [],
     validation_requirements: [],
     relevant_lessons: [],
     risk_notes: []
@@ -212,6 +248,9 @@ function renderTaskContractPrompt(contract: TaskContract): string {
     ["Likely areas to inspect", listOrNone(contract.scope)],
     ["Implementation approach", listOrNone(contract.risk_notes.length ? contract.risk_notes : contract.constraints)],
     ["Constraints", listOrNone(contract.constraints)],
+    ["Acceptance criteria", listOrNone(contract.acceptance_criteria)],
+    ["PR boundaries", listOrNone(contract.pr_boundaries)],
+    ["Test expectations", listOrNone(contract.test_expectations)],
     ["Validation", listOrNone(contract.validation_requirements)],
     ["Relevant lessons", listOrNone(contract.relevant_lessons)]
   ]);
@@ -439,6 +478,9 @@ function taskContractFromUnknown(value: unknown): TaskContract | undefined {
     task,
     scope: toStringArray(record.scope).map(clean).filter(Boolean).slice(0, 8),
     constraints: toStringArray(record.constraints).map(clean).filter(Boolean).slice(0, 8),
+    acceptance_criteria: toStringArray(record.acceptance_criteria).map(clean).filter(Boolean).slice(0, 8),
+    pr_boundaries: toStringArray(record.pr_boundaries).map(clean).filter(Boolean).slice(0, 8),
+    test_expectations: toStringArray(record.test_expectations).map(clean).filter(Boolean).slice(0, 8),
     validation_requirements: toStringArray(record.validation_requirements).map(clean).filter(Boolean).slice(0, 8),
     relevant_lessons: toStringArray(record.relevant_lessons).map(clean).filter(Boolean).slice(0, 8),
     risk_notes: toStringArray(record.risk_notes).map(clean).filter(Boolean).slice(0, 8)

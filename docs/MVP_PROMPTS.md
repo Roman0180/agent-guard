@@ -4,9 +4,9 @@ This checklist translates the implementation plan into implementation-ready MVP 
 
 ## MVP Principles
 
-- Keep Agent Sidecar terminal-run and local-first: `pip` install, daemon in the user's shell, and Codex or Claude Code hooks calling the sidecar command.
+- Keep Agent Sidecar terminal-run and local-first: daemon in the user's shell, users entering initial tasks into the sidecar, and Codex or Claude Code hooks calling the sidecar command during the run.
 - Persist raw hook payloads before normalization so every decision remains auditable.
-- Prefer deterministic monitors, tool-cost guardrails, repo-map hints, and prompt templates before model-based steering.
+- Use the local prompt model for initial task rewriting while keeping runtime monitors, tool-cost guardrails, repo-map hints, and steering locally configurable.
 - Make prompt optimization part of the runtime pipeline rather than a replacement for monitors, tool-cost guardrails, or steering.
 - Treat all savings numbers as evidence-labeled: controlled when an A/B arm exists, estimated or correlated when using historical matching, synthetic replay, or heuristics.
 - Store prompt, trace, lesson, repo-map, pricing, and decision data locally by default.
@@ -59,11 +59,13 @@ Implement MVP 1 from docs/MVP_PROMPTS.md. Add SQLite migrations, storage reposit
 
 ## MVP 2: CLI, Hooks, Normalization, and Run State
 
-**Goal:** make hook events travel from a provider-facing command into the daemon and produce stable run state.
+**Goal:** make user-entered tasks and hook events travel through the sidecar into the daemon and produce stable run state.
 
 **Build scope**
 
 - Implement `agent-sidecar status`, `agent-sidecar daemon start`, and hook commands for generic, Codex, and Claude Code providers.
+- Implement task-first `agent-sidecar codex "task"` submission so users type a plain prompt and never provide token or cost metadata manually.
+- Collect repo type, `AGENTS.md`, previous plans, compact file tree, active branch, and relevant diffs before optimization.
 - Add fail-open and fail-closed behavior controlled by policy.
 - Implement provider normalizers for generic, Codex, and Claude Code payloads.
 - Convert provider payloads into command, read, edit, validation, tool, usage, finalization, and error events.
@@ -72,30 +74,31 @@ Implement MVP 1 from docs/MVP_PROMPTS.md. Add SQLite migrations, storage reposit
 **Exit criteria**
 
 - JSON sent to CLI stdin reaches the daemon and receives a provider-compatible decision response.
+- A plain task sent through `agent-sidecar codex "task"` reaches the daemon with local repo context and no user-supplied token/cost fields.
 - Synthetic multi-event runs produce coherent normalized events and state snapshots.
 - Unit tests cover provider normalization and fail-open/fail-closed behavior.
 
 **Codex prompt**
 
 ```text
-Implement MVP 2 from docs/MVP_PROMPTS.md. Add the CLI hook path, generic/Codex/Claude Code normalizers, fail-open/fail-closed policy behavior, and run-state updates for edited paths, validation freshness, repeated tools, usage, cost, and difficulty state. Keep decisions simple and deterministic. Run pnpm test and pnpm build.
+Implement MVP 2 from docs/MVP_PROMPTS.md. Add task-first CLI submission, repo context collection, the CLI hook path, generic/Codex/Claude Code normalizers, fail-open/fail-closed policy behavior, and run-state updates for edited paths, validation freshness, repeated tools, usage, cost, and difficulty state. Users should type only the task prompt; token and cost fields must be inferred or estimated by the sidecar. Run pnpm test and pnpm build.
 ```
 
 ## MVP 3: Prompt Optimization Layer
 
-**Goal:** turn vague or stale task context into compact contracts before downstream monitors and steering decide what to do.
+**Goal:** use the local model to turn vague or stale task context into detailed task contracts before Codex sees the prompt.
 
 **Build scope**
 
 - Add prompt optimization schemas and persistence.
-- Implement deterministic task-contract, continuation, validation-reminder, compaction, lesson-injection, dead-end-avoidance, and repo-map-hint templates.
+- Implement local-model task-contract rewriting for initial prompts, plus continuation, validation-reminder, compaction, lesson-injection, dead-end-avoidance, and repo-map-hint support.
 - Preserve original user intent, active constraints, validation requirements, changed-file context, approved lessons, and compact run state.
 - Store rewrite reason, injection status, deterministic/model badge, estimated token delta, and source event id.
-- Never send raw full prompts or raw trace history to steering providers for prompt optimization.
+- Keep prompt rewriting local by default. Do not upload raw prompts, repo context, source files, or trace history to hosted providers for prompt optimization.
 
 **Exit criteria**
 
-- Vague prompt fixtures produce compact task contracts.
+- Vague prompt fixtures produce local-model-assisted task contracts with repo context, constraints, acceptance criteria, PR boundaries, and test expectations.
 - Validation-missing finalization fixtures produce short continuation prompts.
 - Approved relevant lessons and high-confidence dead-end patterns render as short hints while disabled or low-confidence entries are logged but not injected.
 - Prompt optimization results are persisted and queryable by event.
@@ -103,7 +106,7 @@ Implement MVP 2 from docs/MVP_PROMPTS.md. Add the CLI hook path, generic/Codex/C
 **Codex prompt**
 
 ```text
-Implement MVP 3 from docs/MVP_PROMPTS.md. Add deterministic prompt optimization schemas, templates, persistence, and tests for initial task contracts, validation-missing continuation prompts, compaction, approved lesson injection, dead-end avoidance, and repo-map hints. Preserve user intent and keep all prompt data local by default. Do not implement model-assisted steering. Run pnpm test and pnpm build.
+Implement MVP 3 from docs/MVP_PROMPTS.md. Add local-model prompt optimization schemas, persistence, and tests for initial task contracts, validation-missing continuation prompts, compaction, approved lesson injection, dead-end avoidance, and repo-map hints. Preserve user intent, enrich missing operational detail from local repo context, and keep all prompt data local by default. Do not require users to supply token or cost metadata. Run pnpm test and pnpm build.
 ```
 
 ## MVP 4: Runtime Monitors and Tool-Cost Guardrails
