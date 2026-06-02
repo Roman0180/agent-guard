@@ -7,11 +7,8 @@ import {
   NormalizedAgentEvent as CoreNormalizedAgentEventSchema,
   normalizeClaudeHook,
   normalizeCodexHook,
-  normalizeGenericHook,
-  TrajectorySlice,
-  type TrajectorySlice as TrajectorySliceType
+  normalizeGenericHook
 } from "@agent-sidecar/core";
-import { evaluateTrajectorySlice } from "@agent-sidecar/detectors";
 import { PromptOptimizer, type PromptOptimizationInput } from "@agent-sidecar/prompt-optimizer";
 import {
   Storage,
@@ -60,7 +57,6 @@ type HookIngestResult = {
 
 export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   const storage = options.storage ?? new Storage({ databasePath: options.databasePath ?? ":memory:" });
-  const recentTrajectorySlices = new Map<string, TrajectorySliceType[]>();
   const server = Fastify({
     logger: options.logger ?? true
   });
@@ -274,28 +270,6 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     };
     storage.savePolicy(policy);
     return reply.code(201).send(policy);
-  });
-
-  server.post("/api/trajectory-slices", async (request, reply) => {
-    const parseResult = TrajectorySlice.safeParse(request.body);
-    if (!parseResult.success) {
-      return reply.code(400).send({
-        error: "invalid_trajectory_slice",
-        issues: parseResult.error.issues.map((issue) => ({ path: issue.path, message: issue.message }))
-      });
-    }
-
-    const slice = parseResult.data;
-    const recent = [...(recentTrajectorySlices.get(slice.sessionId) ?? []), slice].slice(-50);
-    recentTrajectorySlices.set(slice.sessionId, recent);
-    const intervention = evaluateTrajectorySlice(slice, recent);
-
-    return reply.code(201).send({
-      accepted: true,
-      sanitized: true,
-      slice,
-      intervention
-    });
   });
 
   server.post("/api/prompt-optimizations", async (request, reply) => {

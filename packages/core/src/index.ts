@@ -795,66 +795,6 @@ export function updateRunState(previous: RunState, event: NormalizedAgentEvent):
   return RunState.parse(state);
 }
 
-
-export const TrajectoryStepType = z.enum(["thought", "tool_call", "tool_result", "file_read", "file_edit", "validation", "planning", "error", "final", "other"]);
-export type TrajectoryStepType = z.infer<typeof TrajectoryStepType>;
-
-export const TrajectorySlice = z
-  .object({
-    schemaVersion: z.literal(1).default(1),
-    sessionId: Identifier,
-    stepId: Identifier,
-    timestamp: IsoDateTime.default(() => new Date().toISOString()),
-    agentName: z.string().min(1).max(200).default("generic-coding-agent"),
-    provider: z.string().min(1).max(100).default("unknown"),
-    model: z.string().min(1).max(200).optional(),
-    stepType: TrajectoryStepType,
-    agentStateSummary: z.string().max(4_000).optional(),
-    toolName: z.string().max(200).optional(),
-    toolArguments: CompactRecord.default({}),
-    toolOutput: z.string().max(20_000).optional(),
-    filesTouched: z.array(z.string().max(1_000)).max(500).default([]),
-    errorMessage: z.string().max(4_000).optional(),
-    tokenCounts: TokenUsage.default({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }),
-    timingMs: z.number().int().nonnegative().optional(),
-    tags: z.array(z.string().max(100)).max(50).default([]),
-    metadata: CompactRecord.default({})
-  })
-  .strict();
-export type TrajectorySlice = z.infer<typeof TrajectorySlice>;
-
-export const InterventionSeverity = z.enum(["info", "warning", "critical"]);
-export type InterventionSeverity = z.infer<typeof InterventionSeverity>;
-
-export const InterventionCategory = z.enum(["cost", "loop", "context", "planning", "tool_use", "risky_edit", "testing", "security"]);
-export type InterventionCategory = z.infer<typeof InterventionCategory>;
-
-export const Intervention = z
-  .object({
-    intervention_id: Identifier,
-    severity: InterventionSeverity,
-    category: InterventionCategory,
-    message: ShortText,
-    rationale: z.string().max(4_000),
-    recommended_action: z.string().max(4_000),
-    suggested_prompt_patch: z.string().max(4_000).optional(),
-    should_block: z.boolean().default(false),
-    confidence: z.number().min(0).max(1),
-    metadata: CompactRecord.default({})
-  })
-  .strict();
-export type Intervention = z.infer<typeof Intervention>;
-
-export const ObserveStepResponse = z
-  .object({
-    accepted: z.boolean().default(true),
-    sanitized: z.boolean().default(true),
-    slice: TrajectorySlice.optional(),
-    intervention: Intervention
-  })
-  .strict();
-export type ObserveStepResponse = z.infer<typeof ObserveStepResponse>;
-
 export type AgentProvider = AgentKind;
 export type RuntimeDecisionAction = InterventionAction;
 export type RuntimeDecision = Decision;

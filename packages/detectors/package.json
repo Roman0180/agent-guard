@@ -6,12 +6,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "pnpm --filter @agent-sidecar/core build && tsc -p tsconfig.json",
-    "typecheck": "pnpm --filter @agent-sidecar/core build && tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @agent-sidecar/core build && vitest run --passWithNoTests"
-  },
-  "dependencies": {
-    "@agent-sidecar/core": "workspace:^"
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

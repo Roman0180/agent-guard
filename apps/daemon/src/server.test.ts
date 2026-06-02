@@ -96,7 +96,7 @@ describe("@agent-sidecar/daemon", () => {
 
     expect(hookResponse.statusCode).toBe(201);
     expect(hookResponse.json()).toMatchObject({
-      action: "allow",
+      action: "inject_context",
       run: {
         id: "run-1",
         provider: "codex"
@@ -107,8 +107,8 @@ describe("@agent-sidecar/daemon", () => {
         summary: "Implement the daemon routes."
       },
       decision: {
-        action: "allow",
-        reasonCode: "pipeline.default_allow"
+        action: "inject_context",
+        reasonCode: "prompt_optimized"
       }
     });
 
@@ -132,8 +132,8 @@ describe("@agent-sidecar/daemon", () => {
 
     expect(decisionsResponse.json()).toHaveLength(1);
     expect(decisionsResponse.json()[0]).toMatchObject({
-      action: "allow",
-      reasonCode: "pipeline.default_allow"
+      action: "inject_context",
+      reasonCode: "prompt_optimized"
     });
   });
 
@@ -211,7 +211,7 @@ describe("@agent-sidecar/daemon", () => {
     expect(dashboardResponse.json().run.totalEstimatedCostUsd).toBeCloseTo(0.049);
   });
 
-  it("records provider hook events while trajectory endpoint handles interventions", async () => {
+  it("returns injected prompt optimization context for the demo Codex prompt", async () => {
     const databasePath = await createTempDatabasePath();
     const server = buildServer({ databasePath, logger: false, localPromptOptimizer });
 
@@ -240,8 +240,9 @@ describe("@agent-sidecar/daemon", () => {
 
     expect(hookResponse.statusCode).toBe(201);
     expect(hookResponse.json()).toMatchObject({
-      action: "allow",
-      reason: "pipeline.default_allow",
+      action: "inject_context",
+      reason: "prompt_optimized",
+      message: expect.stringContaining("Task:\nFix the logger issue"),
       run: {
         id: "demo-run-2",
         provider: "codex",
@@ -253,23 +254,44 @@ describe("@agent-sidecar/daemon", () => {
         summary: "Fix the logger issue"
       },
       decision: {
-        action: "allow",
-        reasonCode: "pipeline.default_allow"
+        action: "inject_context",
+        reasonCode: "prompt_optimized"
+      },
+      prompt_optimization: {
+        mode: "initial_task",
+        taskContract: {
+          task: "Fix the logger issue"
+        },
+        rewriteReason: "Optimized by local DeepSeek R1.",
+        shouldInject: true,
+        injected: true,
+        deterministicOrModel: "model_assisted"
       }
     });
 
     expect(optimizationsResponse.statusCode).toBe(200);
-    expect(optimizationsResponse.json()).toEqual([]);
+    expect(optimizationsResponse.json()).toEqual([
+      expect.objectContaining({
+        runId: "demo-run-2",
+        mode: "initial_task",
+        optimizedPrompt: expect.stringContaining("Task:\nFix the logger issue")
+      })
+    ]);
     expect(demoResponse.statusCode).toBe(200);
     expect(demoResponse.json()).toMatchObject({
       run: { id: "demo-run-2" },
       checkpoints: [
         { id: "hook-setup", status: "complete" },
         { id: "prompt-ingest", status: "complete" },
-        { id: "prompt-optimization", status: "pending" },
+        { id: "prompt-optimization", status: "complete" },
         { id: "run-state" }
       ],
-      promptOptimizations: []
+      promptOptimizations: [
+        {
+          originalPrompt: "Fix the logger issue",
+          result: { mode: "initial_task" }
+        }
+      ]
     });
   });
   it("ingests generic hooks and updates run state across prompt, tool, edit, and validation events", async () => {
@@ -359,71 +381,6 @@ describe("@agent-sidecar/daemon", () => {
       validationSinceLastEdit: true,
       validationCommandCount: 1
     });
-  });
-
-  it("accepts sanitized trajectory slices and returns loop interventions", async () => {
-    const server = buildServer({ logger: false });
-    const payload = {
-      schemaVersion: 1,
-      sessionId: "migration-demo",
-      stepId: "step-1",
-      timestamp: "2026-06-02T12:00:00.000Z",
-      agentName: "demo-coding-agent",
-      provider: "openai",
-      model: "gpt-5.5",
-      stepType: "tool_call",
-      toolName: "run_command",
-      toolArguments: { command: "pnpm test -- migration" },
-      toolOutput: "Error: migration registry missing",
-      errorMessage: "Error: migration registry missing",
-      tokenCounts: { inputTokens: 900, outputTokens: 100, totalTokens: 1000 },
-      filesTouched: [],
-      tags: ["migration"],
-      metadata: {}
-    };
-
-    await server.inject({ method: "POST", url: "/api/trajectory-slices", payload });
-    await server.inject({ method: "POST", url: "/api/trajectory-slices", payload: { ...payload, stepId: "step-2" } });
-    const response = await server.inject({
-      method: "POST",
-      url: "/api/trajectory-slices",
-      payload: { ...payload, stepId: "step-3" }
-    });
-
-    await server.close();
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({
-      accepted: true,
-      sanitized: true,
-      intervention: {
-        severity: "warning",
-        category: "loop",
-        message: "Repeated failed tool call detected.",
-        should_block: false
-      }
-    });
-  });
-
-  it("rejects trajectory slices that try to include unsupported raw fields", async () => {
-    const server = buildServer({ logger: false });
-
-    const response = await server.inject({
-      method: "POST",
-      url: "/api/trajectory-slices",
-      payload: {
-        sessionId: "bad-session",
-        stepId: "bad-step",
-        timestamp: "2026-06-02T12:00:00.000Z",
-        stepType: "tool_call",
-        rawSystemPrompt: "not allowed"
-      }
-    });
-
-    await server.close();
-
-    expect(response.statusCode).toBe(400);
-    expect(response.json().error).toBe("invalid_trajectory_slice");
   });
 
 });

@@ -23,9 +23,6 @@ importers:
       '@agent-sidecar/core':
         specifier: workspace:^
         version: link:../../packages/core
-      '@agent-sidecar/detectors':
-        specifier: workspace:^
-        version: link:../../packages/detectors
       '@agent-sidecar/prompt-optimizer':
         specifier: workspace:^
         version: link:../../packages/prompt-optimizer
@@ -115,10 +112,6 @@ importers:
         version: 2.1.9(@types/node@20.19.41)
 
   packages/detectors:
-    dependencies:
-      '@agent-sidecar/core':
-        specifier: workspace:^
-        version: link:../core
     devDependencies:
       typescript:
         specifier: ^5.7.2
@@ -146,22 +139,6 @@ importers:
         version: 2.1.9(@types/node@20.19.41)
 
   packages/prompt-optimizer: {}
-
-  packages/sdk:
-    dependencies:
-      '@agent-sidecar/core':
-        specifier: workspace:^
-        version: link:../core
-      '@agent-sidecar/detectors':
-        specifier: workspace:^
-        version: link:../detectors
-    devDependencies:
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@20.19.41)
 
   packages/steering:
     devDependencies:
