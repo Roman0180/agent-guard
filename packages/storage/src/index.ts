@@ -139,6 +139,9 @@ export type TaskContract = {
   task: string;
   scope: string[];
   constraints: string[];
+  acceptance_criteria: string[];
+  pr_boundaries: string[];
+  test_expectations: string[];
   validation_requirements: string[];
   relevant_lessons: string[];
   risk_notes: string[];
@@ -149,7 +152,10 @@ export type PromptOptimizationResult = {
   runId: string;
   eventId: string;
   mode: PromptRewriteMode;
+  originalPrompt?: string;
   optimizedPrompt: string;
+  estimatedOptimizedTokens: number;
+  resultQuality: "unknown" | "accepted" | "needs_followup" | "failed";
   taskContract: TaskContract;
   constraints: string[];
   validationRequirements: string[];

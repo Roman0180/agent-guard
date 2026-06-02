@@ -2,9 +2,10 @@ export type AgentKind = "codex" | "claude-code" | "generic";
 export type HookEventType = "run_started" | "prompt" | "tool_call" | "tool_result" | "file_edit" | "validation" | "final_attempt" | "compaction" | "run_finished" | "error";
 export type PromptRewriteMode = "initial_task" | "continuation" | "compaction" | "lesson_injection";
 export type Lesson = { id: string; trigger: Record<string, unknown>; text: string; confidence: number; evidence: Record<string, unknown>[]; scope: Record<string, unknown>; status: "candidate" | "approved" | "disabled" | "expired"; createdAt: string; updatedAt: string; expiresAt?: string };
-export type TaskContract = { task: string; scope: string[]; constraints: string[]; validation_requirements: string[]; relevant_lessons: string[]; risk_notes: string[] };
-export type PromptOptimizationInput = { runId: string; eventId: string; mode: PromptRewriteMode; agent: AgentKind; originalPrompt?: string; original_prompt?: string; repoPath?: string; eventType?: HookEventType; compactRunState?: Record<string, unknown>; policySummary?: string[]; approvedMatchingLessons?: Lesson[]; validationStatus?: string; latestErrorSignature?: string; changedFileCount: number; recentCommandSignatures: string[]; normalizedEvent: { summary: string; compactMetadata?: Record<string, unknown> } & Record<string, unknown>; runState: Record<string, unknown>; policy: { protectedPaths: string[] } & Record<string, unknown>; approvedLessons: Lesson[]; maxPromptLength: number };
-export type PromptOptimizationResult = { id: string; runId: string; eventId: string; mode: PromptRewriteMode; optimizedPrompt: string; taskContract: TaskContract; constraints: string[]; validationRequirements: string[]; relevantLessons: Lesson[]; riskNotes: string[]; estimatedTokenDelta: number; rewriteReason: string; shouldInject: boolean; injected: boolean; deterministicOrModel: "deterministic" | "model_assisted"; createdAt: string };
+export type TaskContract = { task: string; scope: string[]; constraints: string[]; acceptance_criteria: string[]; pr_boundaries: string[]; test_expectations: string[]; validation_requirements: string[]; relevant_lessons: string[]; risk_notes: string[] };
+export type ContextSnapshot = { repoType?: string; agentsMd?: string[]; previousPlans?: string[]; fileTree?: string[]; activeBranch?: string; relevantDiffs?: string[] };
+export type PromptOptimizationInput = { runId: string; eventId: string; mode: PromptRewriteMode; agent: AgentKind; originalPrompt?: string; original_prompt?: string; repoPath?: string; eventType?: HookEventType; compactRunState?: Record<string, unknown>; policySummary?: string[]; approvedMatchingLessons?: Lesson[]; validationStatus?: string; latestErrorSignature?: string; changedFileCount: number; recentCommandSignatures: string[]; contextSnapshot?: ContextSnapshot; normalizedEvent: { summary: string; compactMetadata?: Record<string, unknown> } & Record<string, unknown>; runState: Record<string, unknown>; policy: { protectedPaths: string[] } & Record<string, unknown>; approvedLessons: Lesson[]; maxPromptLength: number };
+export type PromptOptimizationResult = { id: string; runId: string; eventId: string; mode: PromptRewriteMode; originalPrompt?: string; optimizedPrompt: string; estimatedOptimizedTokens: number; resultQuality: "unknown" | "accepted" | "needs_followup" | "failed"; taskContract: TaskContract; constraints: string[]; validationRequirements: string[]; relevantLessons: Lesson[]; riskNotes: string[]; estimatedTokenDelta: number; rewriteReason: string; shouldInject: boolean; injected: boolean; deterministicOrModel: "deterministic" | "model_assisted"; createdAt: string };
 
 export type PromptOptimizerOptions = {
   maxPromptLength?: number;
@@ -33,14 +34,19 @@ export class PromptOptimizer {
     const taskContract = buildTaskContract(input, lessons);
     const rewrite = renderPrompt(mode, input, taskContract, lessons);
     const optimizedPrompt = truncatePrompt(rewrite.prompt, maxLength);
-    const estimatedTokenDelta = estimateTokens(optimizedPrompt) - estimateTokens(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary);
+    const originalPrompt = input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary;
+    const estimatedOptimizedTokens = estimateTokens(optimizedPrompt);
+    const estimatedTokenDelta = estimatedOptimizedTokens - estimateTokens(originalPrompt);
 
     return {
       id: this.idFactory(),
       runId: input.runId,
       eventId: input.eventId,
       mode,
+      originalPrompt,
       optimizedPrompt,
+      estimatedOptimizedTokens,
+      resultQuality: "unknown",
       taskContract,
       constraints: taskContract.constraints,
       validationRequirements: taskContract.validation_requirements,
@@ -72,8 +78,22 @@ function buildTaskContract(input: PromptOptimizationInput, lessons: Lesson[]): T
     constraints: [
       "Stay within the requested scope; do not implement unrelated future steps.",
       "Use deterministic checks before making risky changes.",
+      ...(input.contextSnapshot?.activeBranch ? [`Keep changes on branch ${input.contextSnapshot.activeBranch}.`] : []),
       ...(input.policy.protectedPaths.length ? [`Do not modify protected paths: ${input.policy.protectedPaths.slice(0, 4).join(", ")}.`] : [])
-    ].slice(0, 6),
+    ].slice(0, 8),
+    acceptance_criteria: [
+      "The requested behavior is implemented without unrelated changes.",
+      "Relevant existing behavior remains compatible.",
+      "The final response summarizes changed files and validation evidence."
+    ],
+    pr_boundaries: [
+      "Keep the PR focused on this task only.",
+      "Do not include speculative refactors or follow-up features.",
+      "Call out any intentionally deferred work in the final response."
+    ],
+    test_expectations: validationStatus === "passed"
+      ? ["Preserve existing passing validation evidence and rerun if files change."]
+      : ["Run the narrowest reliable test, build, or lint command that proves the change."],
     validation_requirements: validationStatus === "passed"
       ? ["Preserve the existing passing validation evidence."]
       : ["Run an appropriate test or build command before final response."],
@@ -131,8 +151,12 @@ function renderPrompt(
       : "Rewrote the prompt as a compact deterministic task contract.",
     prompt: sections([
       ["Task", contract.task],
+      ["Context", contextSummary(input)],
       ["Scope", listOrNone(contract.scope)],
       ["Constraints", listOrNone(contract.constraints)],
+      ["Acceptance criteria", listOrNone(contract.acceptance_criteria)],
+      ["PR boundaries", listOrNone(contract.pr_boundaries)],
+      ["Test expectations", listOrNone(contract.test_expectations)],
       ["Validation", listOrNone(contract.validation_requirements)],
       ["Relevant lessons", listOrNone(contract.relevant_lessons)]
     ])
@@ -172,6 +196,19 @@ function validationStatusText(input: PromptOptimizationInput): string {
   if (input.runState.lastValidationPassed === true || input.runState.validationSinceLastEdit) return "passed";
   if (input.runState.lastValidationPassed === false) return "failed";
   return "missing";
+}
+
+function contextSummary(input: PromptOptimizationInput): string {
+  const context = input.contextSnapshot;
+  if (!context) return "- No sidecar context snapshot recorded.";
+  return listOrNone([
+    context.repoType ? `Repo type: ${context.repoType}` : "",
+    context.activeBranch ? `Active branch: ${context.activeBranch}` : "",
+    ...(context.agentsMd ?? []).map((item) => `AGENTS.md: ${item}`),
+    ...(context.previousPlans ?? []).map((item) => `Previous plan: ${item}`),
+    ...(context.fileTree ?? []).slice(0, 6).map((item) => `File tree: ${item}`),
+    ...(context.relevantDiffs ?? []).slice(0, 4).map((item) => `Relevant diff: ${item}`)
+  ]);
 }
 
 function sections(items: Array<[string, string]>): string {

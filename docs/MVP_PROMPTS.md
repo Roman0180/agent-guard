@@ -138,7 +138,7 @@ Implement MVP 4 from docs/MVP_PROMPTS.md. Add policy loading, deterministic runt
 
 - Add daemon APIs for run lists, trace replay, normalized events, prompt optimization results, monitor results, decisions, repo-map hints, tool-cost guardrail events, cost rollups, and feedback.
 - Add dashboard pages for traces, decisions, policies, lessons, repo map, analytics, and feedback.
-- Show original prompt, optimized prompt, task contract, rewrite reason, injection status, deterministic/model badge, injected lessons, monitor evidence, and validation status.
+- Show original prompt, optimized prompt, task contract, context snapshot metadata, token estimate, result quality, rewrite reason, submission/injection status, deterministic/model badge, injected lessons, monitor evidence, and validation status.
 - Keep dashboard higher level than internal schemas while preserving auditability.
 
 **Exit criteria**
@@ -188,13 +188,13 @@ Implement MVP 6 from docs/MVP_PROMPTS.md. Add lesson memory and repo-map cache r
 - Use steering only for ambiguous cases after deterministic prompt templates, monitors, and tool-cost guardrails run.
 - Add token and cost rollups, success feedback model, cost-per-success, loop rate, validation block rate, prompt optimization metrics, monitor/ensemble decision counts, accepted/rejected interventions, pattern match metrics, repo-map metrics, tool-cost guardrail metrics, and repeated tool calls avoided.
 - Add controlled/estimated/correlated reporting labels and local synthetic benchmark fixtures.
-- Package the CLI and document Codex and Claude Code hook setup for real local trials.
+- Package the CLI and document task-first `agent-sidecar codex` setup plus Codex and Claude Code hook setup for real local trials.
 
 **Exit criteria**
 
 - Ambiguous fixtures can call fake steering providers, aggregate outputs, persist records, and fall back safely.
 - Analytics distinguish controlled comparisons from estimated or correlated baselines.
-- CLI package install and hook setup docs support real local Codex and Claude Code trials.
+- CLI package install, task-first Codex submission, and hook setup docs support real local Codex and Claude Code trials.
 
 **Codex prompt**
 
@@ -206,12 +206,13 @@ Implement MVP 7 from docs/MVP_PROMPTS.md. Add optional no-op/local HTTP steering
 
 Use this script for landing-page copy, smoke fixtures, and demo checkpoints so the website matches the runtime plan.
 
-1. **Setup prompt:** `python -m pip install agent-sidecar && agent-sidecar daemon start && agent-sidecar hook install --provider codex`.
-2. **Vague user prompt:** `Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?`
-3. **Optimized task contract:** `Task: fix auth refresh so users stay signed in after token renewal. Scope: inspect session persistence, token save path, and auth tests. Constraints: keep changes narrow and avoid unrelated auth refactors. Validation: run targeted auth refresh and login flow tests before final response.`
-4. **Runtime checkpoint:** six controls run against the prompt, repo state, monitors, and budget signals: runbook memory, repo map cache, trajectory watchdogs, tool-cost guardrails, prompt shaping and compaction, and ensemble steering.
-5. **Decision checkpoint:** return one compact hook response: allow, warn, block, require continuation, require validation, or inject context.
-6. **Dashboard checkpoint:** show the decision, validation requirement, guarded run cost, baseline cost, total cost saved, prompt optimization details, monitor evidence, and feedback controls.
+1. **Setup prompt:** `python -m pip install agent-sidecar && agent-sidecar daemon start && agent-sidecar codex "Fix the auth refresh bug"`.
+2. **User task:** `Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?`
+3. **Context checkpoint:** sidecar retrieves repo type, `AGENTS.md`, previous plans, file tree, active branch, and relevant diffs.
+4. **Optimized task contract:** `Task: fix auth refresh so users stay signed in after token renewal. Constraints: keep changes narrow and follow AGENTS.md. Acceptance: token renewal persists before redirect. PR boundary: no unrelated auth refactors. Tests: run targeted auth refresh and login flow checks.`
+5. **Runtime checkpoint:** Agent Sidecar submits the optimized prompt to Codex, then supervises hook events for loops, risky tools, validation gaps, and budget signals.
+6. **Decision checkpoint:** return one compact hook response: allow, warn, block, require continuation, require validation, or inject context.
+7. **Dashboard checkpoint:** show original prompt, optimized prompt, token estimate, result quality, decision, validation requirement, guarded run cost, baseline cost, total cost saved, monitor evidence, and feedback controls.
 
 ## Implementation Guardrails for Every MVP
 

@@ -35,6 +35,14 @@ function input(overrides: Partial<PromptOptimizationInput> = {}): PromptOptimiza
     latestErrorSignature: undefined,
     changedFileCount: 1,
     recentCommandSignatures: ["search:validation:src"],
+    contextSnapshot: {
+      repoType: "nextjs-typescript",
+      agentsMd: ["Run pnpm test before final response."],
+      previousPlans: ["Keep auth changes narrow."],
+      fileTree: ["src/index.ts", "tests/index.test.ts"],
+      activeBranch: "feature/sidecar",
+      relevantDiffs: ["src/index.ts has local edits"]
+    },
     normalizedEvent: {
       id: "event-1",
       runId: "run-1",
@@ -99,7 +107,13 @@ describe("PromptOptimizer", () => {
 
     expect(result.optimizedPrompt).toContain("Task:");
     expect(result.optimizedPrompt).toContain("Scope:");
+    expect(result.optimizedPrompt).toContain("Acceptance criteria:");
+    expect(result.optimizedPrompt).toContain("PR boundaries:");
+    expect(result.optimizedPrompt).toContain("Test expectations:");
+    expect(result.optimizedPrompt).toContain("AGENTS.md");
     expect(result.taskContract.task).toBe("fix it");
+    expect(result.resultQuality).toBe("unknown");
+    expect(result.estimatedOptimizedTokens).toBeGreaterThan(0);
     expect(result.shouldInject).toBe(true);
   });
 
