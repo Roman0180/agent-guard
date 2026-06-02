@@ -35,6 +35,14 @@ function input(overrides: Partial<PromptOptimizationInput> = {}): PromptOptimiza
     latestErrorSignature: undefined,
     changedFileCount: 1,
     recentCommandSignatures: ["search:validation:src"],
+    contextSnapshot: {
+      repoType: "nextjs-typescript",
+      agentsMd: ["Run pnpm test before final response."],
+      previousPlans: ["Keep auth changes narrow."],
+      fileTree: ["src/index.ts", "tests/index.test.ts"],
+      activeBranch: "feature/sidecar",
+      relevantDiffs: ["src/index.ts has local edits"]
+    },
     normalizedEvent: {
       id: "event-1",
       runId: "run-1",
@@ -99,7 +107,13 @@ describe("PromptOptimizer", () => {
 
     expect(result.optimizedPrompt).toContain("Task:");
     expect(result.optimizedPrompt).toContain("Scope:");
+    expect(result.optimizedPrompt).toContain("Acceptance criteria:");
+    expect(result.optimizedPrompt).toContain("PR boundaries:");
+    expect(result.optimizedPrompt).toContain("Test expectations:");
+    expect(result.optimizedPrompt).toContain("AGENTS.md");
     expect(result.taskContract.task).toBe("fix it");
+    expect(result.resultQuality).toBe("unknown");
+    expect(result.estimatedOptimizedTokens).toBeGreaterThan(0);
     expect(result.shouldInject).toBe(true);
   });
 
@@ -131,4 +145,55 @@ describe("PromptOptimizer", () => {
     expect(result.optimizedPrompt).not.toContain("RAW TRACE SHOULD STAY OUT");
     expect(result.deterministicOrModel).toBe("deterministic");
   });
+  it("injects dashboard troubleshooting prompts as task contracts", () => {
+    const result = new PromptOptimizer({ now: () => now, idFactory: () => "opt-6" }).optimize(input({
+      originalPrompt: "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?",
+      normalizedEvent: { ...input().normalizedEvent, summary: "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?" }
+    }));
+
+    expect(result.shouldInject).toBe(true);
+    expect(result.rewriteReason).toContain("vague troubleshooting prompt");
+    expect(result.optimizedPrompt).toContain("Task:");
+  });
+
+  it("uses a local model response without sending a deterministic draft", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const result = await new PromptOptimizer({
+      now: () => now,
+      idFactory: () => "opt-local",
+      localModel: {
+        enabled: true,
+        model: "deepseek-r1:1.5b",
+        fetch: async (_url, init) => {
+          requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          return new Response(JSON.stringify({
+            message: {
+              content: JSON.stringify({
+                shouldInject: true,
+                optimizedPrompt: "Task:\nUse the local model only to expand the coding request into an actionable implementation brief.\n\nLikely areas to inspect:\n- packages/prompt-optimizer/src/index.ts\n- daemon hook ingestion path\n\nImplementation approach:\n- Preserve user intent while adding concrete steps and validation evidence.\n- Reject short restatements that do not add operational detail.\n\nConstraints:\n- Do not use deterministic rewrite output.\n\nValidation:\n- Run optimizer tests.",
+                rewriteReason: "Optimized by local DeepSeek R1.",
+                taskContract: {
+                  task: "Use the local model only.",
+                  scope: [],
+                  constraints: ["Do not use deterministic rewrite output."],
+                  validation_requirements: ["Run tests."],
+                  relevant_lessons: [],
+                  risk_notes: []
+                }
+              })
+            }
+          }));
+        }
+      }
+    }).optimizeWithLocalModel(input());
+
+    expect(result?.deterministicOrModel).toBe("model_assisted");
+    expect(result?.optimizedPrompt).toContain("Use the local model only");
+    expect(result?.rewriteReason).toBe("Optimized by local DeepSeek R1.");
+    expect(JSON.stringify(requestBody)).not.toContain("deterministicDraft");
+    expect(JSON.stringify(requestBody)).toContain("Every user prompt is missing operational detail");
+    expect(JSON.stringify(requestBody)).toContain("must be substantially more detailed than the original prompt");
+    expect(JSON.stringify(requestBody)).toContain("do not simply restate the prompt");
+  });
+
 });

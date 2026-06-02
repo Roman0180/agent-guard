@@ -365,6 +365,9 @@ export const TaskContract = z
     task: ShortText,
     scope: z.array(z.string().max(500)).max(50),
     constraints: z.array(z.string().max(500)).max(50),
+    acceptance_criteria: z.array(z.string().max(500)).max(50),
+    pr_boundaries: z.array(z.string().max(500)).max(50),
+    test_expectations: z.array(z.string().max(500)).max(50),
     validation_requirements: z.array(z.string().max(500)).max(50),
     relevant_lessons: z.array(z.string().max(500)).max(10),
     risk_notes: z.array(z.string().max(500)).max(25)
@@ -389,6 +392,17 @@ export const PromptOptimizationInput = z
     latestErrorSignature: z.string().max(500).optional(),
     changedFileCount: z.number().int().nonnegative().default(0),
     recentCommandSignatures: z.array(z.string().max(500)).max(25).default([]),
+    contextSnapshot: z
+      .object({
+        repoType: z.string().max(200).optional(),
+        agentsMd: z.array(z.string().max(2_000)).max(20).default([]),
+        previousPlans: z.array(z.string().max(2_000)).max(20).default([]),
+        fileTree: z.array(z.string().max(1_000)).max(500).default([]),
+        activeBranch: z.string().max(500).optional(),
+        relevantDiffs: z.array(z.string().max(2_000)).max(50).default([])
+      })
+      .strict()
+      .optional(),
     normalizedEvent: NormalizedAgentEvent,
     runState: RunState,
     policy: Policy,
@@ -404,7 +418,10 @@ export const PromptOptimizationResult = z
     runId: Identifier,
     eventId: Identifier,
     mode: PromptRewriteMode,
+    originalPrompt: z.string().max(8_000).optional(),
     optimizedPrompt: z.string().min(1).max(20_000),
+    estimatedOptimizedTokens: z.number().int().nonnegative(),
+    resultQuality: z.enum(["unknown", "accepted", "needs_followup", "failed"]).default("unknown"),
     taskContract: TaskContract,
     constraints: z.array(z.string().max(500)).max(50),
     validationRequirements: z.array(z.string().max(500)).max(50),
@@ -532,6 +549,38 @@ function inferRawOutput(raw: Record<string, unknown>): string | undefined {
   return firstString(raw.output, raw.rawOutput, raw.raw_output, raw.stdout, raw.stderr, result.output, result.stdout, result.stderr);
 }
 
+function inferTokenUsage(raw: Record<string, unknown>): TokenUsage | undefined {
+  const usage = asRecord(raw.tokenUsage ?? raw.token_usage ?? raw.usage);
+  const inputTokens = firstNumber(usage.inputTokens, usage.input_tokens, usage.prompt_tokens, raw.inputTokens, raw.input_tokens);
+  const outputTokens = firstNumber(usage.outputTokens, usage.output_tokens, usage.completion_tokens, raw.outputTokens, raw.output_tokens);
+  const totalTokens = firstNumber(usage.totalTokens, usage.total_tokens, raw.totalTokens, raw.total_tokens) ?? (inputTokens ?? 0) + (outputTokens ?? 0);
+
+  if (!inputTokens && !outputTokens && !totalTokens) {
+    return undefined;
+  }
+
+  return TokenUsage.parse({
+    inputTokens: inputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+    totalTokens
+  });
+}
+
+function inferCostEstimate(raw: Record<string, unknown>): CostEstimate | undefined {
+  const cost = asRecord(raw.costEstimate ?? raw.cost_estimate ?? raw.cost);
+  const amountUsd = firstNumber(cost.amountUsd, cost.amount_usd, cost.costUsd, cost.cost_usd, raw.amountUsd, raw.amount_usd, raw.costUsd, raw.cost_usd);
+
+  if (amountUsd === undefined) {
+    return undefined;
+  }
+
+  const source = firstString(cost.source, raw.costSource, raw.cost_source);
+  return CostEstimate.parse({
+    amountUsd,
+    source: source === "provider" ? "provider" : "estimated"
+  });
+}
+
 function detectPathsFromText(text: string): string[] {
   const matches = text.match(/(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.[A-Za-z0-9]{1,8}/g) ?? [];
   return Array.from(new Set(matches.filter((path) => !/^https?:/.test(path)).slice(0, 100)));
@@ -571,6 +620,8 @@ function normalizeAnyHook(raw: unknown, agent: AgentKind): NormalizedAgentEvent 
   const runId = firstString(body.runId, body.run_id, body.sessionId, body.session_id, body.conversation_id) ?? "unknown-session";
   const prompt = inferPrompt(body);
   const rawOutput = inferRawOutput(body);
+  const tokenUsage = inferTokenUsage(body);
+  const costEstimate = inferCostEstimate(body);
   const exitCode = firstNumber(body.exitCode, body.exit_code, asRecord(body.result).exitCode, asRecord(body.result).exit_code);
   const paths = inferTouchedPaths(body, command);
   const eventType = normalizeHookEventType(providerEventType, toolName, command);
@@ -610,6 +661,8 @@ function normalizeAnyHook(raw: unknown, agent: AgentKind): NormalizedAgentEvent 
     command: normalizedCommand,
     fileEdit: fileOperation ? { paths, operation: "modify", filesChanged: paths.length || 1, protectedPathMatches: [] } : undefined,
     validation,
+    tokenUsage,
+    costEstimate,
     compactMetadata: {
       cwd: firstString(body.cwd, body.repoRoot, body.repo_root) ?? null,
       toolName: toolName ?? null,
@@ -636,6 +689,10 @@ export function normalizeCodexHook(raw: unknown): NormalizedAgentEvent {
 
 export function normalizeClaudeHook(raw: unknown): NormalizedAgentEvent {
   return normalizeAnyHook(raw, "claude-code");
+}
+
+export function normalizeGenericHook(raw: unknown): NormalizedAgentEvent {
+  return normalizeAnyHook(raw, "generic");
 }
 
 export type RunStateStorage = {

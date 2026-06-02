@@ -12,11 +12,11 @@ const sections = [
 ] as const;
 
 const lifecycle = [
-  ["Observe", "Hook events from Codex, Claude Code, or another agent are captured as a structured run timeline"],
-  ["Optimize", "Vague prompts are rewritten into compact task contracts before the agent spends more steps"],
-  ["Evaluate", "The sidecar checks monitor signals, tool-cost guardrails, repo map entries, and approved lessons"],
-  ["Respond", "The agent receives one compact action: allow, warn, block, require validation, or inject concise context"],
-  ["Measure", "Costs, tokens, decisions, lessons, and outcomes are saved for replay and baseline comparison"]
+  ["Enter", "The user enters the task into Agent Sidecar instead of typing directly into Codex"],
+  ["Retrieve", "The sidecar gathers repo type, AGENTS.md, previous plans, file tree, active branch, and relevant diffs"],
+  ["Rewrite", "The prompt is stripped of fluff and expanded with constraints, acceptance criteria, PR boundaries, and test expectations"],
+  ["Submit", "Agent Sidecar submits the optimized task contract to Codex and then supervises runtime hook events"],
+  ["Record", "Original prompt, optimized prompt, token estimate, result quality, decisions, lessons, and outcomes are saved for replay"]
 ];
 
 const capabilities = [
@@ -24,7 +24,7 @@ const capabilities = [
   "Repo map cache",
   "Trajectory watchdogs",
   "Tool-cost guardrails",
-  "Prompt shaping and compaction",
+  "Task-first prompt shaping",
   "Ensemble steering"
 ];
 
@@ -69,7 +69,7 @@ export default function DocsPage() {
               A terminal sidecar for more reliable coding agents
             </h1>
             <p className="mt-5 max-w-3xl text-lg leading-8 text-neutral-300">
-              Agent Sidecar sits beside Codex, Claude Code, or another coding agent. It receives hook events, evaluates the run, returns runtime decisions, and gives teams a replayable account of what happened.
+              Agent Sidecar sits in front of Codex task submission. The user enters a task into the sidecar, the sidecar retrieves local context, rewrites the prompt, submits the optimized prompt to Codex, supervises runtime hooks, and gives teams a replayable account of what happened.
             </p>
             <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {capabilities.map((capability) => (
@@ -92,12 +92,12 @@ export default function DocsPage() {
               <pre className="overflow-x-auto p-5 text-sm leading-7 text-neutral-200">
                 <code>{`python -m pip install agent-sidecar
 agent-sidecar daemon start
-agent-sidecar hook install --provider codex
-agent-sidecar hook install --provider claude-code`}</code>
+agent-sidecar codex "Fix the auth refresh bug"
+agent-sidecar hook install --provider codex`}</code>
               </pre>
             </div>
             <p className="mt-4 text-sm leading-6 text-neutral-400">
-              The terminal process owns hook ingestion and decision responses. The dashboard is a replay and control surface, not the runtime authority.
+              The terminal process owns task intake, context retrieval, Codex submission, hook ingestion, and decision responses. The dashboard is a replay and control surface, not the runtime authority.
             </p>
           </section>
 
@@ -105,7 +105,7 @@ agent-sidecar hook install --provider claude-code`}</code>
             id="how-it-works"
             className="mt-8 rounded-[28px] border border-white/10 bg-white/[0.035] p-6 sm:p-8"
           >
-            <SectionTitle icon={GitBranch} label="How it works" title="Observe, optimize, evaluate, respond, measure" />
+            <SectionTitle icon={GitBranch} label="How it works" title="Enter, retrieve, rewrite, submit, record" />
             <div className="mt-6 grid gap-3">
               {lifecycle.map(([label, body], index) => (
                 <div key={label} className="grid gap-3 rounded-2xl border border-white/10 bg-[#050509] p-4 sm:grid-cols-[56px_150px_1fr] sm:items-start">
@@ -123,7 +123,7 @@ agent-sidecar hook install --provider claude-code`}</code>
             id="architecture"
             className="mt-8 rounded-[28px] border border-white/10 bg-white/[0.035] p-6 sm:p-8"
           >
-            <SectionTitle icon={GitBranch} label="Architecture" title="Local sidecar, runtime decisions" />
+            <SectionTitle icon={GitBranch} label="Architecture" title="Local sidecar, task-first Codex submission" />
             <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
               <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                 <div className="flex items-center gap-2">
@@ -214,11 +214,11 @@ function SystemDiagram() {
   return (
     <div className="bg-[radial-gradient(circle_at_18%_18%,rgba(124,92,255,0.2),transparent_30%),radial-gradient(circle_at_82%_70%,rgba(34,211,238,0.14),transparent_32%),#050509] p-5 sm:p-7">
       <div className="grid gap-4 lg:grid-cols-[1fr_72px_1.2fr_72px_1fr] lg:items-center">
-        <DiagramNode label="Coding agent" detail="Codex, Claude Code, or another agent emits hook events" tone="neutral" />
+        <DiagramNode label="User task" detail="The user enters the task in Agent Sidecar, not directly in Codex" tone="neutral" />
         <DiagramArrow />
-        <DiagramNode label="Agent Sidecar" detail="CLI adapter and local daemon evaluate the run" tone="cyan" />
+        <DiagramNode label="Agent Sidecar" detail="Retrieve context, rewrite prompt, and submit to Codex" tone="cyan" />
         <DiagramArrow />
-        <DiagramNode label="Runtime decision" detail="warn, block, continue, inject context, or require validation" tone="green" />
+        <DiagramNode label="Codex run" detail="Codex receives the optimized task contract and emits supervised hook events" tone="green" />
       </div>
 
       <div className="my-5 h-px bg-white/10" />
@@ -227,7 +227,7 @@ function SystemDiagram() {
         <div className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Sidecar internals</p>
-            <h3 className="mt-2 text-xl font-semibold">Evaluate before the agent continues</h3>
+            <h3 className="mt-2 text-xl font-semibold">Prepare before Codex starts, supervise while it runs</h3>
           </div>
           <span className="w-fit rounded-full border border-white/10 bg-black/20 px-3 py-1 font-mono text-xs text-neutral-300">
             local daemon
@@ -235,10 +235,10 @@ function SystemDiagram() {
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            ["Ingest", "Normalize hook events and update run state"],
-            ["Remember", "Retrieve file memory and approved lessons"],
-            ["Steer", "Apply prompt optimization, monitor signals, and low-cost model ensemble guidance"],
-            ["Record", "Store traces, decisions, cost signals, and outcomes"]
+            ["Retrieve", "Load repo type, AGENTS.md, previous plans, file tree, branch, and relevant diffs"],
+            ["Rewrite", "Add constraints, acceptance criteria, PR boundaries, and test expectations"],
+            ["Submit", "Send the optimized prompt to Codex and supervise runtime hooks"],
+            ["Record", "Store original prompt, optimized prompt, token estimate, result quality, decisions, and outcomes"]
           ].map(([label, detail]) => (
             <div key={label} className="rounded-xl border border-white/10 bg-black/20 p-3">
               <p className="font-mono text-xs uppercase tracking-[0.14em] text-white">{label}</p>
@@ -255,7 +255,7 @@ function SystemDiagram() {
         <DiagramArrow />
         <DiagramNode label="Daemon API" detail="Reads and writes through the sidecar" tone="cyan" />
         <DiagramArrow />
-        <DiagramNode label="Local data" detail="Traces, policies, lessons, analytics" tone="neutral" />
+        <DiagramNode label="Local data" detail="Prompts, context snapshots, traces, policies, lessons, analytics" tone="neutral" />
       </div>
     </div>
   );

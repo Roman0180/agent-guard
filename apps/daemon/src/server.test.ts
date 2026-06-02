@@ -20,6 +20,29 @@ afterEach(async () => {
 });
 
 describe("@agent-sidecar/daemon", () => {
+  const localPromptOptimizer = {
+    enabled: true,
+    model: "deepseek-r1:1.5b",
+    fetch: async () =>
+      new Response(JSON.stringify({
+        message: {
+          content: JSON.stringify({
+            shouldInject: true,
+            optimizedPrompt: "Task:\nFix the logger issue\n\nValidation:\nRun focused validation.",
+            rewriteReason: "Optimized by local DeepSeek R1.",
+            taskContract: {
+              task: "Fix the logger issue",
+              scope: [],
+              constraints: ["Keep scope narrow."],
+              validation_requirements: ["Run focused validation."],
+              relevant_lessons: [],
+              risk_notes: []
+            }
+          })
+        }
+      }))
+  };
+
   it("responds to health checks", async () => {
     const server = buildServer({ logger: false });
 
@@ -39,7 +62,7 @@ describe("@agent-sidecar/daemon", () => {
 
   it("stores a Codex hook event and exposes the created run", async () => {
     const databasePath = await createTempDatabasePath();
-    const server = buildServer({ databasePath, logger: false });
+    const server = buildServer({ databasePath, logger: false, localPromptOptimizer });
 
     const hookResponse = await server.inject({
       method: "POST",
@@ -114,9 +137,83 @@ describe("@agent-sidecar/daemon", () => {
     });
   });
 
-  it("returns injected prompt optimization context for the demo Codex prompt", async () => {
+  it("rolls hook token usage and cost into dashboard run details", async () => {
     const databasePath = await createTempDatabasePath();
     const server = buildServer({ databasePath, logger: false });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "usage-prompt",
+        runId: "usage-run-1",
+        providerEventType: "UserPromptSubmit",
+        prompt: "Add billing telemetry",
+        tokenUsage: { inputTokens: 1200, outputTokens: 140, totalTokens: 1340 },
+        costEstimate: { amountUsd: 0.043, source: "provider" }
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "usage-tool",
+        runId: "usage-run-1",
+        providerEventType: "PreToolUse",
+        toolName: "Bash",
+        toolInput: { command: "pnpm test" },
+        usage: { input_tokens: 80, output_tokens: 20 },
+        cost: { amount_usd: 0.006, source: "estimated" }
+      }
+    });
+
+    const runsResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs"
+    });
+    const dashboardResponse = await server.inject({
+      method: "GET",
+      url: "/api/dashboard/runs/usage-run-1"
+    });
+
+    await server.close();
+
+    expect(runsResponse.statusCode).toBe(200);
+    expect(runsResponse.json()[0]).toMatchObject({
+      id: "usage-run-1",
+      provider: "generic",
+      taskSummary: "Add billing telemetry",
+      totalInputTokens: 1280,
+      totalOutputTokens: 160
+    });
+    expect(runsResponse.json()[0].totalEstimatedCostUsd).toBeCloseTo(0.049);
+    expect(dashboardResponse.statusCode).toBe(200);
+    expect(dashboardResponse.json()).toMatchObject({
+      run: {
+        id: "usage-run-1",
+        totalInputTokens: 1280,
+        totalOutputTokens: 160
+      },
+      events: [
+        {
+          id: "usage-prompt",
+          tokenUsage: { inputTokens: 1200, outputTokens: 140, totalTokens: 1340 },
+          costEstimate: { amountUsd: 0.043, source: "provider" }
+        },
+        {
+          id: "usage-tool",
+          tokenUsage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
+          costEstimate: { amountUsd: 0.006, source: "estimated" }
+        }
+      ]
+    });
+    expect(dashboardResponse.json().run.totalEstimatedCostUsd).toBeCloseTo(0.049);
+  });
+
+  it("returns injected prompt optimization context for the demo Codex prompt", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false, localPromptOptimizer });
 
     const hookResponse = await server.inject({
       method: "POST",
@@ -132,6 +229,11 @@ describe("@agent-sidecar/daemon", () => {
     const optimizationsResponse = await server.inject({
       method: "GET",
       url: "/api/runs/demo-run-2/prompt-optimizations"
+    });
+
+    const demoResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/demo-run-2/demo"
     });
 
     await server.close();
@@ -160,10 +262,10 @@ describe("@agent-sidecar/daemon", () => {
         taskContract: {
           task: "Fix the logger issue"
         },
-        rewriteReason: "Converted a vague prompt into a compact deterministic task contract.",
+        rewriteReason: "Optimized by local DeepSeek R1.",
         shouldInject: true,
         injected: true,
-        deterministicOrModel: "deterministic"
+        deterministicOrModel: "model_assisted"
       }
     });
 
@@ -175,5 +277,110 @@ describe("@agent-sidecar/daemon", () => {
         optimizedPrompt: expect.stringContaining("Task:\nFix the logger issue")
       })
     ]);
+    expect(demoResponse.statusCode).toBe(200);
+    expect(demoResponse.json()).toMatchObject({
+      run: { id: "demo-run-2" },
+      checkpoints: [
+        { id: "hook-setup", status: "complete" },
+        { id: "prompt-ingest", status: "complete" },
+        { id: "prompt-optimization", status: "complete" },
+        { id: "run-state" }
+      ],
+      promptOptimizations: [
+        {
+          originalPrompt: "Fix the logger issue",
+          result: { mode: "initial_task" }
+        }
+      ]
+    });
   });
+  it("ingests generic hooks and updates run state across prompt, tool, edit, and validation events", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-prompt",
+        runId: "generic-run-1",
+        providerEventType: "UserPromptSubmit",
+        cwd: "/repo",
+        prompt: "Fix login refresh"
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-search",
+        runId: "generic-run-1",
+        providerEventType: "PreToolUse",
+        cwd: "/repo",
+        toolName: "Bash",
+        toolInput: { command: "rg refreshSession src/auth" }
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-edit",
+        runId: "generic-run-1",
+        providerEventType: "FileEdit",
+        cwd: "/repo",
+        toolName: "Edit",
+        touchedPaths: ["src/auth/session.ts"]
+      }
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/hooks/generic",
+      payload: {
+        id: "generic-test",
+        runId: "generic-run-1",
+        providerEventType: "PostToolUse",
+        cwd: "/repo",
+        toolName: "Bash",
+        toolInput: { command: "pnpm test" },
+        result: { exitCode: 0, stdout: "ok" }
+      }
+    });
+
+    const eventsResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/generic-run-1/events"
+    });
+    const stateResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/generic-run-1/state"
+    });
+
+    await server.close();
+
+    expect(eventsResponse.statusCode).toBe(200);
+    expect(eventsResponse.json().map((event: { eventType: string }) => event.eventType)).toEqual([
+      "prompt",
+      "tool_call",
+      "file_edit",
+      "validation"
+    ]);
+    expect(stateResponse.statusCode).toBe(200);
+    expect(stateResponse.json().state).toMatchObject({
+      runId: "generic-run-1",
+      eventCounts: {
+        prompt: 1,
+        tool_call: 1,
+        file_edit: 1,
+        validation: 1
+      },
+      filesChanged: ["src/auth/session.ts"],
+      validationSinceLastEdit: true,
+      validationCommandCount: 1
+    });
+  });
+
 });

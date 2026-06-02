@@ -55,9 +55,9 @@ const capabilities = [
   },
   {
     icon: Sparkles,
-    title: "Prompt shaping and compaction",
-    body: "Convert vague requests into scoped task briefs, carry validation evidence forward, and trim low-value history",
-    detail: "brief / constraints / proof"
+    title: "Task-first prompt shaping",
+    body: "Accept the task before Codex starts, retrieve repo context, add acceptance criteria, PR boundaries, and test expectations",
+    detail: "context / criteria / tests"
   },
   {
     icon: GitBranch,
@@ -70,9 +70,9 @@ const capabilities = [
 const workflow = [
   "Install the sidecar package with pip",
   "Start the daemon from your terminal",
-  "Configure Codex or Claude Code hooks",
-  "Run the coding agent normally",
-  "Review traces, decisions, monitors, saved patterns, and A/B analytics"
+  "Run Codex through Agent Sidecar",
+  "Sidecar retrieves context, rewrites the task, and submits the optimized prompt",
+  "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
 ];
 
 const evidenceCards = [
@@ -444,21 +444,22 @@ function DemoSection() {
   const terminalLines = [
     "python -m pip install agent-sidecar",
     "agent-sidecar daemon start",
-    "agent-sidecar hook install --provider codex"
+    "agent-sidecar codex \"Fix the auth refresh bug\""
   ];
   const capabilityEvents: Array<[string, string]> = [
-    ["Runbook memory", "Find auth-refresh fix note"],
-    ["Repo map cache", "Load session.ts ownership hint"],
-    ["Trajectory watchdogs", "Watch for repeated edits"],
-    ["Tool-cost guardrails", "Score command and edit risk"],
-    ["Prompt shaping", "Replace vague prompt with task brief"],
-    ["Ensemble steering", "Run low-cost guidance vote"]
+    ["Repo type", "Detect Next.js TypeScript app"],
+    ["AGENTS.md", "Load local validation instructions"],
+    ["Previous plans", "Reuse prior auth-refresh plan"],
+    ["File tree", "Summarize src/auth and tests"],
+    ["Active branch", "Record feature/auth-refresh"],
+    ["Relevant diffs", "Attach current session.ts edits"]
   ];
   const optimizedPromptLines = [
     "Task: Fix auth refresh so users stay signed in after token renewal",
-    "Scope: Inspect session persistence, token save path, and auth tests",
-    "Constraints: Keep the change narrow and avoid unrelated auth refactors",
-    "Validation: Run targeted auth refresh and login flow tests before final response"
+    "Constraints: Keep the change narrow and follow AGENTS.md",
+    "Acceptance: Token renewal persists before redirect",
+    "PR boundary: No unrelated auth refactors",
+    "Tests: Run targeted auth refresh and login flow checks"
   ];
   const restartDemo = () => {
     setDemoPaused(false);
@@ -512,12 +513,12 @@ function DemoSection() {
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-red-400/80" />
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">monitor: validation after edit</div>
+              <span className="size-2 rounded-full bg-amber-300/80" />
               <span className="size-2 rounded-full bg-emerald-300/80" />
               <span className="ml-3 font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">agent-sidecar-demo</span>
             </div>
             <span className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-xs text-[#22d3ee]">
-              Codex hook active
+Sidecar task intake active
             </span>
           </div>
 
@@ -541,7 +542,7 @@ function DemoSection() {
             >
               <div className={`${sceneClass(0, 8)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-3xl">
-                  <PhaseHeading title="Phase 1 Hook setup" body="Install the sidecar, start the daemon, and connect Codex hooks" />
+                  <PhaseHeading title="Phase 1 Sidecar setup" body="Install the sidecar, start the daemon, and submit Codex tasks through Agent Sidecar" />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                   <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                     <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Terminal</span>
@@ -565,7 +566,7 @@ function DemoSection() {
                         showAt(4.5) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
                       }`}
                     >
-                      hooks ready
+task intake ready
                     </p>
                   </div>
                   </div>
@@ -574,7 +575,7 @@ function DemoSection() {
 
               <div className={`${sceneClass(8, 16)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Phase 2 Prompt enters Codex" body="The user asks Codex for a scoped auth fix while Agent Sidecar watches the workspace" />
+                  <PhaseHeading title="Phase 2 User enters task in Sidecar" body="The user enters a task into Agent Sidecar instead of typing directly into Codex" />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
@@ -597,11 +598,11 @@ function DemoSection() {
                   <aside className="border-t border-white/10 bg-[#08080d] p-4 lg:border-l lg:border-t-0">
                     <div className="mb-4 flex items-center justify-between">
                       <div>
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Codex</p>
-                        <h3 className="mt-1 text-lg font-semibold">New task</h3>
+                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar</p>
+                        <h3 className="mt-1 text-lg font-semibold">New Codex task</h3>
                       </div>
                       <span className="rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-[11px] text-[#22d3ee]">
-                        sidecar on
+                        task intake
                       </span>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -619,17 +620,17 @@ function DemoSection() {
               <div className={`${sceneClass(16, 24)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
                   <PhaseHeading
-                    title="Phase 3 Prompt optimization"
-                    body="Agent Sidecar converts the vague Codex prompt into a compact task contract before the agent continues"
+                    title="Phase 3 Context retrieval and rewrite"
+                    body="Agent Sidecar loads repo type, AGENTS.md, previous plans, file tree, branch, and relevant diffs before rewriting the prompt"
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Prompt optimizer</p>
-                        <h3 className="mt-2 text-2xl font-semibold">Vague request becomes a task contract</h3>
+                        <h3 className="mt-2 text-2xl font-semibold">Task becomes a Codex-ready contract</h3>
                       </div>
                       <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                        injected into Codex
+                        submitted to Codex
                       </span>
                     </div>
                     <div className="grid gap-4 p-5 lg:grid-cols-[0.88fr_1.12fr]">
@@ -659,12 +660,12 @@ function DemoSection() {
 
               <div className={`${sceneClass(24, 32)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
-                  <PhaseHeading title="Phase 4 Runtime checks execute" body="Agent Sidecar runs the six controls before Codex spends more steps" />
+                  <PhaseHeading title="Phase 4 Sidecar submits and supervises" body="The optimized prompt goes to Codex, then Agent Sidecar watches runtime events for loops, risky tools, validation gaps, and budget pressure" />
                 <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                   <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
-                      <h3 className="mt-2 text-2xl font-semibold">Capabilities execute after the prompt lands</h3>
+                      <h3 className="mt-2 text-2xl font-semibold">Retrieved context anchors the Codex run</h3>
                     </div>
                     <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
                       evaluating run
@@ -697,8 +698,8 @@ function DemoSection() {
               <div className={`${sceneClass(32, 40)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-5xl">
                   <PhaseHeading
-                    title="Phase 5 Codex edits with steering"
-                    body="Codex applies the scoped fix using Agent Sidecar's optimized prompt and low-cost steering ensemble"
+                    title="Phase 5 Codex edits from contract"
+                    body="Codex applies the narrow fix using the sidecar-submitted task contract and runtime decisions"
                   />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
                   <aside className="hidden border-r border-white/10 bg-[#090910] p-4 lg:block">
@@ -745,7 +746,7 @@ function DemoSection() {
                 <div className="w-full max-w-6xl">
                   <PhaseHeading
                     title="Phase 6 Dashboard records the result"
-                    body="The control plane records the auth-refresh fix, the sidecar decision, and the cost saved against the unguarded baseline"
+                    body="The control plane records original prompt, optimized prompt, token estimate, result quality, validation requirement, and cost evidence"
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">
@@ -844,9 +845,9 @@ function DemoSection() {
                             <h3 className="mt-4 text-2xl font-semibold">auth-refresh-fix</h3>
                             <div className="mt-4 grid gap-3">
                               {[
-                                "policy: validation after edit",
-                                "steering: run auth tests",
-                                "saved: avoided repeated edit loop"
+                                "original + optimized prompt recorded",
+                                "token estimate: original vs optimized",
+                                "result quality: validated"
                               ].map((item) => (
                                 <div key={item} className="rounded-xl border border-white/10 bg-[#071012] p-3 text-sm leading-6 text-neutral-200">
                                   {item}

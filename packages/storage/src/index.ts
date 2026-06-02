@@ -139,9 +139,17 @@ export type TaskContract = {
   task: string;
   scope: string[];
   constraints: string[];
+  acceptance_criteria: string[];
+  pr_boundaries: string[];
+  test_expectations: string[];
   validation_requirements: string[];
   relevant_lessons: string[];
   risk_notes: string[];
+};
+
+export type PromptOptimizationRecord = {
+  result: PromptOptimizationResult;
+  originalPrompt?: string;
 };
 
 export type PromptOptimizationResult = {
@@ -149,7 +157,10 @@ export type PromptOptimizationResult = {
   runId: string;
   eventId: string;
   mode: PromptRewriteMode;
+  originalPrompt?: string;
   optimizedPrompt: string;
+  estimatedOptimizedTokens: number;
+  resultQuality: "unknown" | "accepted" | "needs_followup" | "failed";
   taskContract: TaskContract;
   constraints: string[];
   validationRequirements: string[];
@@ -328,6 +339,48 @@ export class Storage {
       });
 
     return run;
+  }
+
+  updateRunFromEvent(event: StoredEvent): StoredRun | undefined {
+    const existing = this.getRun(event.runId);
+    if (!existing) {
+      return undefined;
+    }
+
+    const inputTokens = numberFromRecord(event.tokenUsage, ["inputTokens", "input_tokens", "prompt_tokens"]);
+    const outputTokens = numberFromRecord(event.tokenUsage, ["outputTokens", "output_tokens", "completion_tokens"]);
+    const costUsd = numberFromRecord(event.costEstimate, ["amountUsd", "amount_usd", "costUsd", "cost_usd"]);
+    const completed = event.eventType === "run_finished";
+    const status = completed ? "completed" : existing.status;
+    const taskSummary = event.eventType === "prompt" ? event.summary : existing.taskSummary;
+
+    this.db
+      .prepare(
+        `
+        UPDATE runs
+        SET
+          task_summary = @taskSummary,
+          status = @status,
+          updated_at = @updatedAt,
+          completed_at = COALESCE(@completedAt, completed_at),
+          total_input_tokens = total_input_tokens + @inputTokens,
+          total_output_tokens = total_output_tokens + @outputTokens,
+          total_estimated_cost_usd = total_estimated_cost_usd + @costUsd
+        WHERE id = @runId
+      `
+      )
+      .run({
+        runId: event.runId,
+        taskSummary: taskSummary ?? null,
+        status,
+        updatedAt: event.timestamp,
+        completedAt: completed ? event.timestamp : null,
+        inputTokens,
+        outputTokens,
+        costUsd
+      });
+
+    return this.getRun(event.runId);
   }
 
   listRuns(limit = 100): StoredRun[] {
@@ -666,6 +719,23 @@ export class Storage {
     return rows.map((row) => JSON.parse(row.result_json) as PromptOptimizationResult);
   }
 
+  getPromptOptimizationRecordsForRun(runId: string): PromptOptimizationRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT * FROM prompt_optimizations
+        WHERE run_id = ?
+        ORDER BY created_at ASC, id ASC
+      `
+      )
+      .all(runId) as PromptOptimizationRow[];
+
+    return rows.map((row) => ({
+      result: JSON.parse(row.result_json) as PromptOptimizationResult,
+      originalPrompt: row.original_prompt ?? undefined
+    }));
+  }
+
   private getLesson(id: string): Lesson | undefined {
     const row = this.db.prepare("SELECT id, lesson_json FROM lessons WHERE id = ?").get(id) as LessonRow | undefined;
     return row ? (JSON.parse(row.lesson_json) as Lesson) : undefined;
@@ -851,6 +921,21 @@ function lessonParams(lesson: Lesson): Record<string, unknown> {
     expiresAt: lesson.expiresAt ?? null,
     lessonJson: JSON.stringify(stripUndefined(lesson))
   };
+}
+
+function numberFromRecord(record: JsonRecord | undefined, keys: string[]): number {
+  if (!record) {
+    return 0;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return 0;
 }
 
 function stripUndefined<T>(value: T): T {

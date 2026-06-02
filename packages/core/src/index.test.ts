@@ -14,6 +14,7 @@ import {
   classifyCommand,
   normalizeClaudeHook,
   normalizeCodexHook,
+  normalizeGenericHook,
   normalizeCommandSignature,
   RunStateManager
 } from "./index.js";
@@ -120,6 +121,9 @@ const taskContract = {
   task: "Implement shared core schemas.",
   scope: ["packages/core/src/index.ts", "packages/core/src/index.test.ts"],
   constraints: ["Use Zod for runtime validation.", "Keep steering model inputs compact."],
+  acceptance_criteria: ["Schemas accept valid payloads and reject invalid payloads."],
+  pr_boundaries: ["Only update shared schema code and matching tests."],
+  test_expectations: ["Run pnpm test."],
   validation_requirements: ["Run pnpm test."],
   relevant_lessons: [lesson.text],
   risk_notes: ["Do not include raw conversations in steering inputs."]
@@ -216,7 +220,10 @@ describe("@agent-sidecar/core schemas", () => {
       runId: "run-1",
       eventId: "event-1",
       mode: "initial_task",
+      originalPrompt: "Implement shared core schemas.",
       optimizedPrompt: "Task: Implement shared core schemas.\nValidation: Run pnpm test.",
+      estimatedOptimizedTokens: 12,
+      resultQuality: "unknown",
       taskContract,
       constraints: taskContract.constraints,
       validationRequirements: taskContract.validation_requirements,
@@ -268,6 +275,23 @@ describe("event normalization", () => {
       command: { type: "search", normalized: "search:platformlogger:src" }
     });
     expect(event.compactMetadata.cwd).toBe("/repo");
+  });
+
+  it("normalizes generic hook JSON", () => {
+    const event = normalizeGenericHook({
+      id: "generic-1",
+      runId: "generic-run",
+      providerEventType: "PreToolUse",
+      cwd: "/repo",
+      toolName: "Bash",
+      toolInput: { command: "pnpm build" },
+      result: { exitCode: 0 },
+      timestamp: now
+    });
+
+    expect(event.agent).toBe("generic");
+    expect(event.eventType).toBe("validation");
+    expect(event.command).toMatchObject({ type: "build", normalized: "build:pnpm" });
   });
 
   it("normalizes Claude hook JSON", () => {

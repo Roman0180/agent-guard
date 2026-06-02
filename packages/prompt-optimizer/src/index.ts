@@ -2,28 +2,44 @@ export type AgentKind = "codex" | "claude-code" | "generic";
 export type HookEventType = "run_started" | "prompt" | "tool_call" | "tool_result" | "file_edit" | "validation" | "final_attempt" | "compaction" | "run_finished" | "error";
 export type PromptRewriteMode = "initial_task" | "continuation" | "compaction" | "lesson_injection";
 export type Lesson = { id: string; trigger: Record<string, unknown>; text: string; confidence: number; evidence: Record<string, unknown>[]; scope: Record<string, unknown>; status: "candidate" | "approved" | "disabled" | "expired"; createdAt: string; updatedAt: string; expiresAt?: string };
-export type TaskContract = { task: string; scope: string[]; constraints: string[]; validation_requirements: string[]; relevant_lessons: string[]; risk_notes: string[] };
-export type PromptOptimizationInput = { runId: string; eventId: string; mode: PromptRewriteMode; agent: AgentKind; originalPrompt?: string; original_prompt?: string; repoPath?: string; eventType?: HookEventType; compactRunState?: Record<string, unknown>; policySummary?: string[]; approvedMatchingLessons?: Lesson[]; validationStatus?: string; latestErrorSignature?: string; changedFileCount: number; recentCommandSignatures: string[]; normalizedEvent: { summary: string; compactMetadata?: Record<string, unknown> } & Record<string, unknown>; runState: Record<string, unknown>; policy: { protectedPaths: string[] } & Record<string, unknown>; approvedLessons: Lesson[]; maxPromptLength: number };
-export type PromptOptimizationResult = { id: string; runId: string; eventId: string; mode: PromptRewriteMode; optimizedPrompt: string; taskContract: TaskContract; constraints: string[]; validationRequirements: string[]; relevantLessons: Lesson[]; riskNotes: string[]; estimatedTokenDelta: number; rewriteReason: string; shouldInject: boolean; injected: boolean; deterministicOrModel: "deterministic" | "model_assisted"; createdAt: string };
+export type TaskContract = { task: string; scope: string[]; constraints: string[]; acceptance_criteria: string[]; pr_boundaries: string[]; test_expectations: string[]; validation_requirements: string[]; relevant_lessons: string[]; risk_notes: string[] };
+export type ContextSnapshot = { repoType?: string; agentsMd?: string[]; previousPlans?: string[]; fileTree?: string[]; activeBranch?: string; relevantDiffs?: string[] };
+export type PromptOptimizationInput = { runId: string; eventId: string; mode: PromptRewriteMode; agent: AgentKind; originalPrompt?: string; original_prompt?: string; repoPath?: string; eventType?: HookEventType; compactRunState?: Record<string, unknown>; policySummary?: string[]; approvedMatchingLessons?: Lesson[]; validationStatus?: string; latestErrorSignature?: string; changedFileCount: number; recentCommandSignatures: string[]; contextSnapshot?: ContextSnapshot; normalizedEvent: { summary: string; compactMetadata?: Record<string, unknown> } & Record<string, unknown>; runState: Record<string, unknown>; policy: { protectedPaths: string[] } & Record<string, unknown>; approvedLessons: Lesson[]; maxPromptLength: number };
+export type PromptOptimizationResult = { id: string; runId: string; eventId: string; mode: PromptRewriteMode; originalPrompt?: string; optimizedPrompt: string; estimatedOptimizedTokens: number; resultQuality: "unknown" | "accepted" | "needs_followup" | "failed"; taskContract: TaskContract; constraints: string[]; validationRequirements: string[]; relevantLessons: Lesson[]; riskNotes: string[]; estimatedTokenDelta: number; rewriteReason: string; shouldInject: boolean; injected: boolean; deterministicOrModel: "deterministic" | "model_assisted"; createdAt: string };
 
 export type PromptOptimizerOptions = {
   maxPromptLength?: number;
   now?: () => string;
   idFactory?: () => string;
+  localModel?: LocalModelPromptOptimizerOptions;
 };
 
 const DEFAULT_MAX_PROMPT_LENGTH = 2_400;
+const DEFAULT_LOCAL_MODEL_BASE_URL = "http://127.0.0.1:11434";
+const DEFAULT_LOCAL_MODEL = "deepseek-r1:7b";
+const DEFAULT_LOCAL_MODEL_TIMEOUT_MS = 60_000;
 const VAGUE_PROMPT_PATTERN = /^(fix|do|implement|update|make|add|improve|help|work on)\b.{0,80}$/i;
+const TROUBLESHOOTING_PROMPT_PATTERN = /\b(can you figure it out|whatever is wrong|not working|keeps? breaking|keeps? failing|something is wrong|debug this|look into (it|this))\b/i;
 
 export class PromptOptimizer {
   private readonly maxPromptLength: number;
   private readonly now: () => string;
   private readonly idFactory: () => string;
+  private readonly localModel?: Required<LocalModelPromptOptimizerOptions>;
 
   constructor(options: PromptOptimizerOptions = {}) {
     this.maxPromptLength = options.maxPromptLength ?? DEFAULT_MAX_PROMPT_LENGTH;
     this.now = options.now ?? (() => new Date().toISOString());
     this.idFactory = options.idFactory ?? (() => `prompt-opt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    this.localModel = options.localModel
+      ? {
+          enabled: options.localModel.enabled ?? false,
+          baseUrl: options.localModel.baseUrl ?? DEFAULT_LOCAL_MODEL_BASE_URL,
+          model: options.localModel.model ?? DEFAULT_LOCAL_MODEL,
+          timeoutMs: options.localModel.timeoutMs ?? DEFAULT_LOCAL_MODEL_TIMEOUT_MS,
+          fetch: options.localModel.fetch ?? fetch
+        }
+      : undefined;
   }
 
   optimize(input: PromptOptimizationInput): PromptOptimizationResult {
@@ -33,14 +49,19 @@ export class PromptOptimizer {
     const taskContract = buildTaskContract(input, lessons);
     const rewrite = renderPrompt(mode, input, taskContract, lessons);
     const optimizedPrompt = truncatePrompt(rewrite.prompt, maxLength);
-    const estimatedTokenDelta = estimateTokens(optimizedPrompt) - estimateTokens(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary);
+    const originalPrompt = input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary;
+    const estimatedOptimizedTokens = estimateTokens(optimizedPrompt);
+    const estimatedTokenDelta = estimatedOptimizedTokens - estimateTokens(originalPrompt);
 
     return {
       id: this.idFactory(),
       runId: input.runId,
       eventId: input.eventId,
       mode,
+      originalPrompt,
       optimizedPrompt,
+      estimatedOptimizedTokens,
+      resultQuality: "unknown",
       taskContract,
       constraints: taskContract.constraints,
       validationRequirements: taskContract.validation_requirements,
@@ -54,13 +75,154 @@ export class PromptOptimizer {
       createdAt: this.now()
     };
   }
+
+  async optimizeWithLocalModel(input: PromptOptimizationInput): Promise<PromptOptimizationResult | undefined> {
+    if (!this.localModel?.enabled) {
+      return undefined;
+    }
+
+    const assisted = await requestLocalModelOptimization(input, this.localModel);
+    if (!assisted.shouldInject) {
+      return undefined;
+    }
+
+    const maxLength = Math.min(input.maxPromptLength, this.maxPromptLength);
+    const optimizedPrompt = truncatePrompt(assisted.optimizedPrompt, maxLength);
+    const taskContract = assisted.taskContract ?? emptyTaskContract(input);
+    const lessons = selectRelevantLessons(input).slice(0, 3);
+
+    return {
+      id: this.idFactory(),
+      runId: input.runId,
+      eventId: input.eventId,
+      mode: input.mode,
+      optimizedPrompt,
+      taskContract,
+      constraints: taskContract.constraints,
+      validationRequirements: taskContract.validation_requirements,
+      relevantLessons: lessons,
+      riskNotes: taskContract.risk_notes,
+      estimatedTokenDelta: estimateTokens(optimizedPrompt) - estimateTokens(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary),
+      rewriteReason: assisted.rewriteReason || `Optimized by local model ${this.localModel.model}.`,
+      shouldInject: assisted.shouldInject,
+      injected: false,
+      deterministicOrModel: "model_assisted",
+      createdAt: this.now()
+    };
+  }
+}
+
+async function requestLocalModelOptimization(
+  input: PromptOptimizationInput,
+  localModel: Required<LocalModelPromptOptimizerOptions>
+): Promise<{ optimizedPrompt: string; rewriteReason?: string; shouldInject: boolean; taskContract?: TaskContract }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), localModel.timeoutMs);
+
+  try {
+    const response = await localModel.fetch(`${localModel.baseUrl.replace(/\/$/, "")}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: localModel.model,
+        stream: false,
+        format: "json",
+        think: false,
+        options: {
+          temperature: 0,
+          num_predict: 450
+        },
+        messages: [
+          {
+            role: "system",
+            content:
+              "Return only minified JSON. No markdown. No explanation. Schema: {\"shouldInject\":true,\"optimizedPrompt\":\"Task: ...\\n\\nLikely areas to inspect:\\n- ...\\n\\nImplementation approach:\\n- ...\\n\\nConstraints:\\n- ...\\n\\nValidation:\\n- ...\",\"rewriteReason\":\"...\",\"taskContract\":{\"task\":\"...\",\"scope\":[],\"constraints\":[],\"validation_requirements\":[],\"relevant_lessons\":[],\"risk_notes\":[]}}. Every user prompt is missing operational detail before it is sent to a coding agent. DeepSeek R1 must fill in that missing detail. The optimizedPrompt must be a multi-section task brief and must be substantially more detailed than the original prompt. Include likely files or areas to inspect, concrete implementation steps, constraints, risks, and validation commands. Preserve user intent, but do not simply restate the prompt. Never say the original prompt is already concise enough. Always return shouldInject true unless the prompt is unsafe or unrelated to coding."
+          },
+          {
+            role: "user",
+            content: [
+              `Prompt: ${input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary}`,
+              `Mode: ${input.mode}`,
+              input.repoPath ? `Repo: ${input.repoPath}` : undefined,
+              input.validationStatus ? `Validation: ${input.validationStatus}` : undefined,
+              input.latestErrorSignature ? `Latest error: ${input.latestErrorSignature}` : undefined,
+              input.recentCommandSignatures.length ? `Recent commands: ${input.recentCommandSignatures.slice(-5).join(", ")}` : undefined
+            ].filter(Boolean).join("\n")
+          }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`local_model_http_${response.status}`);
+    }
+
+    const body = await response.json() as { message?: { content?: string }; response?: string };
+    const content = stripThinking(body.message?.content ?? body.response ?? "");
+    const parsed = parseJsonObject(content);
+    const shouldInject = parsed.shouldInject !== false;
+    const parsedTaskContract = taskContractFromUnknown(parsed.taskContract) ?? taskContractFromUnknown(parsed.optimizedPrompt);
+    const optimizedPrompt = typeof parsed.optimizedPrompt === "string"
+      ? parsed.optimizedPrompt.trim()
+      : parsedTaskContract
+        ? renderTaskContractPrompt(parsedTaskContract)
+        : "";
+    if (shouldInject && !optimizedPrompt) {
+      throw new Error("local_model_missing_optimized_prompt");
+    }
+    if (shouldInject && !isExpandedPrompt(input, optimizedPrompt)) {
+      throw new Error("local_model_restatement");
+    }
+
+    return {
+      optimizedPrompt,
+      rewriteReason: typeof parsed.rewriteReason === "string" ? parsed.rewriteReason.trim() : undefined,
+      shouldInject,
+      taskContract: parsedTaskContract
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isExpandedPrompt(input: PromptOptimizationInput, optimizedPrompt: string): boolean {
+  const original = clean(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary).toLowerCase();
+  const optimized = clean(optimizedPrompt).toLowerCase();
+  if (!original) return optimizedPrompt.length >= 80;
+  if (optimized === original) return false;
+  return optimizedPrompt.length >= Math.max(120, original.length * 2) && /\b(validation|test|inspect|implementation|constraint|risk|files?|areas?)\b/i.test(optimizedPrompt);
+}
+
+function emptyTaskContract(input: PromptOptimizationInput): TaskContract {
+  const task = clean(input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary);
+  return {
+    task: task || "Complete the requested coding task.",
+    scope: [],
+    constraints: [],
+    validation_requirements: [],
+    relevant_lessons: [],
+    risk_notes: []
+  };
+}
+
+function renderTaskContractPrompt(contract: TaskContract): string {
+  return sections([
+    ["Task", contract.task],
+    ["Likely areas to inspect", listOrNone(contract.scope)],
+    ["Implementation approach", listOrNone(contract.risk_notes.length ? contract.risk_notes : contract.constraints)],
+    ["Constraints", listOrNone(contract.constraints)],
+    ["Validation", listOrNone(contract.validation_requirements)],
+    ["Relevant lessons", listOrNone(contract.relevant_lessons)]
+  ]);
 }
 
 function shouldInject(mode: PromptRewriteMode, input: PromptOptimizationInput, lessons: Lesson[]): boolean {
   if (mode === "lesson_injection") return lessons.length > 0;
   if (mode === "continuation") return true;
   if (mode === "compaction") return true;
-  return Boolean((input.originalPrompt ?? input.original_prompt) && (VAGUE_PROMPT_PATTERN.test(input.originalPrompt ?? input.original_prompt ?? "") || lessons.length > 0));
+  const originalPrompt = input.originalPrompt ?? input.original_prompt ?? "";
+  return Boolean(originalPrompt && (isVagueOrTroubleshootingPrompt(originalPrompt) || lessons.length > 0));
 }
 
 function buildTaskContract(input: PromptOptimizationInput, lessons: Lesson[]): TaskContract {
@@ -72,8 +234,22 @@ function buildTaskContract(input: PromptOptimizationInput, lessons: Lesson[]): T
     constraints: [
       "Stay within the requested scope; do not implement unrelated future steps.",
       "Use deterministic checks before making risky changes.",
+      ...(input.contextSnapshot?.activeBranch ? [`Keep changes on branch ${input.contextSnapshot.activeBranch}.`] : []),
       ...(input.policy.protectedPaths.length ? [`Do not modify protected paths: ${input.policy.protectedPaths.slice(0, 4).join(", ")}.`] : [])
-    ].slice(0, 6),
+    ].slice(0, 8),
+    acceptance_criteria: [
+      "The requested behavior is implemented without unrelated changes.",
+      "Relevant existing behavior remains compatible.",
+      "The final response summarizes changed files and validation evidence."
+    ],
+    pr_boundaries: [
+      "Keep the PR focused on this task only.",
+      "Do not include speculative refactors or follow-up features.",
+      "Call out any intentionally deferred work in the final response."
+    ],
+    test_expectations: validationStatus === "passed"
+      ? ["Preserve existing passing validation evidence and rerun if files change."]
+      : ["Run the narrowest reliable test, build, or lint command that proves the change."],
     validation_requirements: validationStatus === "passed"
       ? ["Preserve the existing passing validation evidence."]
       : ["Run an appropriate test or build command before final response."],
@@ -126,17 +302,35 @@ function renderPrompt(
   }
 
   return {
-    reason: VAGUE_PROMPT_PATTERN.test(input.originalPrompt ?? input.original_prompt ?? "")
-      ? "Converted a vague prompt into a compact deterministic task contract."
-      : "Rewrote the prompt as a compact deterministic task contract.",
+    reason: rewriteReasonForInitialTask(input.originalPrompt ?? input.original_prompt ?? ""),
     prompt: sections([
       ["Task", contract.task],
+      ["Context", contextSummary(input)],
       ["Scope", listOrNone(contract.scope)],
       ["Constraints", listOrNone(contract.constraints)],
+      ["Acceptance criteria", listOrNone(contract.acceptance_criteria)],
+      ["PR boundaries", listOrNone(contract.pr_boundaries)],
+      ["Test expectations", listOrNone(contract.test_expectations)],
       ["Validation", listOrNone(contract.validation_requirements)],
       ["Relevant lessons", listOrNone(contract.relevant_lessons)]
     ])
   };
+}
+
+function isVagueOrTroubleshootingPrompt(prompt: string): boolean {
+  const compactPrompt = clean(prompt);
+  return VAGUE_PROMPT_PATTERN.test(compactPrompt) || TROUBLESHOOTING_PROMPT_PATTERN.test(compactPrompt);
+}
+
+function rewriteReasonForInitialTask(prompt: string): string {
+  const compactPrompt = clean(prompt);
+  if (VAGUE_PROMPT_PATTERN.test(compactPrompt)) {
+    return "Converted a vague prompt into a compact deterministic task contract.";
+  }
+  if (TROUBLESHOOTING_PROMPT_PATTERN.test(compactPrompt)) {
+    return "Converted a vague troubleshooting prompt into a compact deterministic task contract.";
+  }
+  return "Rewrote the prompt as a compact deterministic task contract.";
 }
 
 function selectRelevantLessons(input: PromptOptimizationInput): Lesson[] {
@@ -174,6 +368,19 @@ function validationStatusText(input: PromptOptimizationInput): string {
   return "missing";
 }
 
+function contextSummary(input: PromptOptimizationInput): string {
+  const context = input.contextSnapshot;
+  if (!context) return "- No sidecar context snapshot recorded.";
+  return listOrNone([
+    context.repoType ? `Repo type: ${context.repoType}` : "",
+    context.activeBranch ? `Active branch: ${context.activeBranch}` : "",
+    ...(context.agentsMd ?? []).map((item) => `AGENTS.md: ${item}`),
+    ...(context.previousPlans ?? []).map((item) => `Previous plan: ${item}`),
+    ...(context.fileTree ?? []).slice(0, 6).map((item) => `File tree: ${item}`),
+    ...(context.relevantDiffs ?? []).slice(0, 4).map((item) => `Relevant diff: ${item}`)
+  ]);
+}
+
 function sections(items: Array<[string, string]>): string {
   return items.map(([title, body]) => `${title}:\n${body.trim()}`).join("\n\n");
 }
@@ -204,4 +411,36 @@ function truncatePrompt(prompt: string, maxLength: number): string {
   const marker = "\n[truncated deterministically]";
   if (maxLength <= marker.length) return marker.slice(0, maxLength);
   return `${prompt.slice(0, Math.max(0, maxLength - marker.length)).trimEnd()}${marker}`.slice(0, maxLength);
+}
+
+function stripThinking(value: string): string {
+  return value.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+}
+
+function parseJsonObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    const match = value.match(/\{[\s\S]*\}/);
+    if (!match) return {};
+    const parsed = JSON.parse(match[0]) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  }
+}
+
+function taskContractFromUnknown(value: unknown): TaskContract | undefined {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  if (!record) return undefined;
+  const task = typeof record.task === "string" ? clean(record.task) : "";
+  if (!task) return undefined;
+
+  return {
+    task,
+    scope: toStringArray(record.scope).map(clean).filter(Boolean).slice(0, 8),
+    constraints: toStringArray(record.constraints).map(clean).filter(Boolean).slice(0, 8),
+    validation_requirements: toStringArray(record.validation_requirements).map(clean).filter(Boolean).slice(0, 8),
+    relevant_lessons: toStringArray(record.relevant_lessons).map(clean).filter(Boolean).slice(0, 8),
+    risk_notes: toStringArray(record.risk_notes).map(clean).filter(Boolean).slice(0, 8)
+  };
 }
