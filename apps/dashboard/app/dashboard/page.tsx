@@ -403,19 +403,19 @@ function RunDetails({
 
       <div className={`mt-6 grid gap-6 ${activeView === "timeline" ? "xl:grid-cols-2" : ""}`}>
         {activeView === "timeline" || activeView === "prompt" ? (
-        <Panel title="Intervention Prompt Patch">
+        <Panel title="Prompt Optimization">
           {optimization ? (
             <div>
               <p className="text-sm leading-7 text-neutral-300">{optimization.result.rewriteReason}</p>
               <div className="mt-4 rounded-xl border border-[#22d3ee]/20 bg-[#061015] p-4">
-                <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">suggested prompt patch</p>
+                <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">optimized prompt</p>
                 <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6 text-neutral-200">
                   {optimization.result.optimizedPrompt}
                 </pre>
               </div>
             </div>
           ) : (
-            <MutedLine>No intervention prompt patch was injected for this run.</MutedLine>
+            <MutedLine>No prompt optimization was injected for this run.</MutedLine>
           )}
         </Panel>
         ) : null}
