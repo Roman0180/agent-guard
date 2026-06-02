@@ -11,6 +11,8 @@ import {
   RunState,
   SteeringEnsembleInput,
   TaskContract,
+  TrajectorySlice,
+  Intervention,
   classifyCommand,
   normalizeClaudeHook,
   normalizeCodexHook,
@@ -369,5 +371,59 @@ describe("RunStateManager", () => {
 
     expect(afterValidation.lastValidationPassed).toBe(true);
     expect(afterValidation.validationSinceLastEdit).toBe(true);
+  });
+});
+
+describe("Agent Sidecar trajectory contracts", () => {
+  it("validates a compact trajectory slice without provider secrets", () => {
+    const parsed = TrajectorySlice.parse({
+      sessionId: "session-1",
+      stepId: "step-1",
+      timestamp: now,
+      agentName: "demo-coding-agent",
+      provider: "openai",
+      model: "gpt-5.5",
+      stepType: "tool_call",
+      agentStateSummary: "Investigating a migration registration failure.",
+      toolName: "read_file",
+      toolArguments: { path: "src/index.ts" },
+      toolOutput: "export const ok = true;",
+      filesTouched: ["src/index.ts"],
+      tokenCounts: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
+      timingMs: 42,
+      tags: ["debugging", "context"]
+    });
+
+    expect(parsed.schemaVersion).toBe(1);
+    expect(parsed.toolArguments.path).toBe("src/index.ts");
+  });
+
+  it("rejects full raw system prompts on trajectory slices", () => {
+    const result = TrajectorySlice.safeParse({
+      sessionId: "session-1",
+      stepId: "step-1",
+      timestamp: now,
+      provider: "openai",
+      stepType: "tool_call",
+      rawSystemPrompt: "never include full system prompts"
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("validates an intervention response", () => {
+    const parsed = Intervention.parse({
+      intervention_id: "intervention-1",
+      severity: "warning",
+      category: "loop",
+      message: "Repeated failed command detected.",
+      rationale: "The same command failed three times with the same error signature.",
+      recommended_action: "Stop rerunning it; summarize state and search for the missing registration point.",
+      suggested_prompt_patch: "Summarize current state, inspect the registration point, then run targeted tests.",
+      should_block: false,
+      confidence: 0.86
+    });
+
+    expect(parsed.category).toBe("loop");
   });
 });
