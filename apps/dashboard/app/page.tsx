@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Sparkles,
   Volume2,
+  VolumeX,
   X
 } from "lucide-react";
 
@@ -321,7 +322,10 @@ function DemoSection() {
   const [demoPaused, setDemoPaused] = useState(true);
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
-  const progressRef = useRef<any>(null);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const progressRef = useRef<HTMLButtonElement | null>(null);
+  const spokenSegmentRef = useRef<number | null>(null);
   const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
   const preEditCodeLines: Array<[string, string, string]> = [
     ["01", "import { cookies } from \"next/headers\"", "text-neutral-500"],
@@ -394,6 +398,7 @@ function DemoSection() {
     [40, 48, "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run."]
   ];
   const restartDemo = () => {
+    spokenSegmentRef.current = null;
     setDemoPaused(false);
     setDemoTime(0);
     setDemoRunId((runId) => runId + 1);
@@ -410,6 +415,7 @@ function DemoSection() {
     const rect = progressRef.current?.getBoundingClientRect();
     if (!rect) return;
 
+    spokenSegmentRef.current = null;
     const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     setDemoTime(ratio * demoDuration);
   };
@@ -420,9 +426,16 @@ function DemoSection() {
   const promptProgress = Math.min(Math.max((demoTime - 8.7) / 3.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
+  const activeNarrationSegmentIndex = narrationSegments.findIndex(([start, end]) => demoTime >= start && demoTime < end);
   const activeNarration =
-    narrationSegments.find(([start, end]) => demoTime >= start && demoTime < end)?.[2] ??
+    narrationSegments[activeNarrationSegmentIndex]?.[2] ??
     "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run.";
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setSpeechSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
+    }
+  }, []);
 
   useEffect(() => {
     if (demoPaused) return undefined;
@@ -440,6 +453,40 @@ function DemoSection() {
 
     return () => clearInterval(interval);
   }, [demoDuration, demoPaused, demoRunId]);
+
+  useEffect(() => {
+    if (!speechSupported) return undefined;
+
+    const synth = window.speechSynthesis;
+
+    if (demoPaused || !audioEnabled || activeNarrationSegmentIndex < 0) {
+      synth.cancel();
+      spokenSegmentRef.current = null;
+      return undefined;
+    }
+
+    if (spokenSegmentRef.current === activeNarrationSegmentIndex) {
+      return undefined;
+    }
+
+    spokenSegmentRef.current = activeNarrationSegmentIndex;
+    synth.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(activeNarration);
+    const voices = synth.getVoices();
+    utterance.voice =
+      voices.find((voice) => /natural|neural|premium|enhanced/i.test(voice.name)) ??
+      voices.find((voice) => voice.lang.startsWith("en")) ??
+      null;
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.volume = 0.9;
+    synth.speak(utterance);
+
+    return () => {
+      synth.cancel();
+    };
+  }, [activeNarration, activeNarrationSegmentIndex, audioEnabled, demoPaused, speechSupported]);
 
   return (
     <Section id="demo" eyebrow="Demo" title="Agent Sidecar inside a Codex workspace">
@@ -467,7 +514,7 @@ function DemoSection() {
               tabIndex={0}
               aria-label={demoPaused ? "Play demo" : "Pause demo"}
               onClick={toggleDemoPlayback}
-              onKeyDown={(event: any) => {
+              onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   toggleDemoPlayback();
@@ -802,8 +849,15 @@ function DemoSection() {
                     <Volume2 size={15} />
                   </span>
                   <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI narration</p>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI-generated voice narration</p>
                     <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
+                    <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-500">
+                      {speechSupported
+                        ? audioEnabled
+                          ? "browser TTS audio enabled"
+                          : "browser TTS audio muted"
+                        : "text fallback: speech synthesis unavailable"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -826,12 +880,28 @@ function DemoSection() {
                 >
                   <RotateCcw size={17} />
                 </button>
+                <button
+                  type="button"
+                  aria-label={audioEnabled ? "Mute generated narration" : "Enable generated narration"}
+                  aria-pressed={audioEnabled}
+                  onClick={() => {
+                    spokenSegmentRef.current = null;
+                    setAudioEnabled((enabled) => !enabled);
+                  }}
+                  className={`grid size-10 place-items-center rounded-full border transition ${
+                    audioEnabled
+                      ? "border-[#22d3ee]/30 bg-[#22d3ee]/[0.1] text-[#22d3ee] hover:bg-[#22d3ee]/[0.16]"
+                      : "border-white/10 bg-white/[0.04] text-neutral-400 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                  }`}
+                >
+                  {audioEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
+                </button>
               </div>
               <button
                 ref={progressRef}
                 type="button"
                 aria-label="Seek demo timeline"
-                onClick={(event: any) => seekDemo(event.clientX)}
+                onClick={(event: MouseEvent<HTMLButtonElement>) => seekDemo(event.clientX)}
                 className="h-5 flex-1 rounded-full py-1"
               >
                 <span className="block h-2 overflow-hidden rounded-full bg-white/10">
