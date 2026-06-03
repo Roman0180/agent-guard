@@ -3,26 +3,20 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
-  BookOpen,
   Bot,
   Code2,
-  Database,
   FileText,
   GitBranch,
   Menu,
   Pause,
   Play,
-  Repeat,
   RotateCcw,
-  ShieldCheck,
   Sparkles,
+  Volume2,
   X
 } from "lucide-react";
 
-const docsUrl = "/docs";
-
 const navItems = [
-  ["Why", "#why"],
   ["Capabilities", "#capabilities"],
   ["Demo", "#demo"],
   ["How to use", "#how-to-use"]
@@ -30,40 +24,22 @@ const navItems = [
 
 const capabilities = [
   {
-    icon: FileText,
-    title: "Runbook memory",
-    body: "Reuse approved local fixes as short runbook notes when the repo, task shape, and failure signal line up",
-    detail: "situation / avoid / unlock"
-  },
-  {
-    icon: Database,
-    title: "Repo map cache",
-    body: "Keep hash-checked notes about important files so the agent does not keep rereading code it already understood",
-    detail: "path / symbols / validation"
-  },
-  {
-    icon: Repeat,
-    title: "Trajectory watchdogs",
-    body: "Catch repeated attempts, stale evidence, drift, and low-progress runs before they burn another round of tokens",
-    detail: "drift / stale / repeat"
-  },
-  {
-    icon: ShieldCheck,
-    title: "Tool-cost guardrails",
-    body: "Score commands, edits, fetches, and searches for risk or waste before the agent stacks up avoidable work",
-    detail: "command / edit / fetch"
-  },
-  {
     icon: Sparkles,
-    title: "Task-first prompt shaping",
-    body: "Accept the task before Codex starts, retrieve repo context, add acceptance criteria, PR boundaries, and test expectations",
-    detail: "context / criteria / tests"
+    title: "Prompt compression",
+    body: "Compress vague requests into precise task contracts with only the repo context, acceptance criteria, boundaries, and tests the coding agent needs.",
+    detail: "Fewer broad instructions means fewer exploratory tokens."
   },
   {
     icon: GitBranch,
-    title: "Ensemble steering",
-    body: "Ask cheaper configured models for narrow guidance when Codex or Claude Code needs direction, then spend less overall",
-    detail: "low-cost steerers"
+    title: "Cheap-model steering",
+    body: "Use an ensemble of lower-cost models for narrow steering decisions, such as where to look next, what to validate, and when a run is drifting.",
+    detail: "Expensive models spend tokens on implementation, not routine routing."
+  },
+  {
+    icon: FileText,
+    title: "Selective memory",
+    body: "Apply specialized importance algorithms to decide which lessons, files, diffs, and prior outcomes are worth remembering for the current task.",
+    detail: "Queries become more precise because irrelevant history stays out."
   }
 ];
 
@@ -75,16 +51,6 @@ const workflow = [
   "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
 ];
 
-const evidenceCards = [
-  {
-    label: "The warning",
-    metric: "AI budgets can disappear fast",
-    body: "Fortune reported that Uber burned through its 2026 AI coding tools budget in four months after Claude Code adoption surged",
-    source: "Fortune on Uber",
-    href: "https://fortune.com/2026/05/26/uber-coo-ai-spending-tokens-claude-code/"
-  }
-] as const;
-
 export default function HomePage() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -94,7 +60,6 @@ export default function HomePage() {
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
       <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <Hero />
-      <ProblemSection />
       <Capabilities />
       <DemoSection />
       <HowToUse />
@@ -123,15 +88,6 @@ function Navbar({
             </a>
           ))}
         </nav>
-        <div className="hidden items-center gap-3 lg:flex">
-          <a
-            href={docsUrl}
-            className="inline-flex h-10 items-center gap-2 rounded-lg bg-white px-4 text-sm font-semibold text-[#07070b] transition hover:bg-neutral-200"
-          >
-            Docs
-            <BookOpen size={16} />
-          </a>
-        </div>
         <button
           type="button"
           aria-label="Toggle navigation"
@@ -167,46 +123,15 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Make AI coding agents observable, correctable, and cheaper to run
+          Make AI coding agents cheaper to run
         </h1>
         <div className="mt-8 w-full max-w-6xl">
           <ComparisonCard />
         </div>
         <p className="mt-8 max-w-2xl text-lg leading-8 text-neutral-300">
-          Agent Sidecar runs beside Codex and Claude Code, corrects failure modes mid-run, and proves whether the intervention helped
+          Agent Sidecar compresses prompts, routes steering to cheaper models, and remembers only the context that matters so every agent query is more precise.
         </p>
       </div>
-    </section>
-  );
-}
-
-function ProblemSection() {
-  return (
-    <section id="why" className="mx-auto max-w-7xl px-5 py-16 text-center sm:px-7 lg:px-10">
-      <Badge>Why Agent Sidecar</Badge>
-      <h2 className="mx-auto mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        AI coding agents are useful, but uncontrolled runs get expensive
-      </h2>
-      <div className="mx-auto mt-10 max-w-4xl rounded-[28px] border border-white/10 bg-white/[0.035] p-3 text-left shadow-2xl shadow-[#22d3ee]/10">
-        {evidenceCards.map((card) => (
-          <article key={card.label} className="flex min-h-[260px] flex-col rounded-2xl border border-white/10 bg-[#050509] p-6 sm:p-8">
-            <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{card.label}</p>
-            <h3 className="mt-5 text-3xl font-semibold text-white sm:text-4xl">{card.metric}</h3>
-            <p className="mt-5 text-base leading-8 text-neutral-400">{card.body}</p>
-            <a
-              href={card.href}
-              target={card.href.startsWith("http") ? "_blank" : undefined}
-              rel={card.href.startsWith("http") ? "noreferrer" : undefined}
-              className="mt-auto font-mono text-sm text-[#22d3ee] transition hover:text-white"
-            >
-              {card.source}
-            </a>
-          </article>
-        ))}
-      </div>
-      <p className="mx-auto mt-8 max-w-4xl text-xl leading-9 text-neutral-300">
-        That is where Agent Sidecar comes in: a runtime layer for Codex and Claude Code that cuts repeated loops, stale context, and wasted tokens so builders spend less per successful task.
-      </p>
     </section>
   );
 }
@@ -219,29 +144,28 @@ function Capabilities() {
     >
       <Badge>Capabilities</Badge>
       <h2 className="mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        Six sidecar controls for cheaper agent runs
+        Three simple techniques that make agent queries more precise
       </h2>
-      <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
+        Agent Sidecar reduces tokens by making each query more precise before the expensive coding agent starts working. It keeps the process to three focused capabilities.
+      </p>
+      <div className="mt-12 divide-y divide-white/10 border-y border-white/10">
         {capabilities.map((capability, index) => {
           const Icon = capability.icon;
           return (
             <article
               key={capability.title}
-              className="flex min-h-[300px] flex-col rounded-[24px] border border-white/10 bg-white/[0.035] p-6 shadow-2xl shadow-black/10 backdrop-blur"
+              className="grid gap-5 py-8 md:grid-cols-[120px_1fr_0.75fr] md:items-start"
             >
-              <div className="flex items-start justify-between">
-                <span className="grid size-11 place-items-center rounded-xl border border-white/10 bg-[#050509] text-[#22d3ee]">
-                  <Icon size={20} />
-                </span>
-                <span className="font-mono text-sm text-neutral-600">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
+              <div className="flex items-center gap-4 font-mono text-sm text-neutral-500">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <Icon size={22} className="text-[#22d3ee]" />
               </div>
-              <h3 className="mt-10 text-2xl font-semibold">{capability.title}</h3>
-              <p className="mt-5 text-base leading-8 text-neutral-400">{capability.body}</p>
-              <p className="mt-auto rounded-xl border border-white/10 bg-[#050509] px-4 py-3 font-mono text-sm text-[#22d3ee]">
-                {capability.detail}
-              </p>
+              <div>
+                <h3 className="text-2xl font-semibold">{capability.title}</h3>
+                <p className="mt-4 max-w-2xl text-base leading-8 text-neutral-400">{capability.body}</p>
+              </div>
+              <p className="font-mono text-sm leading-7 text-[#22d3ee]">{capability.detail}</p>
             </article>
           );
         })}
@@ -461,6 +385,14 @@ function DemoSection() {
     "PR boundary: No unrelated auth refactors",
     "Tests: Run targeted auth refresh and login flow checks"
   ];
+  const narrationSegments: Array<[number, number, string]> = [
+    [0, 8, "First, Agent Sidecar starts beside the coding agent and becomes the task intake layer."],
+    [8, 16, "The user enters a plain-language request, and Sidecar prepares to make it more precise."],
+    [16, 24, "Prompt compression pulls in only the relevant repo context, constraints, acceptance criteria, and tests."],
+    [24, 32, "Cheap steering models help decide what to validate and where expensive agent tokens should go."],
+    [32, 40, "Selective memory keeps important lessons and diffs while dropping irrelevant history."],
+    [40, 48, "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run."]
+  ];
   const restartDemo = () => {
     setDemoPaused(false);
     setDemoTime(0);
@@ -488,6 +420,9 @@ function DemoSection() {
   const promptProgress = Math.min(Math.max((demoTime - 8.7) / 3.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
+  const activeNarration =
+    narrationSegments.find(([start, end]) => demoTime >= start && demoTime < end)?.[2] ??
+    "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run.";
 
   useEffect(() => {
     if (demoPaused) return undefined;
@@ -518,7 +453,7 @@ function DemoSection() {
               <span className="ml-3 font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">agent-sidecar-demo</span>
             </div>
             <span className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-xs text-[#22d3ee]">
-Sidecar task intake active
+              Sidecar task intake active
             </span>
           </div>
 
@@ -544,13 +479,13 @@ Sidecar task intake active
                 <div className="w-full max-w-3xl">
                   <PhaseHeading title="Phase 1 Sidecar setup" body="Install the sidecar, start the daemon, and submit Codex tasks through Agent Sidecar" />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Terminal</span>
-                    <span className="rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-[11px] text-[#22d3ee]">
-                      setup
-                    </span>
-                  </div>
-                  <div className="grid gap-3 p-5 font-mono text-sm text-neutral-200">
+                    <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                      <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Terminal</span>
+                      <span className="rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-[11px] text-[#22d3ee]">
+                        setup
+                      </span>
+                    </div>
+                    <div className="grid gap-3 p-5 font-mono text-sm text-neutral-200">
                     {terminalLines.map((line, index) => (
                       <p
                         key={line}
@@ -566,9 +501,9 @@ Sidecar task intake active
                         showAt(4.5) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
                       }`}
                     >
-task intake ready
+                      task intake ready
                     </p>
-                  </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -861,6 +796,17 @@ task intake ready
                   </div>
                 </div>
               </div>
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-2xl border border-[#22d3ee]/25 bg-[#050509]/92 p-4 shadow-2xl shadow-black/30 backdrop-blur">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-[#22d3ee]">
+                    <Volume2 size={15} />
+                  </span>
+                  <div>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI narration</p>
+                    <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2">
@@ -915,9 +861,13 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
 
 function ComparisonCard() {
   return (
-    <div className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur">
+    <div
+      role="img"
+      aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a guarded run with Agent Sidecar at $1.41 per run."
+      className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
+    >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
-      <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
+      <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Agent Sidecar run</p>
@@ -948,7 +898,6 @@ function ComparisonCard() {
     </div>
   );
 }
-
 
 function RunComparisonPanel({
   title,
