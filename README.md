@@ -34,6 +34,22 @@ The daemon defaults to `http://localhost:4319` and exposes `GET /health`.
 
 The marketing website remains at the dashboard app root (`/`). The local runtime dashboard is a separate route at `/dashboard` when running `pnpm dev:dashboard`.
 
+## Dashboard demo narration
+
+The marketing demo can play natural AI-generated narration instead of browser text-to-speech. Configure an OpenAI API key before running the dashboard locally:
+
+```bash
+OPENAI_API_KEY=sk-... pnpm dev:dashboard
+```
+
+The narration route uses `gpt-4o-mini-tts` with the `marin` voice by default. You can override either value when testing alternate voices or model snapshots:
+
+```bash
+OPENAI_TTS_MODEL=gpt-4o-mini-tts OPENAI_TTS_VOICE=cedar pnpm dev:dashboard
+```
+
+If no API key is configured, the page keeps the written captions visible and marks natural AI audio as unavailable.
+
 ## Task-first usage
 
 Users should enter plain tasks into Agent Sidecar rather than constructing hook JSON or supplying token usage:

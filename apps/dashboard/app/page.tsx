@@ -16,6 +16,7 @@ import {
   VolumeX,
   X
 } from "lucide-react";
+import { demoNarrationFallback, demoNarrationSegments } from "./demoNarration";
 
 const navItems = [
   ["Capabilities", "#capabilities"],
@@ -323,8 +324,10 @@ function DemoSection() {
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [speechSupported, setSpeechSupported] = useState(false);
+  const [audioStatus, setAudioStatus] = useState<"idle" | "loading" | "playing" | "unavailable">("idle");
   const progressRef = useRef<HTMLButtonElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioUrlRef = useRef<string | null>(null);
   const spokenSegmentRef = useRef<number | null>(null);
   const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
   const preEditCodeLines: Array<[string, string, string]> = [
@@ -389,14 +392,7 @@ function DemoSection() {
     "PR boundary: No unrelated auth refactors",
     "Tests: Run targeted auth refresh and login flow checks"
   ];
-  const narrationSegments: Array<[number, number, string]> = [
-    [0, 8, "First, Agent Sidecar starts beside the coding agent and becomes the task intake layer."],
-    [8, 16, "The user enters a plain-language request, and Sidecar prepares to make it more precise."],
-    [16, 24, "Prompt compression pulls in only the relevant repo context, constraints, acceptance criteria, and tests."],
-    [24, 32, "Cheap steering models help decide what to validate and where expensive agent tokens should go."],
-    [32, 40, "Selective memory keeps important lessons and diffs while dropping irrelevant history."],
-    [40, 48, "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run."]
-  ];
+  const narrationSegments = demoNarrationSegments;
   const restartDemo = () => {
     spokenSegmentRef.current = null;
     setDemoPaused(false);
@@ -428,14 +424,7 @@ function DemoSection() {
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
   const activeNarrationSegmentIndex = narrationSegments.findIndex(([start, end]) => demoTime >= start && demoTime < end);
   const activeNarration =
-    narrationSegments[activeNarrationSegmentIndex]?.[2] ??
-    "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run.";
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setSpeechSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
-    }
-  }, []);
+    narrationSegments[activeNarrationSegmentIndex]?.[2] ?? demoNarrationFallback;
 
   useEffect(() => {
     if (demoPaused) return undefined;
@@ -455,13 +444,12 @@ function DemoSection() {
   }, [demoDuration, demoPaused, demoRunId]);
 
   useEffect(() => {
-    if (!speechSupported) return undefined;
+    const audio = audioRef.current;
 
-    const synth = window.speechSynthesis;
-
-    if (demoPaused || !audioEnabled || activeNarrationSegmentIndex < 0) {
-      synth.cancel();
+    if (!audioEnabled || demoPaused || activeNarrationSegmentIndex < 0) {
+      audio?.pause();
       spokenSegmentRef.current = null;
+      if (!audioEnabled) setAudioStatus("idle");
       return undefined;
     }
 
@@ -469,27 +457,64 @@ function DemoSection() {
       return undefined;
     }
 
+    const abortController = new AbortController();
     spokenSegmentRef.current = activeNarrationSegmentIndex;
-    synth.cancel();
+    setAudioStatus("loading");
 
-    const utterance = new SpeechSynthesisUtterance(activeNarration);
-    const voices = synth.getVoices();
-    utterance.voice =
-      voices.find((voice) => /natural|neural|premium|enhanced/i.test(voice.name)) ??
-      voices.find((voice) => voice.lang.startsWith("en")) ??
-      null;
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.volume = 0.9;
-    synth.speak(utterance);
+    async function playGeneratedNarration() {
+      try {
+        const response = await fetch(`/api/demo-narration?segment=${activeNarrationSegmentIndex}`, {
+          signal: abortController.signal
+        });
+
+        if (!response.ok) {
+          throw new Error("Narration audio unavailable");
+        }
+
+        const audioBlob = await response.blob();
+        if (abortController.signal.aborted || !audioRef.current) return;
+
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+        }
+
+        const audioUrl = URL.createObjectURL(audioBlob);
+        currentAudioUrlRef.current = audioUrl;
+        audioRef.current.src = audioUrl;
+        audioRef.current.currentTime = 0;
+        await audioRef.current.play();
+        setAudioStatus("playing");
+      } catch {
+        if (!abortController.signal.aborted) {
+          spokenSegmentRef.current = null;
+          setAudioStatus("unavailable");
+        }
+      }
+    }
+
+    void playGeneratedNarration();
 
     return () => {
-      synth.cancel();
+      abortController.abort();
     };
-  }, [activeNarration, activeNarrationSegmentIndex, audioEnabled, demoPaused, speechSupported]);
+  }, [activeNarrationSegmentIndex, audioEnabled, demoPaused]);
+
+  useEffect(() => {
+    return () => {
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+      }
+    };
+  }, []);
 
   return (
     <Section id="demo" eyebrow="Demo" title="Agent Sidecar inside a Codex workspace">
+      <audio
+        ref={audioRef}
+        preload="auto"
+        onEnded={() => setAudioStatus("idle")}
+        onError={() => setAudioStatus("unavailable")}
+      />
       <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -852,11 +877,13 @@ function DemoSection() {
                     <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI-generated voice narration</p>
                     <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-500">
-                      {speechSupported
-                        ? audioEnabled
-                          ? "browser TTS audio enabled"
-                          : "browser TTS audio muted"
-                        : "text fallback: speech synthesis unavailable"}
+                      {audioEnabled
+                        ? audioStatus === "unavailable"
+                          ? "natural AI audio unavailable"
+                          : audioStatus === "loading"
+                            ? "generating natural AI voice"
+                            : "natural AI voice enabled"
+                        : "natural AI voice muted"}
                     </p>
                   </div>
                 </div>
