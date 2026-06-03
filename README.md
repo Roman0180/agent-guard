@@ -48,7 +48,7 @@ The narration route uses `gpt-4o-mini-tts` with the `marin` voice by default. Yo
 OPENAI_TTS_MODEL=gpt-4o-mini-tts OPENAI_TTS_VOICE=cedar pnpm dev:dashboard
 ```
 
-If no API key is configured, the page keeps the written captions visible and marks natural AI audio as unavailable.
+If no API key is configured, the page keeps the written captions visible and automatically falls back to the best enhanced browser voice available so the demo still has spoken narration.
 
 ## Task-first usage
 

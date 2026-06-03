@@ -324,11 +324,12 @@ function DemoSection() {
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [audioStatus, setAudioStatus] = useState<"idle" | "loading" | "playing" | "unavailable">("idle");
+  const [audioStatus, setAudioStatus] = useState<"idle" | "loading" | "playing" | "fallback">("idle");
   const progressRef = useRef<HTMLButtonElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentAudioUrlRef = useRef<string | null>(null);
   const spokenSegmentRef = useRef<number | null>(null);
+  const fallbackUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
   const preEditCodeLines: Array<[string, string, string]> = [
     ["01", "import { cookies } from \"next/headers\"", "text-neutral-500"],
@@ -425,6 +426,35 @@ function DemoSection() {
   const activeNarrationSegmentIndex = narrationSegments.findIndex(([start, end]) => demoTime >= start && demoTime < end);
   const activeNarration =
     narrationSegments[activeNarrationSegmentIndex]?.[2] ?? demoNarrationFallback;
+  const stopBrowserNarrationFallback = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    window.speechSynthesis.cancel();
+    fallbackUtteranceRef.current = null;
+  };
+  const playBrowserNarrationFallback = (text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      setAudioStatus("idle");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    utterance.voice =
+      voices.find((voice) => /natural|neural|premium|enhanced|google|microsoft/i.test(voice.name)) ??
+      voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ??
+      null;
+    utterance.rate = 0.92;
+    utterance.pitch = 1;
+    utterance.volume = 0.92;
+    utterance.onend = () => setAudioStatus("idle");
+    utterance.onerror = () => setAudioStatus("idle");
+    fallbackUtteranceRef.current = utterance;
+    setAudioStatus("fallback");
+    window.speechSynthesis.speak(utterance);
+  };
 
   useEffect(() => {
     if (demoPaused) return undefined;
@@ -448,6 +478,7 @@ function DemoSection() {
 
     if (!audioEnabled || demoPaused || activeNarrationSegmentIndex < 0) {
       audio?.pause();
+      stopBrowserNarrationFallback();
       spokenSegmentRef.current = null;
       if (!audioEnabled) setAudioStatus("idle");
       return undefined;
@@ -458,6 +489,7 @@ function DemoSection() {
     }
 
     const abortController = new AbortController();
+    stopBrowserNarrationFallback();
     spokenSegmentRef.current = activeNarrationSegmentIndex;
     setAudioStatus("loading");
 
@@ -486,8 +518,7 @@ function DemoSection() {
         setAudioStatus("playing");
       } catch {
         if (!abortController.signal.aborted) {
-          spokenSegmentRef.current = null;
-          setAudioStatus("unavailable");
+          playBrowserNarrationFallback(activeNarration);
         }
       }
     }
@@ -497,10 +528,11 @@ function DemoSection() {
     return () => {
       abortController.abort();
     };
-  }, [activeNarrationSegmentIndex, audioEnabled, demoPaused]);
+  }, [activeNarration, activeNarrationSegmentIndex, audioEnabled, demoPaused]);
 
   useEffect(() => {
     return () => {
+      stopBrowserNarrationFallback();
       if (currentAudioUrlRef.current) {
         URL.revokeObjectURL(currentAudioUrlRef.current);
       }
@@ -513,7 +545,7 @@ function DemoSection() {
         ref={audioRef}
         preload="auto"
         onEnded={() => setAudioStatus("idle")}
-        onError={() => setAudioStatus("unavailable")}
+        onError={() => playBrowserNarrationFallback(activeNarration)}
       />
       <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
@@ -878,10 +910,10 @@ function DemoSection() {
                     <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-500">
                       {audioEnabled
-                        ? audioStatus === "unavailable"
-                          ? "natural AI audio unavailable"
-                          : audioStatus === "loading"
-                            ? "generating natural AI voice"
+                        ? audioStatus === "loading"
+                          ? "generating natural AI voice"
+                          : audioStatus === "fallback"
+                            ? "enhanced voice fallback enabled"
                             : "natural AI voice enabled"
                         : "natural AI voice muted"}
                     </p>
