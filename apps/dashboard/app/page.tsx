@@ -19,6 +19,7 @@ import {
 const navItems = [
   ["Capabilities", "#capabilities"],
   ["Demo", "#demo"],
+  ["Privacy", "#privacy"],
   ["How to use", "#how-to-use"]
 ] as const;
 
@@ -62,6 +63,7 @@ export default function HomePage() {
       <Hero />
       <Capabilities />
       <DemoSection />
+      <PrivacySection />
       <HowToUse />
     </main>
   );
@@ -123,13 +125,13 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Enterprise telemetry and cost controls for agentic coding tools
+          Enterprise Telemetry and Cost Control for Coding Agents
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300 sm:text-xl sm:leading-9">
-          Agent Sidecar gives teams a local-first control layer for Codex, Claude Code, and other coding agents: log every run, surface cost evidence, and cut wasted tokens before they become enterprise budget drift.
+          Log runs, surface cost evidence, and cut wasted tokens across Codex, Claude Code, and other agentic coding tools.
         </p>
         <div className="mt-8 w-full max-w-6xl">
-          <ComparisonCard />
+          <HeroComparisonCard />
         </div>
       </div>
     </section>
@@ -850,6 +852,16 @@ function DemoSection() {
   );
 }
 
+function PrivacySection() {
+  return (
+    <Section id="privacy" eyebrow="Privacy boundary" title="What Teams Can Read, What Stays Private">
+      <div className="mt-10">
+        <PrivacyComparisonCard />
+      </div>
+    </Section>
+  );
+}
+
 function PhaseHeading({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 shadow-lg shadow-black/20">
@@ -859,7 +871,97 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
   );
 }
 
-function ComparisonCard() {
+function HeroComparisonCard() {
+  return (
+    <div
+      role="img"
+      aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a guarded run with Agent Sidecar at $1.41 per run."
+      className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
+    >
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
+      <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Agent Sidecar run</p>
+            <h3 className="mt-2 text-xl font-semibold leading-tight">Auth refresh fix</h3>
+          </div>
+          <div className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
+            guarded
+          </div>
+        </div>
+
+        <div className="mt-5 grid flex-1 gap-4 lg:grid-cols-2">
+          <RunComparisonPanel
+            title="Without Agent Sidecar"
+            tone="red"
+            cost="$2.84"
+            outcome="unchecked final"
+            lines={["repeats auth callback edit", "skips browser login flow", "same sign-out bug returns"]}
+          />
+          <RunComparisonPanel
+            title="With Agent Sidecar"
+            tone="emerald"
+            cost="$1.41"
+            outcome="validated fix"
+            lines={["adds task contract", "optimized prompt for token usage", "verifies login flow"]}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RunComparisonPanel({
+  title,
+  tone,
+  cost,
+  outcome,
+  lines
+}: {
+  title: string;
+  tone: "red" | "emerald";
+  cost: string;
+  outcome: string;
+  lines: string[];
+}) {
+  const isGood = tone === "emerald";
+  const accent = isGood ? "text-emerald-200" : "text-red-200";
+  const panel = isGood ? "border-emerald-300/20 bg-emerald-300/[0.055]" : "border-red-400/20 bg-red-400/[0.055]";
+  const barColor = isGood ? "#4ade80" : "#f87171";
+  const barWidth = isGood ? "52%" : "100%";
+
+  return (
+    <article
+      className={`flex min-h-0 flex-col rounded-xl border p-4 ${panel}`}
+    >
+      <div className="grid min-h-[92px] grid-cols-[1fr_auto] items-start gap-4 border-b border-white/10 pb-4">
+        <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">{title}</p>
+        <span className={`rounded-full border px-3 py-1 font-mono text-xs ${isGood ? "border-emerald-300/25 text-emerald-200" : "border-red-400/25 text-red-200"}`}>
+          {outcome}
+        </span>
+        <p className={`self-end text-4xl font-semibold leading-none ${accent}`}>{cost}</p>
+        <p className="self-end text-right font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">per run</p>
+      </div>
+      <div className="mt-4 grid gap-2">
+        {lines.map((line) => (
+          <div key={line} className="flex min-h-11 items-center rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-2 text-sm text-neutral-300">
+            {line}
+          </div>
+        ))}
+      </div>
+      <div className="mt-auto pt-5">
+        <div className="h-2 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full"
+            style={{ backgroundColor: barColor, width: barWidth }}
+          />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function PrivacyComparisonCard() {
   const readableItems = [
     ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
     ["Cost evidence", "Token estimates, model usage, and matched baseline savings"],
