@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
-  Code2,
   FileText,
   GitBranch,
   Menu,
@@ -12,44 +11,59 @@ import {
   Play,
   RotateCcw,
   Sparkles,
-  Volume2,
   X
 } from "lucide-react";
 
 const navItems = [
+  ["Justification", "#justification"],
   ["Capabilities", "#capabilities"],
   ["Demo", "#demo"],
+  ["Boundaries", "#boundaries"],
   ["How to use", "#how-to-use"]
 ] as const;
+
+const wasteDrivers = [
+  "Bloated prompts accumulate as agents reread files and carry stale context.",
+  "Premium models get used for routine lookup, routing, and validation steps.",
+  "Teams struggle to connect agent spend to repos, PRs, tools, and outcomes."
+];
 
 const capabilities = [
   {
     icon: Sparkles,
-    title: "Prompt compression",
-    body: "Compress vague requests into precise task contracts with only the repo context, acceptance criteria, boundaries, and tests the coding agent needs.",
-    detail: "Fewer broad instructions means fewer exploratory tokens."
+    title: "Observe-only cost telemetry",
+    body: "Start with measurement only: token counts, model usage, tool calls, latency, repeated work, run status, and cost estimates become visible without changing agent behavior.",
+    detail: "Cost attribution by repo, PR, model, tool, workflow, and agent."
   },
   {
     icon: GitBranch,
-    title: "Cheap-model steering",
-    body: "Use an ensemble of lower-cost models for narrow steering decisions, such as where to look next, what to validate, and when a run is drifting.",
-    detail: "Expensive models spend tokens on implementation, not routine routing."
+    title: "Local steering and model routing",
+    body: "When teams are ready, Sidecar steers locally: compress context, rewrite prompts, route simple steps to cheaper models, and reserve stronger models for complex reasoning.",
+    detail: "Private prompts, source code, keys, and system instructions stay inside the customer boundary."
   },
   {
     icon: FileText,
-    title: "Selective memory",
-    body: "Apply specialized importance algorithms to decide which lessons, files, diffs, and prior outcomes are worth remembering for the current task.",
-    detail: "Queries become more precise because irrelevant history stays out."
+    title: "Repo-aware memory",
+    body: "Sidecar reuses local repo knowledge such as architecture decisions, test patterns, service conventions, prior PR feedback, and known anti-patterns.",
+    detail: "Less rediscovery, fewer repeated file reads, cleaner PRs."
   }
 ];
 
+
 const workflow = [
-  "Install the sidecar package with pip",
-  "Start the daemon from your terminal",
-  "Run Codex through Agent Sidecar",
-  "Sidecar retrieves context, rewrites the task, and submits the optimized prompt",
-  "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
+  "Install Sidecar locally beside the coding agent.",
+  "Run in observe-only mode to establish a usage baseline.",
+  "Review cost and usage signals in the dashboard.",
+  "Enable local steering when the team is ready."
 ];
+
+const dashboardMetrics = [
+  ["Tokens saved", "48%"],
+  ["Spend", "$2.84 → $1.41"],
+  ["Top driver", "read_file repeats"],
+  ["Routing", "simple steps cheaper"]
+] as const;
+
 
 export default function HomePage() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -60,8 +74,10 @@ export default function HomePage() {
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
       <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <Hero />
+      <Justification />
       <Capabilities />
       <DemoSection />
+      <Boundaries />
       <HowToUse />
     </main>
   );
@@ -123,16 +139,63 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Make AI coding agents cheaper to run
+          Keep coding agents cheaper to run.
         </h1>
+        <p className="mt-8 max-w-3xl text-lg leading-8 text-neutral-300">
+          Agent Sidecar runs beside your coding agents, finds wasted tokens, and steers context, memory, prompts, and model routing while sensitive code, prompts, API keys, and system instructions stay inside your infrastructure.
+        </p>
         <div className="mt-8 w-full max-w-6xl">
           <ComparisonCard />
         </div>
-        <p className="mt-8 max-w-2xl text-lg leading-8 text-neutral-300">
-          Agent Sidecar compresses prompts, routes steering to cheaper models, and remembers only the context that matters so every agent query is more precise.
-        </p>
       </div>
     </section>
+  );
+}
+
+function Justification() {
+  return (
+    <Section id="justification" title="Coding-agent adoption needs cost controls.">
+      <div className="mt-10 grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-stretch">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <p className="text-lg leading-8 text-neutral-300">
+            AI coding tools are moving from experiments to daily engineering workflows. As usage spreads across teams, unmanaged runs can quietly turn repeated reads, stale context, skipped validation, and expensive model choices into real infrastructure spend.
+          </p>
+          <div className="mt-6 grid gap-3">
+            {wasteDrivers.map((item, index) => (
+              <div key={item} className="grid grid-cols-[36px_1fr] items-start gap-3 rounded-xl border border-white/10 bg-[#050509] p-4">
+                <span className="grid size-7 place-items-center rounded-lg bg-white/[0.04] font-mono text-xs text-neutral-400">
+                  {index + 1}
+                </span>
+                <span className="text-sm leading-6 text-neutral-200">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <article className="rounded-2xl border border-neutral-200 bg-neutral-50 p-6 text-[#07070b] shadow-2xl shadow-black/30">
+          <div className="flex items-start justify-between gap-4 border-b border-neutral-200 pb-4">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Forbes market signal</p>
+              <h3 className="mt-3 text-2xl font-semibold leading-tight">AI coding-tool budgets are becoming a finance and governance problem.</h3>
+            </div>
+            <a
+              href="https://www.forbes.com/sites/janakirammsv/2026/05/26/why-your-engineers-favorite-ai-tools-are-wrecking-your-2026-budget/"
+              className="rounded-full border border-neutral-200 bg-white px-3 py-1 font-mono text-xs text-neutral-600 transition hover:border-neutral-300 hover:text-neutral-900"
+            >
+              Forbes
+            </a>
+          </div>
+          <p className="mt-5 text-base leading-8 text-neutral-700">
+            Forbes has highlighted how agentic coding tools can create budget volatility for engineering organizations. The point for Agent Sidecar is simple: teams need measurable cost visibility and governance without routing private code through another AI proxy.
+          </p>
+          <div className="mt-5 rounded-xl border border-neutral-200 bg-white p-4">
+            <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Why it matters</p>
+            <p className="mt-2 text-sm leading-6 text-neutral-700">
+              Cost controls only work if teams can trust the boundary: sensitive context stays local while sanitized spend and routing signals become measurable.
+            </p>
+          </div>
+        </article>
+      </div>
+    </Section>
   );
 }
 
@@ -142,12 +205,11 @@ function Capabilities() {
       id="capabilities"
       className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10"
     >
-      <Badge>Capabilities</Badge>
-      <h2 className="mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        Three simple techniques that make agent queries more precise
+      <h2 className="max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
+        Three local controls for lower-cost agent runs.
       </h2>
       <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
-        Agent Sidecar reduces tokens by making each query more precise before the expensive coding agent starts working. It keeps the process to three focused capabilities.
+        Agent Sidecar keeps the original three-part capabilities structure: observe usage first, steer locally when ready, and reuse repo knowledge so agents stop paying to rediscover context.
       </p>
       <div className="mt-12 divide-y divide-white/10 border-y border-white/10">
         {capabilities.map((capability, index) => {
@@ -171,148 +233,6 @@ function Capabilities() {
         })}
       </div>
     </section>
-  );
-}
-
-function HowToUse() {
-  return (
-    <Section id="how-to-use" eyebrow="How to use" title="Run normally, review everything">
-      <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the control plane and replay UI. The core product is still the runtime pipeline: observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task.
-          </p>
-          <div className="mt-5 grid gap-3">
-            {workflow.map((item, index) => (
-              <div key={item} className="grid grid-cols-[42px_1fr] items-center gap-3 rounded-xl border border-white/10 bg-[#050509] p-4">
-                <span className="grid size-8 place-items-center rounded-lg bg-white/[0.04] font-mono text-xs text-neutral-400">
-                  {index + 1}
-                </span>
-                <span className="text-sm text-neutral-200">{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <DashboardMock />
-      </div>
-    </Section>
-  );
-}
-
-function DashboardMock() {
-  const nav = ["Traces", "Decisions", "Policies", "Lessons", "Analytics"];
-  const runs = [
-    ["auth-refresh-fix", "require validation", "healthy"],
-    ["billing-webhook", "inject lesson", "watching"],
-    ["worker-memory-leak", "block repeat", "review"]
-  ];
-
-  return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-red-400/80" />
-            <span className="size-2 rounded-full bg-amber-300/80" />
-            <span className="size-2 rounded-full bg-emerald-300/80" />
-          </div>
-          <span className="font-mono text-xs text-neutral-500">Acme account dashboard</span>
-        </div>
-
-        <div className="grid min-h-[520px] bg-[radial-gradient(circle_at_78%_18%,rgba(34,211,238,0.12),transparent_30%),#07070b] md:grid-cols-[190px_1fr]">
-          <aside className="border-b border-white/10 p-4 md:border-b-0 md:border-r">
-            <div className="flex items-center gap-3">
-              <LogoMark />
-              <div>
-                <p className="text-sm font-semibold">Agent Sidecar</p>
-                <p className="font-mono text-[11px] text-neutral-500">Acme workspace</p>
-              </div>
-            </div>
-            <div className="mt-7 grid gap-2">
-              {nav.map((item, index) => (
-                <div
-                  key={item}
-                  className={`rounded-xl px-3 py-2 text-sm ${
-                    index === 0 ? "border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-white" : "text-neutral-500"
-                  }`}
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
-          </aside>
-
-          <div className="p-4 sm:p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Live runs</p>
-                <h3 className="mt-2 text-2xl font-semibold">Runtime control plane</h3>
-              </div>
-              <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
-                daemon connected
-              </span>
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              {[
-                ["guarded runs", "18"],
-                ["decisions", "43"],
-                ["saved lessons", "9"]
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">{label}</p>
-                  <p className="mt-2 text-2xl font-semibold">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.065] p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-emerald-200">total cost saved</p>
-                  <p className="mt-2 text-3xl font-semibold text-emerald-100">$4,820</p>
-                </div>
-                <p className="max-w-xs text-sm leading-6 text-emerald-50/70">
-                  Estimated from guarded runs compared with matched baseline traces
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 flex items-center justify-between px-2 font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">
-                  <span>trace</span>
-                  <span>decision</span>
-                </div>
-                <div className="grid gap-2">
-                  {runs.map(([name, decision, status]) => (
-                    <div key={name} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-[#090910] px-3 py-3">
-                      <div>
-                        <p className="text-sm font-medium">{name}</p>
-                        <p className="mt-1 font-mono text-[11px] text-neutral-500">{status}</p>
-                      </div>
-                      <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-[11px] text-neutral-300">
-                        {decision}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-[#22d3ee]/20 bg-[#22d3ee]/[0.045] p-4">
-                <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">selected trace</p>
-                <h4 className="mt-3 text-lg font-semibold">auth-refresh-fix</h4>
-                <div className="mt-4 grid gap-2 text-sm text-neutral-300">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">policy: validation after edit</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">lesson: refresh token callback</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">action: require continuation</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -366,32 +286,24 @@ function DemoSection() {
     ["23", "}", "text-neutral-300"]
   ];
   const terminalLines = [
-    "python -m pip install agent-sidecar",
-    "agent-sidecar daemon start",
-    "agent-sidecar codex \"Fix the auth refresh bug\""
+    "agent-sidecar install --local",
+    "agent-sidecar daemon start --observe-only",
+    "codex run --sidecar \"Fix the auth refresh bug\""
   ];
   const capabilityEvents: Array<[string, string]> = [
-    ["Repo type", "Detect Next.js TypeScript app"],
-    ["AGENTS.md", "Load local validation instructions"],
-    ["Previous plans", "Reuse prior auth-refresh plan"],
-    ["File tree", "Summarize src/auth and tests"],
-    ["Active branch", "Record feature/auth-refresh"],
-    ["Relevant diffs", "Attach current session.ts edits"]
+    ["Token baseline", "Record prompt and completion tokens"],
+    ["Tool calls", "Track repeated file reads locally"],
+    ["Repo memory", "Reuse local auth conventions"],
+    ["Sanitization", "Trim raw tool outputs before export"],
+    ["Routing", "Choose cheaper model for lookup"],
+    ["Cost signal", "Estimate saved tokens for this PR"]
   ];
   const optimizedPromptLines = [
-    "Task: Fix auth refresh so users stay signed in after token renewal",
-    "Constraints: Keep the change narrow and follow AGENTS.md",
-    "Acceptance: Token renewal persists before redirect",
-    "PR boundary: No unrelated auth refactors",
-    "Tests: Run targeted auth refresh and login flow checks"
-  ];
-  const narrationSegments: Array<[number, number, string]> = [
-    [0, 8, "First, Agent Sidecar starts beside the coding agent and becomes the task intake layer."],
-    [8, 16, "The user enters a plain-language request, and Sidecar prepares to make it more precise."],
-    [16, 24, "Prompt compression pulls in only the relevant repo context, constraints, acceptance criteria, and tests."],
-    [24, 32, "Cheap steering models help decide what to validate and where expensive agent tokens should go."],
-    [32, 40, "Selective memory keeps important lessons and diffs while dropping irrelevant history."],
-    [40, 48, "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run."]
+    "Task: Fix auth refresh with only relevant local context",
+    "Boundary: keep source, full prompts, keys, and system instructions local",
+    "Telemetry: export token counts, latency, model usage, and run status",
+    "Optimization: compress context and reuse repo memory",
+    "Routing: reserve stronger models for complex reasoning"
   ];
   const restartDemo = () => {
     setDemoPaused(false);
@@ -420,10 +332,6 @@ function DemoSection() {
   const promptProgress = Math.min(Math.max((demoTime - 8.7) / 3.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
-  const activeNarration =
-    narrationSegments.find(([start, end]) => demoTime >= start && demoTime < end)?.[2] ??
-    "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run.";
-
   useEffect(() => {
     if (demoPaused) return undefined;
 
@@ -442,7 +350,7 @@ function DemoSection() {
   }, [demoDuration, demoPaused, demoRunId]);
 
   return (
-    <Section id="demo" eyebrow="Demo" title="Agent Sidecar inside a Codex workspace">
+    <Section id="demo" title="Agent Sidecar inside a coding-agent workspace">
       <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -477,7 +385,7 @@ function DemoSection() {
             >
               <div className={`${sceneClass(0, 8)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-3xl">
-                  <PhaseHeading title="Phase 1 Sidecar setup" body="Install the sidecar, start the daemon, and submit Codex tasks through Agent Sidecar" />
+                  <PhaseHeading title="Phase 1 Local sidecar setup" body="Start Agent Sidecar beside the coding agent inside customer infrastructure" />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
                       <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Terminal</span>
@@ -510,7 +418,7 @@ function DemoSection() {
 
               <div className={`${sceneClass(8, 16)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Phase 2 User enters task in Sidecar" body="The user enters a task into Agent Sidecar instead of typing directly into Codex" />
+                  <PhaseHeading title="Phase 2 Observe-only run begins" body="The coding agent runs normally while Sidecar measures usage without changing behavior" />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
@@ -555,26 +463,26 @@ function DemoSection() {
               <div className={`${sceneClass(16, 24)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
                   <PhaseHeading
-                    title="Phase 3 Context retrieval and rewrite"
-                    body="Agent Sidecar loads repo type, AGENTS.md, previous plans, file tree, branch, and relevant diffs before rewriting the prompt"
+                    title="Phase 3 Local compression and memory"
+                    body="Sidecar compresses context locally, reuses repo memory, and keeps private prompts and code inside the boundary"
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Prompt optimizer</p>
-                        <h3 className="mt-2 text-2xl font-semibold">Task becomes a Codex-ready contract</h3>
+                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Local optimizer</p>
+                        <h3 className="mt-2 text-2xl font-semibold">Context becomes a smaller task contract</h3>
                       </div>
                       <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                        submitted to Codex
+                        kept local
                       </span>
                     </div>
                     <div className="grid gap-4 p-5 lg:grid-cols-[0.88fr_1.12fr]">
                       <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Original prompt</p>
+                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Full prompt stays local</p>
                         <p className="mt-3 text-sm leading-7 text-neutral-300">{promptText}</p>
                       </div>
                       <div className="rounded-2xl border border-[#22d3ee]/25 bg-[#22d3ee]/[0.045] p-4">
-                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Optimized contract</p>
+                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Sanitized task contract</p>
                         <div className="mt-3 grid gap-2">
                           {optimizedPromptLines.map((line, index) => (
                             <p
@@ -595,15 +503,15 @@ function DemoSection() {
 
               <div className={`${sceneClass(24, 32)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
-                  <PhaseHeading title="Phase 4 Sidecar submits and supervises" body="The optimized prompt goes to Codex, then Agent Sidecar watches runtime events for loops, risky tools, validation gaps, and budget pressure" />
+                  <PhaseHeading title="Phase 4 Sanitized telemetry and routing" body="Only sanitized telemetry flows to the dashboard while local steering detects repeated work and routes model calls smarter" />
                 <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                   <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
-                      <h3 className="mt-2 text-2xl font-semibold">Retrieved context anchors the Codex run</h3>
+                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar local runtime</p>
+                      <h3 className="mt-2 text-2xl font-semibold">Observe-only telemetry becomes cost evidence</h3>
                     </div>
                     <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                      evaluating run
+                      sanitizing telemetry
                     </span>
                   </div>
                   <div className="grid gap-3 p-5 sm:grid-cols-2">
@@ -633,8 +541,8 @@ function DemoSection() {
               <div className={`${sceneClass(32, 40)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-5xl">
                   <PhaseHeading
-                    title="Phase 5 Codex edits from contract"
-                    body="Codex applies the narrow fix using the sidecar-submitted task contract and runtime decisions"
+                    title="Phase 5 Agent edits with local steering"
+                    body="The coding agent applies the fix using compressed context, repo memory, and model routing decisions made locally"
                   />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
                   <aside className="hidden border-r border-white/10 bg-[#090910] p-4 lg:block">
@@ -680,8 +588,8 @@ function DemoSection() {
               <div className={`${finalSceneClass} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
                   <PhaseHeading
-                    title="Phase 6 Dashboard records the result"
-                    body="The control plane records original prompt, optimized prompt, token estimate, result quality, validation requirement, and cost evidence"
+                    title="Phase 6 Dashboard shows cost visibility"
+                    body="The dashboard receives sanitized cost signals, routing metadata, run status, and optional truncated traces"
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">
@@ -697,7 +605,7 @@ function DemoSection() {
                           </div>
                         </div>
                         <nav className="mt-6 grid gap-2 text-sm">
-                          {["Traces", "Decisions", "Policies", "Lessons", "Analytics"].map((item, index) => (
+                          {["Traces", "Routing decisions", "Policies", "Lessons", "Analytics"].map((item, index) => (
                             <div
                               key={item}
                               className={`rounded-xl px-3 py-2.5 ${
@@ -713,18 +621,18 @@ function DemoSection() {
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#22d3ee]">Live runs</p>
-                            <h3 className="mt-2 text-2xl font-semibold">Runtime control plane</h3>
+                            <h3 className="mt-2 text-2xl font-semibold">Cost intelligence dashboard</h3>
                           </div>
                           <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-4 py-2 font-mono text-xs text-emerald-200">
-                            daemon connected
+                            sanitized telemetry
                           </span>
                         </div>
 
                         <div className="mt-5 grid gap-3 sm:grid-cols-3">
                           {[
-                            ["Guarded runs", "18"],
-                            ["Decisions", "43"],
-                            ["Saved lessons", "9"]
+                            ["Observed runs", "18"],
+                            ["Routing decisions", "43"],
+                            ["Repo memories", "9"]
                           ].map(([label, value]) => (
                             <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
                               <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{label}</p>
@@ -736,7 +644,7 @@ function DemoSection() {
                         <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.055] p-3">
                           <div className="grid gap-3 sm:grid-cols-[210px_1fr_170px] sm:items-center">
                             <div>
-                              <p className="font-mono text-xs uppercase tracking-[0.18em] text-emerald-200">Total cost saved</p>
+                              <p className="font-mono text-xs uppercase tracking-[0.18em] text-emerald-200">Estimated cost saved</p>
                               <p className="mt-2 text-4xl font-semibold text-emerald-100">$4,820</p>
                             </div>
                             <p className="text-sm leading-7 text-neutral-300">
@@ -780,9 +688,9 @@ function DemoSection() {
                             <h3 className="mt-4 text-2xl font-semibold">auth-refresh-fix</h3>
                             <div className="mt-4 grid gap-3">
                               {[
-                                "original + optimized prompt recorded",
-                                "token estimate: original vs optimized",
-                                "result quality: validated"
+                                "sanitized telemetry recorded",
+                                "tokens saved: baseline vs optimized",
+                                "routing decision: cheaper lookup model"
                               ].map((item) => (
                                 <div key={item} className="rounded-xl border border-white/10 bg-[#071012] p-3 text-sm leading-6 text-neutral-200">
                                   {item}
@@ -793,17 +701,6 @@ function DemoSection() {
                         </div>
                       </section>
                     </div>
-                  </div>
-                </div>
-              </div>
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-2xl border border-[#22d3ee]/25 bg-[#050509]/92 p-4 shadow-2xl shadow-black/30 backdrop-blur">
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-[#22d3ee]">
-                    <Volume2 size={15} />
-                  </span>
-                  <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI narration</p>
-                    <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
                   </div>
                 </div>
               </div>
@@ -858,6 +755,116 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
     </div>
   );
 }
+
+function Boundaries() {
+  return (
+    <Section id="boundaries" title="Boundary model at a glance.">
+      <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
+        <img
+          src="/boundary-model.svg"
+          alt="Diagram showing customer infrastructure data staying local, a sanitized telemetry slice crossing the boundary, and the Agent Sidecar dashboard turning cost signals into spend, routing, latency, and trace views."
+          className="block h-auto w-full rounded-2xl"
+        />
+      </div>
+    </Section>
+  );
+}
+
+function HowToUse() {
+  return (
+    <Section id="how-to-use" title="Adoption is low-risk: observe first, steer later.">
+      <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="text-lg leading-8 text-neutral-300">
+            Install Sidecar beside the agent and begin in observe-only mode. The dashboard helps teams review cost and usage signals before enabling local steering for context compression, repo memory, prompt rewriting, and model routing.
+          </p>
+          <div className="mt-5 grid gap-3">
+            {workflow.map((item, index) => (
+              <div key={item} className="grid grid-cols-[42px_1fr] items-center gap-3 rounded-xl border border-white/10 bg-[#050509] p-4">
+                <span className="grid size-8 place-items-center rounded-lg bg-white/[0.04] font-mono text-xs text-neutral-400">
+                  {index + 1}
+                </span>
+                <span className="text-sm text-neutral-200">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <DashboardMock />
+      </div>
+    </Section>
+  );
+}
+
+function DashboardMock() {
+  return (
+    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="size-2 rounded-full bg-red-400/80" />
+            <span className="size-2 rounded-full bg-amber-300/80" />
+            <span className="size-2 rounded-full bg-emerald-300/80" />
+          </div>
+          <span className="font-mono text-xs text-neutral-500">Observe-only baseline</span>
+        </div>
+        <div className="grid min-h-[480px] bg-[radial-gradient(circle_at_78%_18%,rgba(34,211,238,0.12),transparent_30%),#07070b] md:grid-cols-[170px_1fr]">
+          <aside className="border-b border-white/10 p-4 md:border-b-0 md:border-r">
+            <div className="flex items-center gap-3">
+              <LogoMark />
+              <div>
+                <p className="text-sm font-semibold">Agent Sidecar</p>
+                <p className="font-mono text-[11px] text-neutral-500">Acme workspace</p>
+              </div>
+            </div>
+            <div className="mt-7 grid gap-2">
+              {["Baseline", "Repos", "Models", "Tools"].map((item, index) => (
+                <div
+                  key={item}
+                  className={`rounded-xl px-3 py-2 text-sm ${
+                    index === 0 ? "border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-white" : "text-neutral-500"
+                  }`}
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <div className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Cost and usage signals</p>
+                <h3 className="mt-2 text-2xl font-semibold">PR #428 observe-only run</h3>
+              </div>
+              <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
+                sanitized telemetry
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {dashboardMetrics.map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">{label}</p>
+                  <p className="mt-2 text-2xl font-semibold">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[#22d3ee]/20 bg-[#22d3ee]/[0.045] p-4">
+              <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Ready to enable</p>
+              <div className="mt-4 grid gap-2 text-sm text-neutral-300">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">context compression for auth PRs</div>
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">repo memory for test conventions</div>
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">cheaper model routing for file lookup</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function ComparisonCard() {
   return (
@@ -949,24 +956,14 @@ function RunComparisonPanel({
   );
 }
 
-function Section({ id, eyebrow, title, children }: { id: string; eyebrow: string; title: string; children: ReactNode }) {
+function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section id={id} className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
-      <div className="max-w-3xl">
-        <Badge>{eyebrow}</Badge>
-        <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">{title}</h2>
+      <div className="max-w-4xl">
+        <h2 className="text-3xl font-semibold leading-tight sm:text-5xl">{title}</h2>
       </div>
       {children}
     </section>
-  );
-}
-
-function Badge({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-neutral-200">
-      <Code2 size={12} className="text-[#22d3ee]" />
-      {children}
-    </span>
   );
 }
 
