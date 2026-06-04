@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
@@ -13,8 +13,10 @@ import {
   RotateCcw,
   Sparkles,
   Volume2,
+  VolumeX,
   X
 } from "lucide-react";
+import { demoNarrationFallback, demoNarrationSegments } from "./demoNarration";
 
 const navItems = [
   ["Capabilities", "#capabilities"],
@@ -321,7 +323,13 @@ function DemoSection() {
   const [demoPaused, setDemoPaused] = useState(true);
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
-  const progressRef = useRef<any>(null);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [audioStatus, setAudioStatus] = useState<"idle" | "loading" | "playing" | "fallback">("idle");
+  const progressRef = useRef<HTMLButtonElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioUrlRef = useRef<string | null>(null);
+  const spokenSegmentRef = useRef<number | null>(null);
+  const fallbackUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
   const preEditCodeLines: Array<[string, string, string]> = [
     ["01", "import { cookies } from \"next/headers\"", "text-neutral-500"],
@@ -385,15 +393,9 @@ function DemoSection() {
     "PR boundary: No unrelated auth refactors",
     "Tests: Run targeted auth refresh and login flow checks"
   ];
-  const narrationSegments: Array<[number, number, string]> = [
-    [0, 8, "First, Agent Sidecar starts beside the coding agent and becomes the task intake layer."],
-    [8, 16, "The user enters a plain-language request, and Sidecar prepares to make it more precise."],
-    [16, 24, "Prompt compression pulls in only the relevant repo context, constraints, acceptance criteria, and tests."],
-    [24, 32, "Cheap steering models help decide what to validate and where expensive agent tokens should go."],
-    [32, 40, "Selective memory keeps important lessons and diffs while dropping irrelevant history."],
-    [40, 48, "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run."]
-  ];
+  const narrationSegments = demoNarrationSegments;
   const restartDemo = () => {
+    spokenSegmentRef.current = null;
     setDemoPaused(false);
     setDemoTime(0);
     setDemoRunId((runId) => runId + 1);
@@ -410,6 +412,7 @@ function DemoSection() {
     const rect = progressRef.current?.getBoundingClientRect();
     if (!rect) return;
 
+    spokenSegmentRef.current = null;
     const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     setDemoTime(ratio * demoDuration);
   };
@@ -420,9 +423,38 @@ function DemoSection() {
   const promptProgress = Math.min(Math.max((demoTime - 8.7) / 3.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
+  const activeNarrationSegmentIndex = narrationSegments.findIndex(([start, end]) => demoTime >= start && demoTime < end);
   const activeNarration =
-    narrationSegments.find(([start, end]) => demoTime >= start && demoTime < end)?.[2] ??
-    "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run.";
+    narrationSegments[activeNarrationSegmentIndex]?.[2] ?? demoNarrationFallback;
+  const stopBrowserNarrationFallback = () => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    window.speechSynthesis.cancel();
+    fallbackUtteranceRef.current = null;
+  };
+  const playBrowserNarrationFallback = (text: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
+      setAudioStatus("idle");
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    utterance.voice =
+      voices.find((voice) => /natural|neural|premium|enhanced|google|microsoft/i.test(voice.name)) ??
+      voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ??
+      null;
+    utterance.rate = 0.92;
+    utterance.pitch = 1;
+    utterance.volume = 0.92;
+    utterance.onend = () => setAudioStatus("idle");
+    utterance.onerror = () => setAudioStatus("idle");
+    fallbackUtteranceRef.current = utterance;
+    setAudioStatus("fallback");
+    window.speechSynthesis.speak(utterance);
+  };
 
   useEffect(() => {
     if (demoPaused) return undefined;
@@ -441,8 +473,80 @@ function DemoSection() {
     return () => clearInterval(interval);
   }, [demoDuration, demoPaused, demoRunId]);
 
+  useEffect(() => {
+    const audio = audioRef.current;
+
+    if (!audioEnabled || demoPaused || activeNarrationSegmentIndex < 0) {
+      audio?.pause();
+      stopBrowserNarrationFallback();
+      spokenSegmentRef.current = null;
+      if (!audioEnabled) setAudioStatus("idle");
+      return undefined;
+    }
+
+    if (spokenSegmentRef.current === activeNarrationSegmentIndex) {
+      return undefined;
+    }
+
+    const abortController = new AbortController();
+    stopBrowserNarrationFallback();
+    spokenSegmentRef.current = activeNarrationSegmentIndex;
+    setAudioStatus("loading");
+
+    async function playGeneratedNarration() {
+      try {
+        const response = await fetch(`/api/demo-narration?segment=${activeNarrationSegmentIndex}`, {
+          signal: abortController.signal
+        });
+
+        if (!response.ok) {
+          throw new Error("Narration audio unavailable");
+        }
+
+        const audioBlob = await response.blob();
+        if (abortController.signal.aborted || !audioRef.current) return;
+
+        if (currentAudioUrlRef.current) {
+          URL.revokeObjectURL(currentAudioUrlRef.current);
+        }
+
+        const audioUrl = URL.createObjectURL(audioBlob);
+        currentAudioUrlRef.current = audioUrl;
+        audioRef.current.src = audioUrl;
+        audioRef.current.currentTime = 0;
+        await audioRef.current.play();
+        setAudioStatus("playing");
+      } catch {
+        if (!abortController.signal.aborted) {
+          playBrowserNarrationFallback(activeNarration);
+        }
+      }
+    }
+
+    void playGeneratedNarration();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [activeNarration, activeNarrationSegmentIndex, audioEnabled, demoPaused]);
+
+  useEffect(() => {
+    return () => {
+      stopBrowserNarrationFallback();
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+      }
+    };
+  }, []);
+
   return (
     <Section id="demo" eyebrow="Demo" title="Agent Sidecar inside a Codex workspace">
+      <audio
+        ref={audioRef}
+        preload="auto"
+        onEnded={() => setAudioStatus("idle")}
+        onError={() => playBrowserNarrationFallback(activeNarration)}
+      />
       <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -467,7 +571,7 @@ function DemoSection() {
               tabIndex={0}
               aria-label={demoPaused ? "Play demo" : "Pause demo"}
               onClick={toggleDemoPlayback}
-              onKeyDown={(event: any) => {
+              onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   toggleDemoPlayback();
@@ -802,8 +906,17 @@ function DemoSection() {
                     <Volume2 size={15} />
                   </span>
                   <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI narration</p>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI-generated voice narration</p>
                     <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
+                    <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-neutral-500">
+                      {audioEnabled
+                        ? audioStatus === "loading"
+                          ? "generating natural AI voice"
+                          : audioStatus === "fallback"
+                            ? "enhanced voice fallback enabled"
+                            : "natural AI voice enabled"
+                        : "natural AI voice muted"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -826,12 +939,28 @@ function DemoSection() {
                 >
                   <RotateCcw size={17} />
                 </button>
+                <button
+                  type="button"
+                  aria-label={audioEnabled ? "Mute generated narration" : "Enable generated narration"}
+                  aria-pressed={audioEnabled}
+                  onClick={() => {
+                    spokenSegmentRef.current = null;
+                    setAudioEnabled((enabled) => !enabled);
+                  }}
+                  className={`grid size-10 place-items-center rounded-full border transition ${
+                    audioEnabled
+                      ? "border-[#22d3ee]/30 bg-[#22d3ee]/[0.1] text-[#22d3ee] hover:bg-[#22d3ee]/[0.16]"
+                      : "border-white/10 bg-white/[0.04] text-neutral-400 hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                  }`}
+                >
+                  {audioEnabled ? <Volume2 size={17} /> : <VolumeX size={17} />}
+                </button>
               </div>
               <button
                 ref={progressRef}
                 type="button"
                 aria-label="Seek demo timeline"
-                onClick={(event: any) => seekDemo(event.clientX)}
+                onClick={(event: MouseEvent<HTMLButtonElement>) => seekDemo(event.clientX)}
                 className="h-5 flex-1 rounded-full py-1"
               >
                 <span className="block h-2 overflow-hidden rounded-full bg-white/10">
