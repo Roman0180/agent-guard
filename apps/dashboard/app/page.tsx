@@ -886,18 +886,17 @@ function HeroComparisonCard() {
   return (
     <div
       role="img"
-      aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a guarded run with Agent Sidecar at $1.41 per run."
+      aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a run with Agent Sidecar at $1.41 per run."
       className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
       <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
+        <div className="border-b border-white/10 pb-5">
           <div>
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Agent Sidecar run</p>
-            <h3 className="mt-2 text-xl font-semibold leading-tight">Auth refresh fix</h3>
-          </div>
-          <div className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
-            guarded
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">User prompt</p>
+            <h3 className="mt-2 max-w-3xl text-xl font-semibold leading-tight">
+              The auth refresh flow keeps breaking after token renewal; can you look through the session code, figure out what is going on, and fix it without changing unrelated auth behavior?
+            </h3>
           </div>
         </div>
 
