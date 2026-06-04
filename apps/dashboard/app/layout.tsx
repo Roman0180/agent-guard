@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Agent Sidecar",
-  description: "Make AI coding agents observable, correctable, and cheaper to run"
+  description: "Enterprise LLM telemetry and cost control for coding-agent teams"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
