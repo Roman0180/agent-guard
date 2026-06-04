@@ -49,25 +49,6 @@ const capabilities = [
   }
 ];
 
-const staysLocal = [
-  "Source code",
-  "Full prompts",
-  "System instructions",
-  "API keys",
-  "Secrets",
-  "Raw PII",
-  "Unsanitized tool outputs"
-];
-
-const crossesBoundary = [
-  "Token counts",
-  "Model usage",
-  "Latency",
-  "Cost signals",
-  "Routing metadata",
-  "Run status",
-  "Optional sanitized or truncated tool traces"
-];
 
 const workflow = [
   "Install Sidecar locally beside the coding agent.",
@@ -158,7 +139,7 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Cut coding-agent costs without exposing your codebase.
+          Keep coding agents cheaper to run.
         </h1>
         <p className="mt-8 max-w-3xl text-lg leading-8 text-neutral-300">
           Agent Sidecar runs beside your coding agents, finds wasted tokens, and steers context, memory, prompts, and model routing while sensitive code, prompts, API keys, and system instructions stay inside your infrastructure.
@@ -778,12 +759,12 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
 function Boundaries() {
   return (
     <Section id="boundaries" title="Boundary model at a glance.">
-      <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
-        Agent Sidecar is designed so raw engineering context remains inside customer infrastructure while only sanitized cost and routing signals can reach the dashboard.
-      </p>
-      <div className="mt-10 grid gap-6 lg:grid-cols-2">
-        <BoundaryList title="Does not cross by default" items={staysLocal} tone="red" />
-        <BoundaryList title="Can cross after sanitization" items={crossesBoundary} tone="emerald" />
+      <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
+        <img
+          src="/boundary-model.svg"
+          alt="Diagram showing customer infrastructure data staying local, a sanitized telemetry slice crossing the boundary, and the Agent Sidecar dashboard turning cost signals into spend, routing, latency, and trace views."
+          className="block h-auto w-full rounded-2xl"
+        />
       </div>
     </Section>
   );
@@ -884,24 +865,6 @@ function DashboardMock() {
   );
 }
 
-
-function BoundaryList({ title, items, tone }: { title: string; items: string[]; tone: "red" | "emerald" }) {
-  const heading = tone === "red" ? "text-red-200" : "text-emerald-200";
-  const panel = tone === "red" ? "border-red-400/20 bg-red-400/[0.045]" : "border-emerald-300/20 bg-emerald-300/[0.045]";
-
-  return (
-    <article className={`rounded-2xl border p-6 ${panel}`}>
-      <h3 className={`text-2xl font-semibold ${heading}`}>{title}</h3>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        {items.map((item) => (
-          <div key={item} className="rounded-xl border border-white/10 bg-[#050509]/80 px-4 py-3 text-sm text-neutral-200">
-            {item}
-          </div>
-        ))}
-      </div>
-    </article>
-  );
-}
 
 function ComparisonCard() {
   return (

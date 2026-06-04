@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="1030" viewBox="0 0 2048 1030" role="img" aria-labelledby="title desc">
+  <title id="title">Your code stays local. Your cost signals become actionable.</title>
+  <desc id="desc">Boundary model diagram showing customer infrastructure, a sanitized telemetry slice, and the Agent Sidecar dashboard.</desc>
+  <defs>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#0b0820" flood-opacity="0.55"/>
+    </filter>
+    <linearGradient id="cyanLine" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop offset="0.48" stop-color="#22d3ee" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="2048" height="1030" fill="#06060a"/>
+
+  <text x="28" y="96" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="76" font-weight="800" letter-spacing="-3">
+    Your code stays local. Your cost
+  </text>
+  <text x="28" y="174" fill="#ffffff" font-family="Inter, Arial, sans-serif" font-size="76" font-weight="800" letter-spacing="-3">
+    signals become actionable.
+  </text>
+
+  <g filter="url(#softShadow)">
+    <rect x="28" y="252" width="1992" height="738" rx="46" fill="#0b0b12" stroke="#272730" stroke-width="2"/>
+
+    <rect x="56" y="280" width="794" height="682" rx="28" fill="#11191a" stroke="#21483e" stroke-width="2"/>
+    <text x="90" y="335" fill="#9ce7cc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700" letter-spacing="8">CUSTOMER INFRASTRUCTURE</text>
+
+    <g fill="#142120" stroke="#254f43" stroke-width="2">
+      <rect x="90" y="374" width="724" height="74" rx="18"/>
+      <rect x="90" y="470" width="724" height="74" rx="18"/>
+      <rect x="90" y="566" width="724" height="74" rx="18"/>
+      <rect x="90" y="662" width="724" height="74" rx="18"/>
+      <rect x="90" y="758" width="724" height="74" rx="18"/>
+      <rect x="90" y="854" width="724" height="74" rx="18"/>
+    </g>
+    <g fill="#d4dcda" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">
+      <text x="118" y="420">Coding agent</text>
+      <text x="118" y="516">Agent Sidecar daemon</text>
+      <text x="118" y="612">Source code + diffs</text>
+      <text x="118" y="708">API keys + secrets</text>
+      <text x="118" y="804">System prompts + full user prompts</text>
+      <text x="118" y="900">Local repo memory</text>
+    </g>
+
+    <rect x="878" y="280" width="364" height="682" rx="26" fill="#11181d" stroke="#16485a" stroke-width="2"/>
+    <text x="908" y="327" fill="#22d3ee" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" font-weight="800" letter-spacing="9">SANITIZED TELEMETRY</text>
+    <text x="1018" y="354" fill="#22d3ee" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="23" font-weight="800" letter-spacing="9">SLICE</text>
+    <rect x="1058" y="390" width="2" height="360" fill="url(#cyanLine)"/>
+    <text x="914" y="806" fill="#d4dcda" font-family="Inter, Arial, sans-serif" font-size="26" font-weight="700">
+      <tspan x="914" dy="0">Token counts, cost signals,</tspan>
+      <tspan x="944" dy="40">routing metadata, run</tspan>
+      <tspan x="954" dy="40">status, and optional</tspan>
+      <tspan x="944" dy="40">truncated tool traces.</tspan>
+    </text>
+
+    <rect x="1270" y="280" width="724" height="682" rx="28" fill="#11171b" stroke="#16485a" stroke-width="2"/>
+    <text x="1304" y="335" fill="#22d3ee" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="800" letter-spacing="8">AGENT SIDECAR DASHBOARD</text>
+
+    <g fill="#050509" stroke="#16171d" stroke-width="2">
+      <rect x="1304" y="374" width="648" height="74" rx="18"/>
+      <rect x="1304" y="470" width="648" height="74" rx="18"/>
+      <rect x="1304" y="566" width="648" height="74" rx="18"/>
+      <rect x="1304" y="662" width="648" height="74" rx="18"/>
+      <rect x="1304" y="758" width="648" height="74" rx="18"/>
+    </g>
+    <g fill="#d8d8da" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="700">
+      <text x="1330" y="420">Spend by repo, PR, model, tool, agent, and workflow</text>
+      <text x="1330" y="516">Baseline vs optimized cost</text>
+      <text x="1330" y="612">Tokens saved and routing decisions</text>
+      <text x="1330" y="708">Latency and failure-rate trends</text>
+      <text x="1330" y="804">Evidence-labeled sanitized traces</text>
+    </g>
+  </g>
+</svg>
