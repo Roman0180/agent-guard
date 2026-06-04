@@ -196,10 +196,10 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Cut coding-agent costs without exposing your codebase.
+          Control LLM spend across your coding-agent teams.
         </h1>
         <p className="mt-8 max-w-3xl text-lg leading-8 text-neutral-300">
-          Agent Sidecar runs beside your coding agents, finds wasted tokens, and steers context, memory, prompts, and model routing while sensitive code, prompts, API keys, and system instructions stay inside your infrastructure.
+          Agent Sidecar helps engineering organizations measure LLM usage, gather sanitized telemetry, and reduce coding-agent spend across teams while source code, prompts, API keys, and system instructions stay inside your infrastructure.
         </p>
         <div className="mt-8 w-full max-w-6xl">
           <ComparisonCard />
