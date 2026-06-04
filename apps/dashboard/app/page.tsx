@@ -19,6 +19,7 @@ import {
 const navItems = [
   ["Capabilities", "#capabilities"],
   ["Demo", "#demo"],
+  ["Privacy", "#privacy"],
   ["How to use", "#how-to-use"]
 ] as const;
 
@@ -62,6 +63,7 @@ export default function HomePage() {
       <Hero />
       <Capabilities />
       <DemoSection />
+      <PrivacySection />
       <HowToUse />
     </main>
   );
@@ -123,14 +125,14 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Make AI coding agents cheaper to run
+          Enterprise Telemetry and Cost Control for Coding Agents
         </h1>
-        <div className="mt-8 w-full max-w-6xl">
-          <ComparisonCard />
-        </div>
-        <p className="mt-8 max-w-2xl text-lg leading-8 text-neutral-300">
-          Agent Sidecar compresses prompts, routes steering to cheaper models, and remembers only the context that matters so every agent query is more precise.
+        <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300 sm:text-xl sm:leading-9">
+          Log runs, surface cost evidence, and cut wasted tokens across Codex, Claude Code, and other agentic coding tools.
         </p>
+        <div className="mt-8 w-full max-w-6xl">
+          <HeroComparisonCard />
+        </div>
       </div>
     </section>
   );
@@ -850,6 +852,16 @@ function DemoSection() {
   );
 }
 
+function PrivacySection() {
+  return (
+    <Section id="privacy" eyebrow="Privacy boundary" title="What Teams Can Read, What Stays Private">
+      <div className="mt-10">
+        <PrivacyComparisonCard />
+      </div>
+    </Section>
+  );
+}
+
 function PhaseHeading({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 shadow-lg shadow-black/20">
@@ -859,7 +871,7 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
   );
 }
 
-function ComparisonCard() {
+function HeroComparisonCard() {
   return (
     <div
       role="img"
@@ -944,6 +956,89 @@ function RunComparisonPanel({
             style={{ backgroundColor: barColor, width: barWidth }}
           />
         </div>
+      </div>
+    </article>
+  );
+}
+
+function PrivacyComparisonCard() {
+  const readableItems = [
+    ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
+    ["Cost evidence", "Token estimates, model usage, and matched baseline savings"],
+    ["Policy outcomes", "Allowed actions, blocked waste, and reason codes for audit"]
+  ] as const;
+  const privateItems = [
+    ["Source contents", "Repository files stay on the developer machine unless explicitly shared"],
+    ["Secrets", "Environment variables, credentials, and protected paths are never exposed"],
+    ["Raw prompts", "Sensitive task text can remain local while metadata rolls up for teams"]
+  ] as const;
+
+  return (
+    <div className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
+      <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5">
+        <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Local-first telemetry boundary</p>
+            <h3 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight">Enterprise visibility without opening the whole workspace</h3>
+          </div>
+          <div className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] px-3 py-1 font-mono text-xs text-[#9be8f4]">
+            coded access map
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <VisibilityPanel
+            title="Accessible / readable"
+            tone="emerald"
+            summary="Safe operational telemetry for engineering leaders, platform teams, and finance reviewers."
+            items={readableItems}
+          />
+          <VisibilityPanel
+            title="Kept private"
+            tone="red"
+            summary="Sensitive code, credentials, and raw workspace context remain local by default."
+            items={privateItems}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function VisibilityPanel({
+  title,
+  tone,
+  summary,
+  items
+}: {
+  title: string;
+  tone: "emerald" | "red";
+  summary: string;
+  items: readonly (readonly [string, string])[];
+}) {
+  const isReadable = tone === "emerald";
+  const panel = isReadable ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-red-400/30 bg-red-400/[0.075]";
+  const label = isReadable ? "bg-emerald-300 text-[#03170b]" : "bg-red-400 text-[#210505]";
+  const dot = isReadable ? "bg-emerald-300 shadow-emerald-300/30" : "bg-red-400 shadow-red-400/30";
+  const text = isReadable ? "text-emerald-100" : "text-red-100";
+
+  return (
+    <article className={`flex min-h-full flex-col rounded-xl border p-4 ${panel}`}>
+      <div className="border-b border-white/10 pb-4">
+        <p className={`w-fit rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-[0.18em] ${label}`}>{title}</p>
+        <p className={`mt-4 text-lg font-semibold leading-7 ${text}`}>{summary}</p>
+      </div>
+      <div className="mt-4 grid gap-3">
+        {items.map(([name, detail]) => (
+          <div key={name} className="grid grid-cols-[14px_1fr] gap-3 rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-3">
+            <span className={`mt-2 size-2 rounded-full shadow-lg ${dot}`} />
+            <div>
+              <p className="text-sm font-semibold text-white">{name}</p>
+              <p className="mt-1 text-sm leading-6 text-neutral-400">{detail}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </article>
   );
