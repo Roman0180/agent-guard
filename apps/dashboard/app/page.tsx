@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
+  Activity,
   Bot,
   Code2,
   FileText,
@@ -12,7 +13,6 @@ import {
   Play,
   RotateCcw,
   Sparkles,
-  Volume2,
   X
 } from "lucide-react";
 
@@ -41,14 +41,20 @@ const capabilities = [
     title: "Selective memory",
     body: "Apply specialized importance algorithms to decide which lessons, files, diffs, and prior outcomes are worth remembering for the current task.",
     detail: "Queries become more precise because irrelevant history stays out."
+  },
+  {
+    icon: Activity,
+    title: "Telemetry for analysis",
+    body: "Capture prompt lineage, token estimates, model routing, run outcomes, and validation evidence for later cost and efficiency analysis.",
+    detail: "Teams can see which optimizations actually reduce spend per successful engineering task."
   }
 ];
 
 const workflow = [
   "Install the sidecar package with pip",
   "Start the daemon from your terminal",
-  "Run Codex through Agent Sidecar",
-  "Sidecar retrieves context, rewrites the task, and submits the optimized prompt",
+  "Code in Codex like normal while Agent Sidecar runs in the background",
+  "Sidecar optimizes prompts, context, model routing, and telemetry behind the scenes",
   "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
 ];
 
@@ -146,10 +152,10 @@ function Capabilities() {
     >
       <Badge>Capabilities</Badge>
       <h2 className="mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        Three simple techniques that make agent queries more precise
+        Four capabilities for controlling coding-agent cost
       </h2>
       <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
-        Agent Sidecar reduces tokens by making each query more precise before the expensive coding agent starts working. It keeps the process to three focused capabilities.
+        Agent Sidecar keeps coding agents focused, routes work more efficiently, preserves useful repo memory, and records telemetry so teams can analyze cost and engineering efficiency after each run.
       </p>
       <div className="mt-12 divide-y divide-white/10 border-y border-white/10">
         {capabilities.map((capability, index) => {
@@ -182,7 +188,7 @@ function HowToUse() {
       <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the control plane and replay UI. The core product is still the runtime pipeline: observe real agent runs, intervene on common failure modes, and measure whether interventions improve cost per successful task.
+            The dashboard is the control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
           </p>
           <div className="mt-5 grid gap-3">
             {workflow.map((item, index) => (
@@ -319,7 +325,7 @@ function DashboardMock() {
 }
 
 function DemoSection() {
-  const demoDuration = 48;
+  const demoDuration = 25;
   const [demoPaused, setDemoPaused] = useState(true);
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
@@ -367,18 +373,11 @@ function DemoSection() {
     ["22", "  return redirectAfterLogin(user)", "text-neutral-300"],
     ["23", "}", "text-neutral-300"]
   ];
-  const terminalLines = [
-    "python -m pip install agent-sidecar",
-    "agent-sidecar daemon start",
-    "agent-sidecar codex \"Fix the auth refresh bug\""
-  ];
   const capabilityEvents: Array<[string, string]> = [
-    ["Repo type", "Detect Next.js TypeScript app"],
-    ["AGENTS.md", "Load local validation instructions"],
-    ["Previous plans", "Reuse prior auth-refresh plan"],
-    ["File tree", "Summarize src/auth and tests"],
-    ["Active branch", "Record feature/auth-refresh"],
-    ["Relevant diffs", "Attach current session.ts edits"]
+    ["Prompt", "Send refined task contract into Codex"],
+    ["Repo memory", "Reuse auth-refresh plan instead of rereading files"],
+    ["Model route", "Use cheaper model for narrow edit step"],
+    ["Validation", "Reserve stronger model for failure analysis"]
   ];
   const optimizedPromptLines = [
     "Task: Fix auth refresh so users stay signed in after token renewal",
@@ -387,13 +386,11 @@ function DemoSection() {
     "PR boundary: No unrelated auth refactors",
     "Tests: Run targeted auth refresh and login flow checks"
   ];
-  const narrationSegments: Array<[number, number, string]> = [
-    [0, 8, "First, Agent Sidecar starts beside the coding agent and becomes the task intake layer."],
-    [8, 16, "The user enters a plain-language request, and Sidecar prepares to make it more precise."],
-    [16, 24, "Prompt compression pulls in only the relevant repo context, constraints, acceptance criteria, and tests."],
-    [24, 32, "Cheap steering models help decide what to validate and where expensive agent tokens should go."],
-    [32, 40, "Selective memory keeps important lessons and diffs while dropping irrelevant history."],
-    [40, 48, "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run."]
+  const messyPromptLines = [
+    "Full chat history pasted into next call",
+    "Repeated session.ts and tokens.ts reads",
+    "Verbose reasoning from earlier attempts",
+    "Generic request: figure it out and fix anything"
   ];
   const restartDemo = () => {
     setDemoPaused(false);
@@ -417,15 +414,11 @@ function DemoSection() {
   };
   const sceneClass = (start: number, end: number) =>
     demoTime >= start && demoTime < end ? "grid opacity-100" : "hidden opacity-0";
-  const finalSceneClass = demoTime >= 40 ? "grid opacity-100" : "hidden opacity-0";
+  const finalSceneClass = demoTime >= 19 ? "grid opacity-100" : "hidden opacity-0";
   const showAt = (time: number) => demoTime >= time;
-  const promptProgress = Math.min(Math.max((demoTime - 8.7) / 3.8, 0), 1);
+  const promptProgress = Math.min(Math.max((demoTime - 0.7) / 2.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
-  const activeNarration =
-    narrationSegments.find(([start, end]) => demoTime >= start && demoTime < end)?.[2] ??
-    "The result is a validated fix with fewer tokens, a clearer trace, and lower cost per run.";
-
   useEffect(() => {
     if (demoPaused) return undefined;
 
@@ -477,42 +470,9 @@ function DemoSection() {
               }}
               className="demo-video-frame relative block min-h-[640px] w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-[#07070b]/88 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#22d3ee]/70"
             >
-              <div className={`${sceneClass(0, 8)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-3xl">
-                  <PhaseHeading title="Phase 1 Sidecar setup" body="Install the sidecar, start the daemon, and submit Codex tasks through Agent Sidecar" />
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                    <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                      <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Terminal</span>
-                      <span className="rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-[11px] text-[#22d3ee]">
-                        setup
-                      </span>
-                    </div>
-                    <div className="grid gap-3 p-5 font-mono text-sm text-neutral-200">
-                    {terminalLines.map((line, index) => (
-                      <p
-                        key={line}
-                        className={`truncate transition duration-300 ${
-                          showAt(1 + index * 1.1) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                        }`}
-                      >
-                        $ {line}
-                      </p>
-                    ))}
-                    <p
-                      className={`truncate text-emerald-200 transition duration-300 ${
-                        showAt(4.5) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                      }`}
-                    >
-                      task intake ready
-                    </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`${sceneClass(8, 16)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(0, 5)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Phase 2 User enters task in Sidecar" body="The user enters a task into Agent Sidecar instead of typing directly into Codex" />
+                  <PhaseHeading title="Codex coding session" body="Coding agents burn tokens while they work." />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
@@ -535,77 +495,137 @@ function DemoSection() {
                   <aside className="border-t border-white/10 bg-[#08080d] p-4 lg:border-l lg:border-t-0">
                     <div className="mb-4 flex items-center justify-between">
                       <div>
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar</p>
-                        <h3 className="mt-1 text-lg font-semibold">New Codex task</h3>
+                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Codex</p>
+                        <h3 className="mt-1 text-lg font-semibold">Working task</h3>
                       </div>
                       <span className="rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-[11px] text-[#22d3ee]">
-                        task intake
+                        reading files
                       </span>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                      <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">User prompt</p>
+                      <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Agent prompt</p>
                       <div className="mt-3 rounded-xl border border-white/10 bg-[#050509] p-3 text-sm leading-6 text-neutral-100">
                         <span>{typedPrompt}</span>
                         <span className="ml-0.5 inline-block h-4 w-1 translate-y-0.5 bg-[#22d3ee]" />
                       </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-xs text-neutral-300">
+                      <p className={`${showAt(1.2) ? "opacity-100" : "opacity-0"} transition`}>read src/auth/session.ts</p>
+                      <p className={`${showAt(2.1) ? "opacity-100" : "opacity-0"} transition`}>inspect tests/auth-refresh.test.ts</p>
+                      <p className={`${showAt(3.0) ? "opacity-100" : "opacity-0"} transition text-amber-200`}>plan narrow token persistence fix</p>
                     </div>
                   </aside>
                 </div>
                 </div>
               </div>
 
-              <div className={`${sceneClass(16, 24)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-4xl">
-                  <PhaseHeading
-                    title="Phase 3 Context retrieval and rewrite"
-                    body="Agent Sidecar loads repo type, AGENTS.md, previous plans, file tree, branch, and relevant diffs before rewriting the prompt"
-                  />
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                    <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Prompt optimizer</p>
-                        <h3 className="mt-2 text-2xl font-semibold">Task becomes a Codex-ready contract</h3>
+              <div className={`${sceneClass(5, 9)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+                <div className="w-full max-w-5xl">
+                  <PhaseHeading title="Coding-specific waste" body="Bloated prompts. Repeated context. Hidden spend." />
+                  <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
+                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30">
+                      <div className="border-b border-white/10 bg-[#050509] px-4 py-3">
+                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Codex loop</p>
                       </div>
-                      <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                        submitted to Codex
-                      </span>
+                      <div className="grid gap-2 p-5 font-mono text-sm">
+                        {[
+                          ["read src/auth/session.ts", "text-neutral-300"],
+                          ["read src/auth/session.ts again", "text-amber-200"],
+                          ["attach full chat history", "text-amber-200"],
+                          ["route simple edit to expensive model", "text-red-200"]
+                        ].map(([line, color], index) => (
+                          <p
+                            key={line}
+                            className={`${color} transition duration-300 ${
+                              showAt(5.4 + index * 0.65) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                            }`}
+                          >
+                            $ {line}
+                          </p>
+                        ))}
+                      </div>
                     </div>
-                    <div className="grid gap-4 p-5 lg:grid-cols-[0.88fr_1.12fr]">
-                      <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Original prompt</p>
-                        <p className="mt-3 text-sm leading-7 text-neutral-300">{promptText}</p>
-                      </div>
-                      <div className="rounded-2xl border border-[#22d3ee]/25 bg-[#22d3ee]/[0.045] p-4">
-                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Optimized contract</p>
-                        <div className="mt-3 grid gap-2">
-                          {optimizedPromptLines.map((line, index) => (
-                            <p
-                              key={line}
-                              className={`rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-neutral-200 transition duration-300 ${
-                                showAt(16.6 + index * 0.7) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                              }`}
-                            >
-                              {line}
-                            </p>
-                          ))}
-                        </div>
+                    <div className="rounded-2xl border border-red-300/20 bg-red-300/[0.045] p-5">
+                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-red-200">Waste detected</p>
+                      <div className="mt-4 grid gap-3">
+                        {["+18k repeated tokens", "3 duplicated file reads", "model route: overpowered"].map((item, index) => (
+                          <div
+                            key={item}
+                            className={`rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-neutral-200 transition duration-300 ${
+                              showAt(6.1 + index * 0.65) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                            }`}
+                          >
+                            {item}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className={`${sceneClass(24, 32)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(9, 14)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+                <div className="w-full max-w-5xl">
+                  <PhaseHeading title="Prompt Refiner" body="Prompt Refiner cuts the waste before the next call." />
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
+                    <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar</p>
+                        <h3 className="mt-2 text-2xl font-semibold">Bloated prompt becomes a focused coding task</h3>
+                      </div>
+                      <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
+                        fewer tokens
+                      </span>
+                    </div>
+                    <div className="grid gap-4 p-5 lg:grid-cols-[0.9fr_1.1fr]">
+                      <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Before</p>
+                        <div className="mt-3 grid gap-2">
+                          {messyPromptLines.map((line, index) => (
+                            <p
+                              key={line}
+                              className={`rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-neutral-300 transition duration-300 ${
+                                showAt(9.4 + index * 0.35) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                              }`}
+                            >
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                        <p className="mt-4 font-mono text-xs text-red-200">~24k prompt tokens</p>
+                      </div>
+                      <div className="rounded-2xl border border-[#22d3ee]/25 bg-[#22d3ee]/[0.045] p-4">
+                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Refined prompt</p>
+                        <div className="mt-3 grid gap-2">
+                          {optimizedPromptLines.map((line, index) => (
+                            <p
+                              key={line}
+                              className={`rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-neutral-200 transition duration-300 ${
+                                showAt(10.8 + index * 0.45) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                              }`}
+                            >
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                        <p className="mt-4 font-mono text-xs text-emerald-200">~8k prompt tokens</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className={`${sceneClass(14, 19)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
-                  <PhaseHeading title="Phase 4 Sidecar submits and supervises" body="The optimized prompt goes to Codex, then Agent Sidecar watches runtime events for loops, risky tools, validation gaps, and budget pressure" />
+                  <PhaseHeading title="Steering applied to coding" body="Refine prompts. Reuse memory. Route smarter." />
                 <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                   <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
-                      <h3 className="mt-2 text-2xl font-semibold">Retrieved context anchors the Codex run</h3>
+                      <h3 className="mt-2 text-2xl font-semibold">Next Codex step gets a cleaner route</h3>
                     </div>
                     <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                      evaluating run
+                      steering active
                     </span>
                   </div>
                   <div className="grid gap-3 p-5 sm:grid-cols-2">
@@ -613,7 +633,7 @@ function DemoSection() {
                       <div
                         key={label}
                         className={`rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition duration-300 ${
-                          showAt(24.6 + index * 0.65) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                          showAt(14.5 + index * 0.75) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-4">
@@ -632,13 +652,9 @@ function DemoSection() {
                 </div>
               </div>
 
-              <div className={`${sceneClass(32, 40)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(16.6, 19)} absolute inset-0 place-items-end p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-5xl">
-                  <PhaseHeading
-                    title="Phase 5 Codex edits from contract"
-                    body="Codex applies the narrow fix using the sidecar-submitted task contract and runtime decisions"
-                  />
-                <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
+                <div className="grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
                   <aside className="hidden border-r border-white/10 bg-[#090910] p-4 lg:block">
                     <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Explorer</p>
                     <div className="mt-5 grid gap-2">
@@ -658,7 +674,7 @@ function DemoSection() {
                     <div className="flex items-center justify-between border-b border-white/10 bg-[#050509] px-4 py-3">
                       <span className="font-mono text-xs text-neutral-500">src/auth/session.ts</span>
                       <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-[11px] text-emerald-200">
-                        steered by sidecar
+                        narrow edit
                       </span>
                     </div>
                     <div className="p-5">
@@ -682,8 +698,8 @@ function DemoSection() {
               <div className={`${finalSceneClass} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
                   <PhaseHeading
-                    title="Phase 6 Dashboard records the result"
-                    body="The control plane records original prompt, optimized prompt, token estimate, result quality, validation requirement, and cost evidence"
+                    title="Dashboard and coding outcome"
+                    body="Lower spend. Same engineering output."
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">
@@ -724,9 +740,9 @@ function DemoSection() {
 
                         <div className="mt-5 grid gap-3 sm:grid-cols-3">
                           {[
-                            ["Guarded runs", "18"],
-                            ["Decisions", "43"],
-                            ["Saved lessons", "9"]
+                            ["Tokens saved", "66%"],
+                            ["Spend", "-50%"],
+                            ["Output", "validated"]
                           ].map(([label, value]) => (
                             <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
                               <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{label}</p>
@@ -742,7 +758,7 @@ function DemoSection() {
                               <p className="mt-2 text-4xl font-semibold text-emerald-100">$4,820</p>
                             </div>
                             <p className="text-sm leading-7 text-neutral-300">
-                              Estimated from guarded runs compared with matched baseline traces, including the auth-refresh fix shown in this demo
+                              Prompt Refiner removed repeated context, memory avoided duplicate file reads, and routing kept simple edits off the strongest model.
                             </p>
                             <div className="rounded-xl border border-emerald-300/20 bg-black/20 p-3">
                               <p className="font-mono text-xs uppercase tracking-[0.14em] text-emerald-200">This run saved</p>
@@ -760,9 +776,9 @@ function DemoSection() {
                             </div>
                             <div className="mt-3 grid gap-3">
                               {[
-                                ["auth-refresh-fix", "validated", "require validation"],
-                                ["billing-webhook", "watching", "inject lesson"],
-                                ["worker-memory-leak", "review", "block repeat"]
+                                ["auth-refresh-fix", "validated", "prompt refined"],
+                                ["session.ts edit", "complete", "cheaper route"],
+                                ["auth tests", "passed", "strong model kept idle"]
                               ].map(([trace, status, decision]) => (
                                 <div key={trace} className="grid grid-cols-[1fr_170px] items-center gap-3 rounded-xl border border-white/10 bg-[#08080d] p-2.5">
                                   <div>
@@ -783,7 +799,7 @@ function DemoSection() {
                             <div className="mt-4 grid gap-3">
                               {[
                                 "original + optimized prompt recorded",
-                                "token estimate: original vs optimized",
+                                "Prompt Refiner impact: 24k to 8k",
                                 "result quality: validated"
                               ].map((item) => (
                                 <div key={item} className="rounded-xl border border-white/10 bg-[#071012] p-3 text-sm leading-6 text-neutral-200">
@@ -795,17 +811,6 @@ function DemoSection() {
                         </div>
                       </section>
                     </div>
-                  </div>
-                </div>
-              </div>
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 rounded-2xl border border-[#22d3ee]/25 bg-[#050509]/92 p-4 shadow-2xl shadow-black/30 backdrop-blur">
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-[#22d3ee]">
-                    <Volume2 size={15} />
-                  </span>
-                  <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-[#22d3ee]">AI narration</p>
-                    <p className="mt-1 text-sm leading-6 text-neutral-200">{activeNarration}</p>
                   </div>
                 </div>
               </div>
@@ -843,7 +848,7 @@ function DemoSection() {
                   />
                 </span>
               </button>
-              <span className="font-mono text-xs text-neutral-500">00:48</span>
+              <span className="font-mono text-xs text-neutral-500">00:25</span>
             </div>
           </div>
         </div>
@@ -854,11 +859,17 @@ function DemoSection() {
 
 function PrivacySection() {
   return (
-    <Section id="privacy" eyebrow="Privacy boundary" title="What Teams Can Read, What Stays Private">
+    <section id="privacy" className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
+      <div className="mx-auto max-w-6xl">
+        <div className="max-w-3xl">
+          <Badge>Privacy boundary</Badge>
+          <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">What Teams Can Read, What Stays Private</h2>
+        </div>
+      </div>
       <div className="mt-10">
         <PrivacyComparisonCard />
       </div>
-    </Section>
+    </section>
   );
 }
 
@@ -895,15 +906,23 @@ function HeroComparisonCard() {
             title="Without Agent Sidecar"
             tone="red"
             cost="$2.84"
-            outcome="unchecked final"
-            lines={["repeats auth callback edit", "skips browser login flow", "same sign-out bug returns"]}
+            outcome="wasteful run"
+            lines={[
+              "bloated prompt drifts from user goal",
+              "same repo context reread repeatedly",
+              "expensive model handles simple edits"
+            ]}
           />
           <RunComparisonPanel
             title="With Agent Sidecar"
             tone="emerald"
             cost="$1.41"
-            outcome="validated fix"
-            lines={["adds task contract", "optimized prompt for token usage", "verifies login flow"]}
+            outcome="steered run"
+            lines={[
+              "condensed prompt aligned to user goals",
+              "repo memory prevents duplicate reads",
+              "smart routing matches task difficulty"
+            ]}
           />
         </div>
       </div>
@@ -939,8 +958,10 @@ function RunComparisonPanel({
         <span className={`rounded-full border px-3 py-1 font-mono text-xs ${isGood ? "border-emerald-300/25 text-emerald-200" : "border-red-400/25 text-red-200"}`}>
           {outcome}
         </span>
-        <p className={`self-end text-4xl font-semibold leading-none ${accent}`}>{cost}</p>
-        <p className="self-end text-right font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">per run</p>
+        <div className="col-span-2 flex items-baseline gap-2">
+          <p className={`text-4xl font-semibold leading-none ${accent}`}>{cost}</p>
+          <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">per run</p>
+        </div>
       </div>
       <div className="mt-4 grid gap-2">
         {lines.map((line) => (

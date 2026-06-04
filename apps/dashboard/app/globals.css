@@ -151,17 +151,17 @@ a {
 }
 
 .demo-video-frame {
-  animation: demo-video-glow 40s ease-in-out infinite;
+  animation: demo-video-glow 25s ease-in-out infinite;
 }
 
 .demo-scene {
-  animation: demo-scene 8s ease-in-out both;
+  animation: demo-scene 5s ease-in-out both;
   animation-delay: var(--delay);
   opacity: 0;
 }
 
 .demo-scene-final {
-  animation: demo-scene-final 8s ease-in-out both;
+  animation: demo-scene-final 6s ease-in-out both;
   animation-delay: var(--delay);
   opacity: 0;
 }
@@ -175,31 +175,31 @@ a {
 }
 
 .demo-prompt-type {
-  animation: demo-prompt-type 6s steps(95, end) both;
+  animation: demo-prompt-type 3s steps(95, end) both;
   animation-delay: var(--delay, 8.7s);
   display: inline-block;
 }
 
 .demo-editor-badge {
-  animation: demo-editor-badge 40s ease-in-out infinite;
+  animation: demo-editor-badge 25s ease-in-out infinite;
 }
 
 .demo-code-add {
-  animation: demo-code-change 40s ease-in-out both;
+  animation: demo-code-change 25s ease-in-out both;
 }
 
 .demo-code-remove {
-  animation: demo-code-remove 40s ease-in-out both;
+  animation: demo-code-remove 25s ease-in-out both;
 }
 
 .demo-sidecar-decision {
   animation: demo-reveal 600ms ease-out both;
-  animation-delay: 37s;
+  animation-delay: 18s;
   opacity: 0;
 }
 
 .demo-video-progress {
-  animation: demo-video-progress 40s linear both;
+  animation: demo-video-progress 25s linear both;
 }
 
 .demo-video-paused,
