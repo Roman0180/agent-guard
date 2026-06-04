@@ -894,7 +894,7 @@ function HeroComparisonCard() {
         <div className="border-b border-white/10 pb-5">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">User prompt</p>
-            <h3 className="mt-2 max-w-3xl text-xl font-semibold leading-tight">
+            <h3 className="mt-2 text-xl font-semibold leading-tight">
               The auth refresh flow keeps breaking after token renewal; can you look through the session code, figure out what is going on, and fix it without changing unrelated auth behavior?
             </h3>
           </div>
