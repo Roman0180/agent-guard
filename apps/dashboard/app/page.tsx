@@ -123,14 +123,14 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Make AI coding agents cheaper to run
+          Enterprise telemetry and cost controls for agentic coding tools
         </h1>
+        <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300 sm:text-xl sm:leading-9">
+          Agent Sidecar gives teams a local-first control layer for Codex, Claude Code, and other coding agents: log every run, surface cost evidence, and cut wasted tokens before they become enterprise budget drift.
+        </p>
         <div className="mt-8 w-full max-w-6xl">
           <ComparisonCard />
         </div>
-        <p className="mt-8 max-w-2xl text-lg leading-8 text-neutral-300">
-          Agent Sidecar compresses prompts, routes steering to cheaper models, and remembers only the context that matters so every agent query is more precise.
-        </p>
       </div>
     </section>
   );
@@ -863,7 +863,7 @@ function ComparisonCard() {
   return (
     <div
       role="img"
-      aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a guarded run with Agent Sidecar at $1.41 per run."
+      aria-label="Hero image comparing red not-allowed coding-agent behavior against green allowed behavior under Agent Sidecar telemetry and cost controls."
       className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
@@ -880,18 +880,18 @@ function ComparisonCard() {
 
         <div className="mt-5 grid flex-1 gap-4 lg:grid-cols-2">
           <RunComparisonPanel
-            title="Without Agent Sidecar"
+            title="Not allowed"
             tone="red"
             cost="$2.84"
-            outcome="unchecked final"
+            outcome="unlogged spend"
             lines={["repeats auth callback edit", "skips browser login flow", "same sign-out bug returns"]}
           />
           <RunComparisonPanel
-            title="With Agent Sidecar"
+            title="Allowed"
             tone="emerald"
             cost="$1.41"
-            outcome="validated fix"
-            lines={["adds task contract", "optimized prompt for token usage", "verifies login flow"]}
+            outcome="logged + validated"
+            lines={["telemetry logged for audit", "cost controls trim wasted tokens", "verifies login flow"]}
           />
         </div>
       </div>
@@ -914,7 +914,8 @@ function RunComparisonPanel({
 }) {
   const isGood = tone === "emerald";
   const accent = isGood ? "text-emerald-200" : "text-red-200";
-  const panel = isGood ? "border-emerald-300/20 bg-emerald-300/[0.055]" : "border-red-400/20 bg-red-400/[0.055]";
+  const panel = isGood ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-red-400/30 bg-red-400/[0.075]";
+  const label = isGood ? "bg-emerald-300 text-[#03170b]" : "bg-red-400 text-[#210505]";
   const barColor = isGood ? "#4ade80" : "#f87171";
   const barWidth = isGood ? "52%" : "100%";
 
@@ -923,7 +924,7 @@ function RunComparisonPanel({
       className={`flex min-h-0 flex-col rounded-xl border p-4 ${panel}`}
     >
       <div className="grid min-h-[92px] grid-cols-[1fr_auto] items-start gap-4 border-b border-white/10 pb-4">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">{title}</p>
+        <p className={`w-fit rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-[0.18em] ${label}`}>{title}</p>
         <span className={`rounded-full border px-3 py-1 font-mono text-xs ${isGood ? "border-emerald-300/25 text-emerald-200" : "border-red-400/25 text-red-200"}`}>
           {outcome}
         </span>
