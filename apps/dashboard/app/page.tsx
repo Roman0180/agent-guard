@@ -860,38 +860,43 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
 }
 
 function ComparisonCard() {
+  const readableItems = [
+    ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
+    ["Cost evidence", "Token estimates, model usage, and matched baseline savings"],
+    ["Policy outcomes", "Allowed actions, blocked waste, and reason codes for audit"]
+  ] as const;
+  const privateItems = [
+    ["Source contents", "Repository files stay on the developer machine unless explicitly shared"],
+    ["Secrets", "Environment variables, credentials, and protected paths are never exposed"],
+    ["Raw prompts", "Sensitive task text can remain local while metadata rolls up for teams"]
+  ] as const;
+
   return (
-    <div
-      role="img"
-      aria-label="Hero image comparing red not-allowed coding-agent behavior against green allowed behavior under Agent Sidecar telemetry and cost controls."
-      className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
-    >
+    <div className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
-      <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 pb-5">
+      <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5">
+        <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Agent Sidecar run</p>
-            <h3 className="mt-2 text-xl font-semibold leading-tight">Auth refresh fix</h3>
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Local-first telemetry boundary</p>
+            <h3 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight">Enterprise visibility without opening the whole workspace</h3>
           </div>
-          <div className="rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
-            guarded
+          <div className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] px-3 py-1 font-mono text-xs text-[#9be8f4]">
+            coded access map
           </div>
         </div>
 
-        <div className="mt-5 grid flex-1 gap-4 lg:grid-cols-2">
-          <RunComparisonPanel
-            title="Not allowed"
-            tone="red"
-            cost="$2.84"
-            outcome="unlogged spend"
-            lines={["repeats auth callback edit", "skips browser login flow", "same sign-out bug returns"]}
-          />
-          <RunComparisonPanel
-            title="Allowed"
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <VisibilityPanel
+            title="Accessible / readable"
             tone="emerald"
-            cost="$1.41"
-            outcome="logged + validated"
-            lines={["telemetry logged for audit", "cost controls trim wasted tokens", "verifies login flow"]}
+            summary="Safe operational telemetry for engineering leaders, platform teams, and finance reviewers."
+            items={readableItems}
+          />
+          <VisibilityPanel
+            title="Kept private"
+            tone="red"
+            summary="Sensitive code, credentials, and raw workspace context remain local by default."
+            items={privateItems}
           />
         </div>
       </div>
@@ -899,52 +904,39 @@ function ComparisonCard() {
   );
 }
 
-function RunComparisonPanel({
+function VisibilityPanel({
   title,
   tone,
-  cost,
-  outcome,
-  lines
+  summary,
+  items
 }: {
   title: string;
-  tone: "red" | "emerald";
-  cost: string;
-  outcome: string;
-  lines: string[];
+  tone: "emerald" | "red";
+  summary: string;
+  items: readonly (readonly [string, string])[];
 }) {
-  const isGood = tone === "emerald";
-  const accent = isGood ? "text-emerald-200" : "text-red-200";
-  const panel = isGood ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-red-400/30 bg-red-400/[0.075]";
-  const label = isGood ? "bg-emerald-300 text-[#03170b]" : "bg-red-400 text-[#210505]";
-  const barColor = isGood ? "#4ade80" : "#f87171";
-  const barWidth = isGood ? "52%" : "100%";
+  const isReadable = tone === "emerald";
+  const panel = isReadable ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-red-400/30 bg-red-400/[0.075]";
+  const label = isReadable ? "bg-emerald-300 text-[#03170b]" : "bg-red-400 text-[#210505]";
+  const dot = isReadable ? "bg-emerald-300 shadow-emerald-300/30" : "bg-red-400 shadow-red-400/30";
+  const text = isReadable ? "text-emerald-100" : "text-red-100";
 
   return (
-    <article
-      className={`flex min-h-0 flex-col rounded-xl border p-4 ${panel}`}
-    >
-      <div className="grid min-h-[92px] grid-cols-[1fr_auto] items-start gap-4 border-b border-white/10 pb-4">
+    <article className={`flex min-h-full flex-col rounded-xl border p-4 ${panel}`}>
+      <div className="border-b border-white/10 pb-4">
         <p className={`w-fit rounded-full px-3 py-1 font-mono text-xs font-semibold uppercase tracking-[0.18em] ${label}`}>{title}</p>
-        <span className={`rounded-full border px-3 py-1 font-mono text-xs ${isGood ? "border-emerald-300/25 text-emerald-200" : "border-red-400/25 text-red-200"}`}>
-          {outcome}
-        </span>
-        <p className={`self-end text-4xl font-semibold leading-none ${accent}`}>{cost}</p>
-        <p className="self-end text-right font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">per run</p>
+        <p className={`mt-4 text-lg font-semibold leading-7 ${text}`}>{summary}</p>
       </div>
-      <div className="mt-4 grid gap-2">
-        {lines.map((line) => (
-          <div key={line} className="flex min-h-11 items-center rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-2 text-sm text-neutral-300">
-            {line}
+      <div className="mt-4 grid gap-3">
+        {items.map(([name, detail]) => (
+          <div key={name} className="grid grid-cols-[14px_1fr] gap-3 rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-3">
+            <span className={`mt-2 size-2 rounded-full shadow-lg ${dot}`} />
+            <div>
+              <p className="text-sm font-semibold text-white">{name}</p>
+              <p className="mt-1 text-sm leading-6 text-neutral-400">{detail}</p>
+            </div>
           </div>
         ))}
-      </div>
-      <div className="mt-auto pt-5">
-        <div className="h-2 overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full"
-            style={{ backgroundColor: barColor, width: barWidth }}
-          />
-        </div>
       </div>
     </article>
   );
