@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  ["Capabilities", "#capabilities"],
   ["Demo", "#demo"],
+  ["Capabilities", "#capabilities"],
   ["Privacy", "#privacy"],
   ["How to use", "#how-to-use"]
 ] as const;
@@ -67,8 +67,8 @@ export default function HomePage() {
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
       <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <Hero />
-      <Capabilities />
       <DemoSection />
+      <Capabilities />
       <PrivacySection />
       <HowToUse />
     </main>
