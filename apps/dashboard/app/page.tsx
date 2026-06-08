@@ -3,59 +3,43 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity,
   Bot,
   Code2,
-  FileText,
-  GitBranch,
   Menu,
   Pause,
   Play,
   RotateCcw,
-  Sparkles,
   X
 } from "lucide-react";
 
 const navItems = [
   ["Demo", "#demo"],
-  ["Capabilities", "#capabilities"],
+  ["Impact", "#impact"],
   ["Privacy", "#privacy"],
   ["How to use", "#how-to-use"]
 ] as const;
 
-const capabilities = [
+const impactCards = [
   {
-    icon: Sparkles,
-    title: "Prompt compression",
-    body: "Compress vague requests into precise task contracts with only the repo context, acceptance criteria, boundaries, and tests the coding agent needs.",
-    detail: "Fewer broad instructions means fewer exploratory tokens."
+    title: "AI budgets stop drifting",
+    body: "Agent Sidecar ties every expensive coding-agent run to measurable task outcomes, giving finance and platform teams the evidence they need to defend, tune, or rein in spend."
   },
   {
-    icon: GitBranch,
-    title: "Cheap-model steering",
-    body: "Use an ensemble of lower-cost models for narrow steering decisions, such as where to look next, what to validate, and when a run is drifting.",
-    detail: "Expensive models spend tokens on implementation, not routine routing."
+    title: "Engineering velocity stays protected",
+    body: "The sidecar removes low-value context, remembers useful repo lessons, and steers agents away from loops so senior engineers spend less time rescuing bloated runs."
   },
   {
-    icon: FileText,
-    title: "Selective memory",
-    body: "Apply specialized importance algorithms to decide which lessons, files, diffs, and prior outcomes are worth remembering for the current task.",
-    detail: "Queries become more precise because irrelevant history stays out."
-  },
-  {
-    icon: Activity,
-    title: "Telemetry for analysis",
-    body: "Capture prompt lineage, token estimates, model routing, run outcomes, and validation evidence for later cost and efficiency analysis.",
-    detail: "Teams can see which optimizations actually reduce spend per successful engineering task."
+    title: "Adoption becomes governable",
+    body: "Leaders get a local-first audit trail of model usage, validation evidence, and policy outcomes without forcing developers to abandon the coding tools they already use."
   }
 ];
 
 const workflow = [
-  "Install the sidecar package with pip",
-  "Start the daemon from your terminal",
-  "Code in Codex like normal while Agent Sidecar runs in the background",
-  "Sidecar optimizes prompts, context, model routing, and telemetry behind the scenes",
-  "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
+  "A lightweight daemon runs beside Codex or Claude Code",
+  "Agent Sidecar tightens the prompt and scopes the right repo context",
+  "Lower-cost steering keeps the agent focused before expensive tokens pile up",
+  "Run evidence rolls into the dashboard automatically",
+  "Teams get spend, quality, and governance signals without manual writeups"
 ];
 
 export default function HomePage() {
@@ -68,7 +52,7 @@ export default function HomePage() {
       <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <Hero />
       <DemoSection />
-      <Capabilities />
+      <ImpactSection />
       <PrivacySection />
       <HowToUse />
     </main>
@@ -131,10 +115,10 @@ function Hero() {
     <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full max-w-7xl flex-col items-center">
         <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Enterprise Telemetry and Cost Control for Coding Agents
+          The era of tokenmaxxing is over.
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300 sm:text-xl sm:leading-9">
-          Log runs, surface cost evidence, and cut wasted tokens across Codex, Claude Code, and other agentic coding tools.
+          Agent Sidecar cuts wasted coding-agent tokens, proves where AI spend turns into engineering output, and keeps Codex, Claude Code, and other agentic tools under enterprise control.
         </p>
         <div className="mt-8 w-full max-w-6xl">
           <HeroComparisonCard />
@@ -144,39 +128,26 @@ function Hero() {
   );
 }
 
-function Capabilities() {
+function ImpactSection() {
   return (
     <section
-      id="capabilities"
+      id="impact"
       className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10"
     >
-      <Badge>Capabilities</Badge>
+      <Badge>Impact</Badge>
       <h2 className="mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        Four capabilities for controlling coding-agent cost
+        Enterprises get control without slowing agentic development
       </h2>
       <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
-        Agent Sidecar keeps coding agents focused, routes work more efficiently, preserves useful repo memory, and records telemetry so teams can analyze cost and engineering efficiency after each run.
+        Agent Sidecar does the prompt tightening, routing discipline, context pruning, and run measurement in the background, enabling teams to scale coding agents with lower waste and clearer accountability.
       </p>
-      <div className="mt-12 divide-y divide-white/10 border-y border-white/10">
-        {capabilities.map((capability, index) => {
-          const Icon = capability.icon;
-          return (
-            <article
-              key={capability.title}
-              className="grid gap-5 py-8 md:grid-cols-[120px_1fr_0.75fr] md:items-start"
-            >
-              <div className="flex items-center gap-4 font-mono text-sm text-neutral-500">
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <Icon size={22} className="text-[#22d3ee]" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-semibold">{capability.title}</h3>
-                <p className="mt-4 max-w-2xl text-base leading-8 text-neutral-400">{capability.body}</p>
-              </div>
-              <p className="font-mono text-sm leading-7 text-[#22d3ee]">{capability.detail}</p>
-            </article>
-          );
-        })}
+      <div className="mt-12 grid gap-5 lg:grid-cols-3">
+        {impactCards.map((card) => (
+          <article key={card.title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">
+            <h3 className="text-2xl font-semibold">{card.title}</h3>
+            <p className="mt-4 text-base leading-8 text-neutral-400">{card.body}</p>
+          </article>
+        ))}
       </div>
     </section>
   );
@@ -188,7 +159,7 @@ function HowToUse() {
       <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
+            Agent Sidecar becomes the control plane and replay UI around everyday coding-agent work. It optimizes prompt context, routing, and telemetry in the background, then shows whether each optimization improved cost per successful task.
           </p>
           <div className="mt-5 grid gap-3">
             {workflow.map((item, index) => (
@@ -983,9 +954,9 @@ function RunComparisonPanel({
 
 function PrivacyComparisonCard() {
   const readableItems = [
-    ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
-    ["Cost evidence", "Token estimates, model usage, and matched baseline savings"],
-    ["Policy outcomes", "Allowed actions, blocked waste, and reason codes for audit"]
+    ["Engineering throughput", "Highlights stalls, loops, and skipped validation so leaders can protect delivery quality without policing individual developers"],
+    ["Spend accountability", "Connects token usage and model choice to completed work so finance reviewers can judge ROI instead of raw AI bills"],
+    ["Governance evidence", "Records policy decisions and validation status so platform teams can prove guardrails are working"]
   ] as const;
   const privateItems = [
     ["Source contents", "Repository files stay on the developer machine unless explicitly shared"],
@@ -1009,9 +980,9 @@ function PrivacyComparisonCard() {
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <VisibilityPanel
-            title="Accessible / readable"
+            title="Operational evidence"
             tone="emerald"
-            summary="Safe operational telemetry for engineering leaders, platform teams, and finance reviewers."
+            summary="The sidecar turns raw agent activity into business-relevant signals for engineering, platform, and finance leaders."
             items={readableItems}
           />
           <VisibilityPanel
