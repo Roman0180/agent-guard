@@ -3,59 +3,27 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity,
   Bot,
   Code2,
-  FileText,
-  GitBranch,
   Menu,
   Pause,
   Play,
   RotateCcw,
-  Sparkles,
   X
 } from "lucide-react";
 
 const navItems = [
-  ["Capabilities", "#capabilities"],
   ["Demo", "#demo"],
-  ["Privacy", "#privacy"],
-  ["How to use", "#how-to-use"]
+  ["How to use", "#how-to-use"],
+  ["Telemetry", "#telemetry"]
 ] as const;
 
-const capabilities = [
-  {
-    icon: Sparkles,
-    title: "Prompt compression",
-    body: "Compress vague requests into precise task contracts with only the repo context, acceptance criteria, boundaries, and tests the coding agent needs.",
-    detail: "Fewer broad instructions means fewer exploratory tokens."
-  },
-  {
-    icon: GitBranch,
-    title: "Cheap-model steering",
-    body: "Use an ensemble of lower-cost models for narrow steering decisions, such as where to look next, what to validate, and when a run is drifting.",
-    detail: "Expensive models spend tokens on implementation, not routine routing."
-  },
-  {
-    icon: FileText,
-    title: "Selective memory",
-    body: "Apply specialized importance algorithms to decide which lessons, files, diffs, and prior outcomes are worth remembering for the current task.",
-    detail: "Queries become more precise because irrelevant history stays out."
-  },
-  {
-    icon: Activity,
-    title: "Telemetry for analysis",
-    body: "Capture prompt lineage, token estimates, model routing, run outcomes, and validation evidence for later cost and efficiency analysis.",
-    detail: "Teams can see which optimizations actually reduce spend per successful engineering task."
-  }
-];
-
 const workflow = [
-  "Install the sidecar package with pip",
-  "Start the daemon from your terminal",
-  "Code in Codex like normal while Agent Sidecar runs in the background",
-  "Sidecar optimizes prompts, context, model routing, and telemetry behind the scenes",
-  "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
+  "Install Agent Sidecar and start the local daemon",
+  "Run Codex or Claude Code as usual",
+  "Agent Sidecar rewrites bloated prompts before execution",
+  "Agent Sidecar trims context and routes routine work to cheaper or local models",
+  "Review token savings, model routes, outcomes, and finance-ready spend evidence"
 ];
 
 export default function HomePage() {
@@ -67,10 +35,9 @@ export default function HomePage() {
       <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
       <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <Hero />
-      <Capabilities />
       <DemoSection />
-      <PrivacySection />
       <HowToUse />
+      <TelemetrySection />
     </main>
   );
 }
@@ -128,13 +95,13 @@ function Navbar({
 
 function Hero() {
   return (
-    <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
-      <div className="flex w-full max-w-7xl flex-col items-center">
-        <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Enterprise Telemetry and Cost Control for Coding Agents
+    <section className="mx-auto flex w-full max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
+      <div className="flex w-full min-w-0 max-w-7xl flex-col items-center">
+        <h1 className="max-w-full text-3xl font-semibold leading-[1.02] tracking-normal break-words sm:max-w-5xl sm:text-5xl lg:text-6xl">
+          Stop Overpaying for AI Coding Agents
         </h1>
-        <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300 sm:text-xl sm:leading-9">
-          Log runs, surface cost evidence, and cut wasted tokens across Codex, Claude Code, and other agentic coding tools.
+        <p className="mt-6 max-w-full text-lg leading-8 text-neutral-300 break-words sm:max-w-3xl sm:text-xl sm:leading-9">
+          Tokenmaxxing is over. Agent Sidecar rewrites bloated prompts, routes routine work to cheaper or local models, and exposes spend before costs spike.
         </p>
         <div className="mt-8 w-full max-w-6xl">
           <HeroComparisonCard />
@@ -144,51 +111,13 @@ function Hero() {
   );
 }
 
-function Capabilities() {
-  return (
-    <section
-      id="capabilities"
-      className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10"
-    >
-      <Badge>Capabilities</Badge>
-      <h2 className="mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        Four capabilities for controlling coding-agent cost
-      </h2>
-      <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
-        Agent Sidecar keeps coding agents focused, routes work more efficiently, preserves useful repo memory, and records telemetry so teams can analyze cost and engineering efficiency after each run.
-      </p>
-      <div className="mt-12 divide-y divide-white/10 border-y border-white/10">
-        {capabilities.map((capability, index) => {
-          const Icon = capability.icon;
-          return (
-            <article
-              key={capability.title}
-              className="grid gap-5 py-8 md:grid-cols-[120px_1fr_0.75fr] md:items-start"
-            >
-              <div className="flex items-center gap-4 font-mono text-sm text-neutral-500">
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <Icon size={22} className="text-[#22d3ee]" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-semibold">{capability.title}</h3>
-                <p className="mt-4 max-w-2xl text-base leading-8 text-neutral-400">{capability.body}</p>
-              </div>
-              <p className="font-mono text-sm leading-7 text-[#22d3ee]">{capability.detail}</p>
-            </article>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
 function HowToUse() {
   return (
-    <Section id="how-to-use" eyebrow="How to use" title="Run normally, review everything">
+    <Section id="how-to-use" eyebrow="How to use" title="Run normally. Let Sidecar steer spend.">
       <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
+            Agent Sidecar runs beside the coding agent, rewrites prompts, trims context, routes routine work, and produces spend evidence for every successful task.
           </p>
           <div className="mt-5 grid gap-3">
             {workflow.map((item, index) => (
@@ -208,11 +137,11 @@ function HowToUse() {
 }
 
 function DashboardMock() {
-  const nav = ["Traces", "Decisions", "Policies", "Lessons", "Analytics"];
+  const nav = ["Traces", "Routing", "Spend", "Outcomes", "Analytics"];
   const runs = [
-    ["auth-refresh-fix", "require validation", "healthy"],
-    ["billing-webhook", "inject lesson", "watching"],
-    ["worker-memory-leak", "block repeat", "review"]
+    ["auth-refresh-fix", "route cheaper edit", "healthy"],
+    ["billing-webhook", "trim prompt", "watching"],
+    ["worker-memory-leak", "avoid repeat context", "review"]
   ];
 
   return (
@@ -224,7 +153,7 @@ function DashboardMock() {
             <span className="size-2 rounded-full bg-amber-300/80" />
             <span className="size-2 rounded-full bg-emerald-300/80" />
           </div>
-          <span className="font-mono text-xs text-neutral-500">Acme account dashboard</span>
+          <span className="font-mono text-xs text-neutral-500">Acme spend dashboard</span>
         </div>
 
         <div className="grid min-h-[520px] bg-[radial-gradient(circle_at_78%_18%,rgba(34,211,238,0.12),transparent_30%),#07070b] md:grid-cols-[190px_1fr]">
@@ -264,8 +193,8 @@ function DashboardMock() {
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {[
                 ["guarded runs", "18"],
-                ["decisions", "43"],
-                ["saved lessons", "9"]
+                ["routing decisions", "43"],
+                ["savings signals", "9"]
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
                   <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">{label}</p>
@@ -311,9 +240,9 @@ function DashboardMock() {
                 <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">selected trace</p>
                 <h4 className="mt-3 text-lg font-semibold">auth-refresh-fix</h4>
                 <div className="mt-4 grid gap-2 text-sm text-neutral-300">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">policy: validation after edit</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">lesson: refresh token callback</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">action: require continuation</div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">route: cheaper edit model</div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">prompt: context trimmed</div>
+                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">outcome: validation required</div>
                 </div>
               </div>
             </div>
@@ -374,10 +303,10 @@ function DemoSection() {
     ["23", "}", "text-neutral-300"]
   ];
   const capabilityEvents: Array<[string, string]> = [
-    ["Prompt", "Send refined task contract into Codex"],
-    ["Repo memory", "Reuse auth-refresh plan instead of rereading files"],
-    ["Model route", "Use cheaper model for narrow edit step"],
-    ["Validation", "Reserve stronger model for failure analysis"]
+    ["Prompt", "Agent Sidecar sends a compact task contract"],
+    ["Context", "Agent Sidecar keeps repeated repo context out"],
+    ["Model route", "Agent Sidecar moves narrow edits to a cheaper route"],
+    ["Validation", "Agent Sidecar reserves stronger models for failure analysis"]
   ];
   const optimizedPromptLines = [
     "Task: Fix auth refresh so users stay signed in after token renewal",
@@ -472,7 +401,7 @@ function DemoSection() {
             >
               <div className={`${sceneClass(0, 5)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Codex coding session" body="Coding agents burn tokens while they work." />
+                  <PhaseHeading title="Codex coding session" body="A routine fix can burn premium tokens fast." />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
@@ -521,7 +450,7 @@ function DemoSection() {
 
               <div className={`${sceneClass(5, 9)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-5xl">
-                  <PhaseHeading title="Coding-specific waste" body="Bloated prompts. Repeated context. Hidden spend." />
+                  <PhaseHeading title="Coding-specific waste" body="Bloated prompts. Repeated context. Premium calls." />
                   <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
                     <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30">
                       <div className="border-b border-white/10 bg-[#050509] px-4 py-3">
@@ -566,12 +495,12 @@ function DemoSection() {
 
               <div className={`${sceneClass(9, 14)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-5xl">
-                  <PhaseHeading title="Prompt Refiner" body="Prompt Refiner cuts the waste before the next call." />
+                  <PhaseHeading title="Prompt Refiner" body="Agent Sidecar cuts prompt waste before the next model call." />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar</p>
-                        <h3 className="mt-2 text-2xl font-semibold">Bloated prompt becomes a focused coding task</h3>
+                        <h3 className="mt-2 text-2xl font-semibold">Agent Sidecar turns a bloated prompt into a focused coding task</h3>
                       </div>
                       <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
                         fewer tokens
@@ -617,12 +546,12 @@ function DemoSection() {
 
               <div className={`${sceneClass(14, 19)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
-                  <PhaseHeading title="Steering applied to coding" body="Refine prompts. Reuse memory. Route smarter." />
+                  <PhaseHeading title="Agent Sidecar controls the next step" body="Cleaner prompt. Smaller context. Cheaper route." />
                 <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                   <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
-                      <h3 className="mt-2 text-2xl font-semibold">Next Codex step gets a cleaner route</h3>
+                      <h3 className="mt-2 text-2xl font-semibold">The next Codex step gets a cheaper route</h3>
                     </div>
                     <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
                       steering active
@@ -699,7 +628,7 @@ function DemoSection() {
                 <div className="w-full max-w-6xl">
                   <PhaseHeading
                     title="Dashboard and coding outcome"
-                    body="Lower spend. Same engineering output."
+                    body="Lower spend. Validated engineering output."
                   />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">
@@ -715,7 +644,7 @@ function DemoSection() {
                           </div>
                         </div>
                         <nav className="mt-6 grid gap-2 text-sm">
-                          {["Traces", "Decisions", "Policies", "Lessons", "Analytics"].map((item, index) => (
+                          {["Traces", "Routing", "Spend", "Outcomes", "Analytics"].map((item, index) => (
                             <div
                               key={item}
                               className={`rounded-xl px-3 py-2.5 ${
@@ -758,7 +687,7 @@ function DemoSection() {
                               <p className="mt-2 text-4xl font-semibold text-emerald-100">$4,820</p>
                             </div>
                             <p className="text-sm leading-7 text-neutral-300">
-                              Prompt Refiner removed repeated context, memory avoided duplicate file reads, and routing kept simple edits off the strongest model.
+                              Agent Sidecar removed repeated context, skipped duplicate file reads, and kept simple edits off the strongest model.
                             </p>
                             <div className="rounded-xl border border-emerald-300/20 bg-black/20 p-3">
                               <p className="font-mono text-xs uppercase tracking-[0.14em] text-emerald-200">This run saved</p>
@@ -798,9 +727,9 @@ function DemoSection() {
                             <h3 className="mt-4 text-2xl font-semibold">auth-refresh-fix</h3>
                             <div className="mt-4 grid gap-3">
                               {[
-                                "original + optimized prompt recorded",
-                                "Prompt Refiner impact: 24k to 8k",
-                                "result quality: validated"
+                                "Agent Sidecar recorded original and rewritten prompt",
+                                "Prompt waste reduced: 24k to 8k tokens",
+                                "validated output tied to spend delta"
                               ].map((item) => (
                                 <div key={item} className="rounded-xl border border-white/10 bg-[#071012] p-3 text-sm leading-6 text-neutral-200">
                                   {item}
@@ -857,17 +786,17 @@ function DemoSection() {
   );
 }
 
-function PrivacySection() {
+function TelemetrySection() {
   return (
-    <section id="privacy" className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
+    <section id="telemetry" className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
       <div className="mx-auto max-w-6xl">
         <div className="max-w-3xl">
-          <Badge>Privacy boundary</Badge>
-          <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">What Teams Can Read, What Stays Private</h2>
+          <Badge>Telemetry</Badge>
+          <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">Spend Control Leaders Can Actually Use</h2>
         </div>
       </div>
       <div className="mt-10">
-        <PrivacyComparisonCard />
+        <TelemetryControlCard />
       </div>
     </section>
   );
@@ -887,20 +816,20 @@ function HeroComparisonCard() {
     <div
       role="img"
       aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a run with Agent Sidecar at $1.41 per run."
-      className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
+      className="relative mx-auto w-full min-w-0 max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
-      <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
+      <div className="relative flex min-h-[520px] min-w-0 flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
         <div className="border-b border-white/10 pb-5">
-          <div>
+          <div className="min-w-0">
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">User prompt</p>
-            <h3 className="mt-2 text-xl font-semibold leading-tight">
+            <h3 className="mt-2 text-xl font-semibold leading-tight break-words">
               The auth refresh flow keeps breaking after token renewal; can you look through the session code, figure out what is going on, and fix it without changing unrelated auth behavior?
             </h3>
           </div>
         </div>
 
-        <div className="mt-5 grid flex-1 gap-4 lg:grid-cols-2">
+        <div className="mt-5 grid min-w-0 flex-1 gap-4 lg:grid-cols-2">
           <RunComparisonPanel
             title="Without Agent Sidecar"
             tone="red"
@@ -908,8 +837,8 @@ function HeroComparisonCard() {
             outcome="wasteful run"
             lines={[
               "bloated prompt drifts from user goal",
-              "same repo context reread repeatedly",
-              "expensive model handles simple edits"
+              "same repo context gets reread",
+              "premium model handles routine edits"
             ]}
           />
           <RunComparisonPanel
@@ -918,9 +847,9 @@ function HeroComparisonCard() {
             cost="$1.41"
             outcome="steered run"
             lines={[
-              "condensed prompt aligned to user goals",
-              "repo memory prevents duplicate reads",
-              "smart routing matches task difficulty"
+              "Agent Sidecar rewrites the prompt",
+              "Agent Sidecar skips duplicate context",
+              "Agent Sidecar keeps routine edits off premium models"
             ]}
           />
         </div>
@@ -950,10 +879,10 @@ function RunComparisonPanel({
 
   return (
     <article
-      className={`flex min-h-0 flex-col rounded-xl border p-4 ${panel}`}
+      className={`flex min-h-0 min-w-0 flex-col rounded-xl border p-4 ${panel}`}
     >
-      <div className="grid min-h-[92px] grid-cols-[1fr_auto] items-start gap-4 border-b border-white/10 pb-4">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">{title}</p>
+      <div className="grid min-h-[92px] min-w-0 grid-cols-[1fr_auto] items-start gap-4 border-b border-white/10 pb-4">
+        <p className="min-w-0 break-words font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">{title}</p>
         <span className={`rounded-full border px-3 py-1 font-mono text-xs ${isGood ? "border-emerald-300/25 text-emerald-200" : "border-red-400/25 text-red-200"}`}>
           {outcome}
         </span>
@@ -964,7 +893,7 @@ function RunComparisonPanel({
       </div>
       <div className="mt-4 grid gap-2">
         {lines.map((line) => (
-          <div key={line} className="flex min-h-11 items-center rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-2 text-sm text-neutral-300">
+          <div key={line} className="flex min-h-11 min-w-0 items-center rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-2 text-sm text-neutral-300 break-words">
             {line}
           </div>
         ))}
@@ -981,16 +910,16 @@ function RunComparisonPanel({
   );
 }
 
-function PrivacyComparisonCard() {
-  const readableItems = [
-    ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
-    ["Cost evidence", "Token estimates, model usage, and matched baseline savings"],
-    ["Policy outcomes", "Allowed actions, blocked waste, and reason codes for audit"]
+function TelemetryControlCard() {
+  const executiveItems = [
+    ["Workflow spend", "Engineering leaders see which agent workflows consume the most budget."],
+    ["Prompt and context waste", "Finance reviewers can separate useful work from repeated context and bloated prompts."],
+    ["Baseline savings", "Finance can compare matched before-and-after deltas before broader rollout."]
   ] as const;
-  const privateItems = [
-    ["Source contents", "Repository files stay on the developer machine unless explicitly shared"],
-    ["Secrets", "Environment variables, credentials, and protected paths are never exposed"],
-    ["Raw prompts", "Sensitive task text can remain local while metadata rolls up for teams"]
+  const operationalItems = [
+    ["Model routing", "Platform teams see where frontier calls are necessary and where cheaper or local routes are enough."],
+    ["Boundary crossings", "Governance teams understand which work crossed model boundaries and why."],
+    ["Outcome evidence", "Leaders can compare savings against validated engineering results."]
   ] as const;
 
   return (
@@ -1000,25 +929,25 @@ function PrivacyComparisonCard() {
         <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Local-first telemetry boundary</p>
-            <h3 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight">Enterprise visibility without opening the whole workspace</h3>
+            <h3 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight">Executive and operational control over coding-agent spend</h3>
           </div>
           <div className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] px-3 py-1 font-mono text-xs text-[#9be8f4]">
-            coded access map
+            spend evidence layer
           </div>
         </div>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <VisibilityPanel
-            title="Accessible / readable"
+          <TelemetryPanel
+            title="Leadership and finance"
             tone="emerald"
-            summary="Safe operational telemetry for engineering leaders, platform teams, and finance reviewers."
-            items={readableItems}
+            summary="Agent Sidecar turns agent activity into budget evidence, not another developer-only log stream."
+            items={executiveItems}
           />
-          <VisibilityPanel
-            title="Kept private"
-            tone="red"
-            summary="Sensitive code, credentials, and raw workspace context remain local by default."
-            items={privateItems}
+          <TelemetryPanel
+            title="Platform and governance"
+            tone="cyan"
+            summary="Agent Sidecar shows where prompts, routing, and model boundaries are creating avoidable cost."
+            items={operationalItems}
           />
         </div>
       </div>
@@ -1026,22 +955,22 @@ function PrivacyComparisonCard() {
   );
 }
 
-function VisibilityPanel({
+function TelemetryPanel({
   title,
   tone,
   summary,
   items
 }: {
   title: string;
-  tone: "emerald" | "red";
+  tone: "emerald" | "cyan";
   summary: string;
   items: readonly (readonly [string, string])[];
 }) {
-  const isReadable = tone === "emerald";
-  const panel = isReadable ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-red-400/30 bg-red-400/[0.075]";
-  const label = isReadable ? "bg-emerald-300 text-[#03170b]" : "bg-red-400 text-[#210505]";
-  const dot = isReadable ? "bg-emerald-300 shadow-emerald-300/30" : "bg-red-400 shadow-red-400/30";
-  const text = isReadable ? "text-emerald-100" : "text-red-100";
+  const isExecutive = tone === "emerald";
+  const panel = isExecutive ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-[#22d3ee]/30 bg-[#22d3ee]/[0.075]";
+  const label = isExecutive ? "bg-emerald-300 text-[#03170b]" : "bg-[#22d3ee] text-[#031217]";
+  const dot = isExecutive ? "bg-emerald-300 shadow-emerald-300/30" : "bg-[#22d3ee] shadow-[#22d3ee]/30";
+  const text = isExecutive ? "text-emerald-100" : "text-[#c8f7ff]";
 
   return (
     <article className={`flex min-h-full flex-col rounded-xl border p-4 ${panel}`}>
