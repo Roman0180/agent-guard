@@ -2,17 +2,17 @@
 
 ## 1. Executive Summary
 
-Agent Sidecar is a local runtime layer that runs beside coding agents such as Codex and Claude Code in a separate terminal. It is not a replacement for those tools. It is a lightweight control plane that helps engineers spend fewer expensive coding-agent tokens, avoid repeated failed loops, refine prompts before execution, capture enough trace data to debug runs, and receive timely steering recommendations while preserving velocity.
+Agent Sidecar is a local runtime layer that runs beside coding agents such as Codex and Claude Code in a separate terminal. It is not a replacement for those tools. It is a lightweight control plane that helps engineers lower the cost per successful engineering task, avoid repeated failed loops, refine prompts before execution, capture enough trace data to debug runs, and receive timely steering recommendations while preserving velocity.
 
 The first product proof is intentionally small: start a local sidecar, register or create a Codex/Claude Code companion session, record basic events, and inspect a local trace. From there, Agent Sidecar adds prompt refinement, cost-aware prompt cleanup, local loop detection, validation reminders, and run replay.
 
-The core design principle is critical functionality before polish. Agent Sidecar should prove it can reduce waste in real coding-agent workflows before investing in dashboards, branding, deep interception, advanced analytics, cloud sync, or enterprise policy features.
+The core design principle is critical functionality before polish. Agent Sidecar should prove it can improve cost per successful task in real coding-agent workflows before investing in dashboards, branding, deep interception, advanced analytics, cloud sync, or enterprise policy features.
 
 Agent Sidecar should be implemented across four main demo PRs:
 
 1. **Local Sidecar Runtime + Companion Session MVP**: prove the sidecar runs locally beside Codex or Claude Code and records a real or simulated session.
-2. **Prompt Refiner + Cost-Aware Prompt Optimization**: prove waste can be reduced before expensive agent execution.
-3. **Local Steering Ensemble, Loop Detection, and Validation Guardrails**: prove wasteful runtime behavior can be detected with deterministic rules and cheap local evaluators instead of frequent frontier-model calls.
+2. **Prompt Refiner + Cost-Aware Prompt Optimization**: prove task cost can be improved before expensive agent execution.
+3. **Local Steering Ensemble, Loop Detection, and Validation Guardrails**: prove wasteful runtime behavior can be steered with local DeepSeek attempts, deterministic fallback, and cheap local evaluators instead of frequent frontier-model calls.
 4. **Run Replay, MVP Dashboard, and Demo-Ready Analytics**: make runs understandable, replayable, and useful for debugging.
 
 An optional fifth PR can add polished `pip` packaging if it does not fit cleanly into the first four PRs.
@@ -21,14 +21,14 @@ An optional fifth PR can add polished `pip` packaging if it does not fit cleanly
 
 ### Goals
 
-- Reduce coding-agent token spend by improving prompts and catching wasteful run patterns early.
+- Lower cost per successful coding-agent task by improving prompts and catching wasteful run patterns early.
 - Prevent repeated failed loops such as rerunning the same failing test command without new evidence.
 - Improve prompt quality before engineers paste tasks into Codex or Claude Code.
 - Make coding-agent runs easier to debug through local traces, summaries, and replay.
 - Keep engineers moving faster with clear CLI workflows and concise recommendations.
 - Run locally beside existing tools rather than replacing Codex or Claude Code.
-- Prefer deterministic rules and small local models before expensive remote frontier models.
-- Make cost/token savings visible with estimates, avoided-waste summaries, and prompt before/after comparisons.
+- Prefer local DeepSeek and other small local models first, with deterministic rules as the fallback before any expensive remote frontier models.
+- Make task-cost evidence visible with estimates, quality gates, avoided-waste summaries, and prompt before/after comparisons.
 - Store raw traces locally by default and make exports explicit.
 - Keep the system extensible so future local models, wrappers, and integrations can be added without rewriting the core runtime.
 
@@ -105,7 +105,7 @@ Issues detected:
 Refined prompt:
 You are working in this repository. Inspect the failing tests first, identify the smallest code change needed, avoid unrelated refactors, and update only the files required to restore test correctness. After implementation, run the relevant test target and summarize the exact change made.
 
-Estimated token savings:
+Estimated task-cost impact:
 - Original likely causes exploratory waste
 - Refined prompt reduces ambiguity and narrows implementation scope
 ```
@@ -126,10 +126,10 @@ Evaluators fired:
 Recommended next step:
 Inspect the failing stack trace and update the specific dependency registration before rerunning the full test suite.
 
-Estimated avoided waste:
+Estimated avoided task cost:
 - 2-3 repeated commands
 - likely redundant test rerun
-- potential unnecessary agent tokens
+- potential unnecessary agent spend
 ```
 
 ## 4. Critical User Flows
@@ -143,11 +143,11 @@ Estimated avoided waste:
 5. Sidecar writes `session_started` to a local JSONL trace.
 6. User can run `agent-sidecar status` to see active and recent sessions.
 
-### Flow B: Refine Prompt Before Expensive Execution
+### Flow B: Refine Prompt Before Costly Execution
 
 1. User runs `agent-sidecar refine "raw task"`.
-2. Prompt Refiner scores prompt quality and detects missing scope, constraints, files, and validation expectations.
-3. Cost estimator computes rough original/refined token counts.
+2. Prompt Refiner first asks the configured local DeepSeek model for a structured task contract and steering brief, then falls back to deterministic prompt quality checks if the model is unavailable or returns an unusable response.
+3. Cost estimator computes rough original/refined token counts as cost evidence.
 4. Sidecar prints a structured prompt that can be copied into Codex or Claude Code.
 5. Sidecar records `prompt_submitted` and `prompt_refined` events linked to the active or most recent session.
 
@@ -162,9 +162,9 @@ Estimated avoided waste:
 ### Flow D: Detect Loop or Missing Validation
 
 1. Session contains repeated commands, repeated failed tests, repeated file edits, or no validation after changes.
-2. Local Steering Ensemble runs deterministic and local evaluators.
-3. Evaluators emit findings with confidence, evidence, and suggested action.
-4. Steering Decision Engine combines findings into `continue`, `warn`, or `suggest`.
+2. Local Steering Ensemble runs deterministic detectors to produce compact evidence.
+3. The configured local DeepSeek model attempts the final steering decision from that evidence.
+4. If the model is unavailable or invalid, the deterministic ranking combines findings into `continue`, `warn`, or `suggest`.
 5. Sidecar prints a concise recommendation and records a `steering_recommendation` event.
 
 ### Flow E: Replay and Export Run Summary
@@ -242,7 +242,7 @@ flowchart TD
                                       v
 +--------------------------------------------------------------------------------+
 | Local Steering Ensemble                                                        |
-| - deterministic heuristics                                                     |
+| - local DeepSeek attempts + deterministic fallback                             |
 | - embedding similarity                                                         |
 | - lightweight classifiers                                                      |
 | - small local LLM evaluators where configured                                  |
@@ -372,7 +372,7 @@ Responsibilities:
 - Score prompt quality.
 - Detect vague scope, missing validation, missing constraints, lack of file/component hints, and overbroad intent.
 - Produce a structured coding-agent prompt.
-- Estimate original/refined token footprint and likely exploratory waste.
+- Estimate original/refined token footprint as cost evidence and flag likely unsuccessful exploration.
 - Record prompt lineage.
 
 Prompt Refiner output should include:
@@ -383,28 +383,28 @@ Prompt Refiner output should include:
 - Suggested acceptance criteria.
 - Testing expectations.
 - What not to change.
-- Estimated savings or waste avoided.
+- Estimated task-cost impact and quality gate requirements.
 
-MVP implementation should start deterministic:
+MVP implementation should start local-model-first:
 
-- Keyword and structure heuristics.
-- Prompt length checks.
-- Missing section detection.
-- Optional local LLM rewrite if configured.
+- Call a local Ollama-compatible DeepSeek model for the initial rewrite.
+- Require structured JSON with an optimized prompt and task contract.
+- Reject empty responses, invalid JSON, and short restatements.
+- Fall back to keyword and structure heuristics, prompt length checks, and missing-section detection.
 
-### Cost / Token Estimator
+### Task Cost / Token Estimator
 
 Responsibilities:
 
-- Provide rough token estimates without depending on agent vendor APIs.
-- Compare prompt before/after refinement.
-- Track estimated command/test rerun waste.
-- Summarize avoided waste in session summaries.
+- Provide rough token estimates as one cost input without depending on agent vendor APIs.
+- Compare prompt before/after refinement as cost evidence.
+- Track estimated command/test rerun cost.
+- Summarize task-cost impact in session summaries.
 
 MVP estimator:
 
 - Approximate tokens as `ceil(characters / 4)`.
-- Assign configurable estimated token costs to repeated commands, broad searches, repeated failed test runs, and prompt ambiguity.
+- Assign configurable cost proxies to repeated commands, broad searches, repeated failed test runs, and prompt ambiguity.
 - Mark estimates clearly as approximate.
 
 Future estimator:
@@ -732,14 +732,14 @@ Boundary rules:
 
 - Raw traces are stored locally by default.
 - Repo-sensitive details are not sent to remote services by default.
-- Local models and deterministic rules power the core steering MVP.
+- Local DeepSeek attempts and deterministic rules power the core steering MVP.
 - Remote/frontier models are optional fallbacks, not required dependencies.
 - Users can inspect trace files, config, and exported summaries.
 - Dashboard and replay read local traces first.
 - Any cloud or remote call must be explicit, configurable, and visible in run metadata.
 - If a remote fallback is added later, the event should record what summary was sent, which provider was used, and why the fallback was triggered.
 
-This boundary model supports the product goal of reducing coding-agent waste. It is not the main positioning. The main value is engineering effectiveness: better prompts, fewer loops, lower token spend, and easier debugging.
+This boundary model supports the product goal of improving coding-agent economics. It is not the main positioning. The main value is engineering effectiveness: better prompts, fewer loops, lower cost per successful task, and easier debugging.
 
 ## 9. Codex / Claude Code Companion Strategy
 
@@ -781,7 +781,7 @@ The session links all future prompt refinement and event commands to a trace.
 
 ### Strategy 3: Prompt Refinement Before Pasting
 
-Users can refine prompts before spending tokens:
+Users can refine prompts before committing spend:
 
 ```bash
 agent-sidecar refine "fix auth and tests"
@@ -827,7 +827,7 @@ When observation is partial:
 
 ### Purpose
 
-The Local Steering Ensemble detects wasteful coding-agent behavior during active sessions using deterministic checks, small local models, embeddings, and lightweight classifiers. It should not depend on frequent remote frontier-model calls.
+The Local Steering Ensemble detects wasteful coding-agent behavior during active sessions using local DeepSeek attempts, deterministic checks, embeddings, and lightweight classifiers. It should not depend on frequent remote frontier-model calls.
 
 ### Ensemble Shape
 
@@ -838,6 +838,7 @@ Local Steering Ensemble
 ├── Repeated edit detector
 ├── Missing validation detector
 ├── Prompt/task drift detector
+├── Local DeepSeek steering evaluator
 ├── Prompt-quality scorer
 ├── Cost-risk estimator
 ├── Rule-based repo guardrail checker
@@ -983,7 +984,8 @@ Responsibilities:
 Responsibilities:
 
 - Combine findings into one concise recommendation.
-- Prefer high-confidence deterministic findings.
+- Prefer local DeepSeek steering when it returns valid, grounded JSON.
+- Fall back to high-confidence deterministic findings.
 - Avoid flooding terminal output.
 - Explain which evaluators fired and why.
 
@@ -1007,7 +1009,7 @@ ModelProvider
 └── suggest(input) -> short recommendation
 ```
 
-MVP can ship with deterministic heuristics and optional local providers disabled by default. Future providers may include local embedding models, Ollama-hosted small LLMs, ONNX classifiers, or other near-local inference systems.
+MVP should ship with local DeepSeek attempts enabled by default when an Ollama-compatible endpoint is reachable, plus deterministic fallback when local inference is unavailable. Future providers may include local embedding models, Ollama-hosted small LLMs, ONNX classifiers, or other near-local inference systems.
 
 ### Frontier Fallback Policy
 
@@ -1031,7 +1033,7 @@ The roadmap is ordered by critical functionality:
 4. **PR 4** proves the sidecar can explain what happened through replay, summaries, and a minimal dashboard or CLI view.
 5. **Optional PR 5** makes the project easy to install with `pip` if packaging is not already solved.
 
-Avoid pulling PR 4 concerns into PR 1. Avoid model complexity before deterministic detection works. Avoid dashboard polish until there is meaningful trace data to display.
+Avoid pulling PR 4 concerns into PR 1. Avoid multi-model complexity before the local DeepSeek attempt plus deterministic fallback produces useful evidence. Avoid dashboard polish until there is meaningful trace data to display.
 
 ## 12. PR 1: Local Sidecar Runtime + Companion Session MVP
 
@@ -1201,23 +1203,24 @@ Failure looks like:
 
 ### Goal
 
-Prove Agent Sidecar can reduce waste before the coding agent spends tokens.
+Prove Agent Sidecar can improve cost per successful task before the coding agent commits more spend by trying local DeepSeek prompt refinement before deterministic fallback.
 
 ### User-Visible Capability
 
 - User can run `agent-sidecar refine "raw prompt"`.
-- Sidecar prints prompt quality, detected issues, refined prompt, and estimated token/cost impact.
+- Sidecar prints prompt quality, detected issues, refined prompt, and estimated task-cost impact.
 - Refined prompt can be copied into Codex or Claude Code.
 - Prompt refinement links to the active or most recent session.
 
 ### Backend / System Changes
 
 - Add Prompt Refiner module.
-- Add deterministic prompt-quality scorer.
+- Add local DeepSeek prompt optimizer configured for an Ollama-compatible endpoint.
+- Add deterministic prompt-quality scorer as the fallback.
 - Add prompt cleanup/compression logic.
 - Add Cost / Token Estimator.
 - Add prompt lineage storage.
-- Add optional local model provider interface, but do not require a model.
+- Add local model provider interface; do not require the model for correctness because deterministic fallback must remain available.
 
 ### CLI / API Changes
 
@@ -1251,7 +1254,7 @@ Prompt refinement payload must include:
 - Issues detected.
 - Estimated original tokens.
 - Estimated refined tokens.
-- Savings explanation.
+- Task-cost impact explanation.
 - Linked session ID if available.
 
 ### Tests
@@ -1271,7 +1274,7 @@ Prompt refinement payload must include:
 - Refined prompt includes objective, scope boundaries, constraints, validation expectations, and output expectations.
 - Token estimates are shown as approximate.
 - Prompt refinement events are written to the session trace.
-- No remote frontier model is required.
+- No remote frontier model is required; local DeepSeek is attempted first and deterministic fallback covers unavailable local inference.
 
 ### Acceptance Demo Script
 
@@ -1303,7 +1306,7 @@ Issues detected:
 Refined prompt:
 You are working in this repository. Inspect the failing tests first, identify the smallest code change needed, avoid unrelated refactors, and update only the files required to restore test correctness. After implementation, run the relevant test target and summarize the exact change made.
 
-Estimated token savings:
+Estimated task-cost impact:
 - Original likely causes exploratory waste
 - Refined prompt reduces ambiguity and narrows implementation scope
 ```
@@ -1312,7 +1315,7 @@ Reviewer should verify:
 
 - Prompt is materially more actionable.
 - Trace contains `prompt_submitted` and `prompt_refined`.
-- No remote model is required.
+- Local DeepSeek is used when available; no remote model is required.
 - Output can be copied into Codex or Claude Code.
 
 Success looks like:
@@ -1330,13 +1333,14 @@ Failure looks like:
 - Runtime loop detection.
 - Dashboard.
 - Replay UI.
-- Complex local model ensemble beyond prompt scoring/refinement.
+- Complex multi-model ensemble beyond the first local DeepSeek attempt and deterministic fallback.
 - Automated prompt submission into Codex or Claude Code.
 
 ### Risks
 
-- Deterministic prompt refinement can be too generic.
-- Token savings are approximate.
+- Local DeepSeek prompt refinement can be unavailable or return invalid JSON.
+- Deterministic fallback can be too generic.
+- Task-cost impact is approximate until validated against a successful outcome.
 - Over-refinement may create false specificity.
 
 ### Follow-Up Work
@@ -1348,7 +1352,7 @@ Failure looks like:
 
 ### Goal
 
-Prove Agent Sidecar can reduce wasted agent loops during an active session using deterministic rules and smaller, cheaper local evaluators rather than expensive remote frontier models.
+Prove Agent Sidecar can reduce wasted agent loops during an active session using local DeepSeek steering attempts, deterministic rules, and smaller local evaluators rather than expensive remote frontier models.
 
 ### User-Visible Capability
 
@@ -1366,11 +1370,12 @@ Prove Agent Sidecar can reduce wasted agent loops during an active session using
 - Add repeated edit detector.
 - Add missing validation detector.
 - Add prompt/task drift detector.
+- Add local DeepSeek steering evaluator that consumes compact detector evidence.
 - Add cost-risk estimator.
 - Add rule-based repo guardrail checker.
 - Add recommendation ranker.
 - Add confidence scoring.
-- Add optional local model provider configuration.
+- Add local model provider configuration with deterministic fallback.
 - Keep remote fallback disabled by default.
 
 ### CLI / API Changes
@@ -1430,6 +1435,7 @@ Add evaluator finding model:
 - Unit tests for repeated edit detection.
 - Unit tests for missing validation detection.
 - Unit tests for task-drift heuristics.
+- Unit tests for local DeepSeek steering response parsing and deterministic fallback.
 - Unit tests for cost-risk scoring.
 - Unit tests for recommendation ranking.
 - Integration tests feeding fixture event streams and asserting steering output.
@@ -1442,7 +1448,7 @@ Add evaluator finding model:
 - The steering decision includes confidence and evaluator names.
 - The recommendation is concise and actionable.
 - The run summary includes estimated avoided waste.
-- Core steering works without remote frontier model calls.
+- Core steering tries local DeepSeek when available and works without remote frontier model calls.
 
 ### Acceptance Demo Script
 
@@ -1487,12 +1493,12 @@ Evaluators fired:
 Estimated avoided waste:
 - 2-3 repeated commands
 - likely redundant test rerun
-- potential unnecessary agent tokens
+- potential unnecessary agent spend
 ```
 
 Reviewer should verify:
 
-- Warning is generated from local deterministic/local evaluators.
+- Warning is generated from local DeepSeek steering when available, with deterministic/local evaluator fallback.
 - Trace contains detector events and steering recommendation.
 - Output includes evaluator evidence.
 - Remote fallback is not required or used.
@@ -1525,7 +1531,7 @@ Failure looks like:
 
 - Add evaluator tuning from fixture traces.
 - Add dashboard/replay visibility in PR 4.
-- Add optional local embeddings after deterministic detectors are stable.
+- Add optional local embeddings after the DeepSeek/detector fallback path is stable.
 
 ## 15. PR 4: Run Replay, MVP Dashboard, and Demo-Ready Analytics
 
@@ -1559,6 +1565,7 @@ Required CLI:
 agent-sidecar session list
 agent-sidecar replay demo-session-001
 agent-sidecar summary export demo-session-001 --format markdown
+agent-sidecar website
 agent-sidecar dashboard
 ```
 
@@ -1647,6 +1654,7 @@ Replay and export:
 ```bash
 agent-sidecar replay demo-session-001
 agent-sidecar summary export demo-session-001 --format markdown
+agent-sidecar website
 agent-sidecar dashboard
 ```
 
@@ -1668,7 +1676,7 @@ Refined prompt added scope, constraints, and test expectations.
 - Detected repeated edits to the same file
 - Recommended inspecting stack trace before rerunning test suite
 
-## Estimated Waste Avoided
+## Estimated Task-Cost Impact
 - 2 redundant test runs
 - 1 repeated search loop
 - Reduced prompt ambiguity before execution
@@ -1687,7 +1695,7 @@ Reviewer should verify:
 
 Success looks like:
 
-- Reviewer can answer, “What happened during this agent run and where was waste avoided?”
+- Reviewer can answer, “What happened during this agent run and how did it affect cost per successful task?”
 
 Failure looks like:
 
@@ -1863,9 +1871,9 @@ Each PR should include a script or documented command sequence that exercises th
 | PR | Demo Focus | Setup Commands | Demo Commands | Expected Visible Output | Reviewer Verifies |
 | --- | --- | --- | --- | --- | --- |
 | PR 1 | Local sidecar runtime beside Codex/Claude Code | `pnpm install`, `pnpm build` | `agent-sidecar start`, `agent-sidecar session start --agent codex --repo . --name demo-session-001`, event commands, `agent-sidecar status`, `agent-sidecar trace show demo-session-001` | `Agent Sidecar running locally`, active session details, trace path | Runtime starts locally, session trace exists, events are valid JSONL |
-| PR 2 | Prompt refinement before expensive execution | `pnpm build`, start runtime/session | `agent-sidecar refine --session prompt-demo-001 "make the app better and fix the tests"` | Prompt quality, issues detected, refined prompt, estimated savings | Prompt is actionable, linked events are written, no remote model required |
-| PR 3 | Local steering and loop detection | `pnpm build`, start runtime/session | repeated `event test`, repeated `event edit`, `agent-sidecar steer --session steering-demo-001` | `Steering decision: WARN`, confidence, evaluators fired, avoided waste | Deterministic/local evaluators detect loop and recommend next action |
-| PR 4 | Replay, summary, MVP dashboard | `pnpm build`, create demo trace using prior flows | `agent-sidecar replay demo-session-001`, `agent-sidecar summary export demo-session-001 --format markdown`, `agent-sidecar dashboard` | run timeline, prompt history, steering events, Markdown summary | Reviewer can debug what happened and why waste was avoided |
+| PR 2 | Prompt refinement before expensive execution | `pnpm build`, start runtime/session | `agent-sidecar refine --session prompt-demo-001 "make the app better and fix the tests"` | Prompt quality, issues detected, refined prompt, estimated task-cost impact | Local DeepSeek is attempted when available, fallback is deterministic, no remote model required |
+| PR 3 | Local steering and loop detection | `pnpm build`, start runtime/session | repeated `event test`, repeated `event edit`, `agent-sidecar steer --session steering-demo-001` | `Steering decision: WARN`, confidence, evaluators fired, avoided waste | Local DeepSeek or deterministic/local fallback detects loop and recommends next action |
+| PR 4 | Replay, summary, MVP dashboard | `pnpm build`, create demo trace using prior flows | `agent-sidecar replay demo-session-001`, `agent-sidecar summary export demo-session-001 --format markdown`, `agent-sidecar website`, `agent-sidecar dashboard` | run timeline, prompt history, steering events, Markdown summary | Reviewer can debug what happened and why waste was avoided |
 | PR 5 | Optional installability | create virtualenv | `pip install agent-sidecar`, `agent-sidecar --version`, `agent-sidecar start`, `agent-sidecar refine "Implement this feature with tests"` | installed CLI works | Package can be installed and core commands run |
 
 ## 19. Risks and Tradeoffs
@@ -1876,11 +1884,11 @@ Each PR should include a script or documented command sequence that exercises th
 - **Decision**: Start with companion mode because it proves value without fragile integration risk.
 - **Mitigation**: Add wrappers and log ingestion after PR 1.
 
-### Deterministic Heuristics vs Local Models
+### Local Models vs Deterministic Fallback
 
-- **Tradeoff**: Heuristics are predictable but can miss semantic loops.
-- **Decision**: Favor deterministic rules first, then add optional local embeddings/classifiers.
-- **Mitigation**: Use fixture traces to tune thresholds.
+- **Tradeoff**: Local DeepSeek can add semantic judgment but may be unavailable or produce invalid JSON.
+- **Decision**: Try local DeepSeek first for prompt refinement and steering, then fall back to deterministic heuristics.
+- **Mitigation**: Validate structured model responses strictly and keep fixture-backed deterministic fallback coverage.
 
 ### Warning Noise
 
@@ -1905,7 +1913,7 @@ Each PR should include a script or documented command sequence that exercises th
 ### Local Model Availability
 
 - **Risk**: Local model setup varies across machines.
-- **Mitigation**: Core PR 3 steering must work without local model inference; model providers are optional extensions.
+- **Mitigation**: Core PR 2 and PR 3 flows attempt local inference first but remain functional through deterministic fallback.
 
 ### Packaging Stack Mismatch
 
@@ -1918,9 +1926,9 @@ Each PR should include a script or documented command sequence that exercises th
 2. Should PR 1 use local HTTP, IPC, or direct CLI file writes for daemon communication?
 3. Should session IDs be user-provided, generated, or both?
 4. Which Codex and Claude Code logs or hooks are stable enough to ingest later?
-5. Which local embedding/model provider should be the first optional implementation?
+5. Which local embedding/model provider should follow the default DeepSeek implementation?
 6. What default thresholds minimize warning noise while catching real loops?
-7. Should prompt refinement be deterministic-only in PR 2 or optionally local-LLM-assisted?
+7. Which DeepSeek model size should be the recommended default for local prompt refinement and steering?
 8. Is a web dashboard necessary in PR 4, or is CLI replay plus Markdown export enough for the first demo?
 9. How should estimated cost be represented when the actual model and token usage are unknown?
 10. Should project-local `.agent-sidecar` be committed, ignored, or partially ignored by default?
@@ -1949,14 +1957,15 @@ Each PR should include a script or documented command sequence that exercises th
 ### PR 2 Checklist: Prompt Refiner + Cost-Aware Prompt Optimization
 
 - [ ] Implement Prompt Refiner module.
-- [ ] Implement deterministic prompt-quality scorer.
+- [ ] Implement local DeepSeek prompt refinement attempt with strict JSON validation.
+- [ ] Implement deterministic prompt-quality scorer and task-contract fallback.
 - [ ] Detect vague task, broad scope, missing validation, missing constraints, and missing files/components.
 - [ ] Implement prompt cleanup/compression and structured prompt generation.
 - [ ] Implement rough token estimator.
 - [ ] Implement `agent-sidecar refine` CLI.
 - [ ] Link prompt refinement to active or specified session.
 - [ ] Record `prompt_submitted`, `prompt_refined`, and `cost_estimate_updated` events.
-- [ ] Add unit tests for prompt scoring, refinement, and token estimation.
+- [ ] Add unit tests for local-model parsing, deterministic fallback, prompt scoring, refinement, and token estimation.
 - [ ] Add integration test for refinement events in trace.
 - [ ] Document acceptance demo.
 - [ ] Do not add runtime loop detection or dashboard yet.
@@ -1970,6 +1979,7 @@ Each PR should include a script or documented command sequence that exercises th
 - [ ] Implement repeated edit detector.
 - [ ] Implement missing validation detector.
 - [ ] Implement prompt/task drift heuristic detector.
+- [ ] Implement local DeepSeek steering evaluator over compact detector evidence.
 - [ ] Implement cost-risk estimator.
 - [ ] Implement rule-based repo guardrail checker.
 - [ ] Implement recommendation ranker.
@@ -1977,7 +1987,7 @@ Each PR should include a script or documented command sequence that exercises th
 - [ ] Implement `agent-sidecar steer --session`.
 - [ ] Auto-run steering after relevant event ingestion if feasible.
 - [ ] Record `loop_detected`, `validation_missing`, `task_drift_detected`, and `steering_recommendation` events.
-- [ ] Add tests for all evaluators and ranking behavior.
+- [ ] Add tests for all evaluators, local-model steering parsing, fallback, and ranking behavior.
 - [ ] Add integration fixture that triggers expected `WARN` output.
 - [ ] Prove remote frontier fallback is disabled by default.
 - [ ] Document acceptance demo.

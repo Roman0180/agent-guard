@@ -28,7 +28,7 @@ describe("@agent-sidecar/daemon", () => {
         message: {
           content: JSON.stringify({
             shouldInject: true,
-            optimizedPrompt: "Task:\nFix the logger issue\n\nValidation:\nRun focused validation.",
+            optimizedPrompt: "Task:\nFix the logger issue without broad refactors.\n\nLikely areas to inspect:\n- daemon logger setup\n- failing tests around logger output\n\nImplementation approach:\n- inspect the failing stack trace before editing\n- make the smallest focused logger change\n\nConstraints:\n- keep scope narrow\n\nValidation:\nRun focused validation.",
             rewriteReason: "Optimized by local DeepSeek R1.",
             taskContract: {
               task: "Fix the logger issue",
@@ -134,6 +134,31 @@ describe("@agent-sidecar/daemon", () => {
     expect(decisionsResponse.json()[0]).toMatchObject({
       action: "inject_context",
       reasonCode: "prompt_optimized"
+    });
+  });
+
+  it("returns an existing run when creating a duplicate run id", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false, localPromptOptimizer });
+
+    const payload = {
+      id: "demo-session-001",
+      provider: "codex",
+      repoRoot: "/repo",
+      status: "active"
+    };
+    const firstResponse = await server.inject({ method: "POST", url: "/api/runs", payload });
+    const secondResponse = await server.inject({ method: "POST", url: "/api/runs", payload });
+
+    await server.close();
+
+    expect(firstResponse.statusCode).toBe(201);
+    expect(secondResponse.statusCode).toBe(200);
+    expect(secondResponse.json()).toMatchObject({
+      id: "demo-session-001",
+      provider: "codex",
+      status: "active",
+      repoRoot: "/repo"
     });
   });
 
@@ -382,5 +407,85 @@ describe("@agent-sidecar/daemon", () => {
       validationCommandCount: 1
     });
   });
+
+  it("supports deterministic prompt refinement through the API", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false });
+
+    const refineResponse = await server.inject({
+      method: "POST",
+      url: "/api/refine",
+      payload: { runId: "refine-run-1", prompt: "make the app better" }
+    });
+    const optimizationsResponse = await server.inject({ method: "GET", url: "/api/runs/refine-run-1/prompt-optimizations" });
+
+    await server.close();
+
+    expect(refineResponse.statusCode).toBe(201);
+    expect(refineResponse.json()).toMatchObject({
+      run: { id: "refine-run-1" },
+      optimization: { deterministicOrModel: "deterministic", originalPrompt: "make the app better" }
+    });
+    expect(refineResponse.json().optimization.optimizedPrompt).toContain("Task:");
+    expect(optimizationsResponse.json()[0]).toMatchObject({ runId: "refine-run-1", deterministicOrModel: "deterministic" });
+  });
+
+  it("tries the local DeepSeek optimizer for API prompt refinement when configured", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false, localPromptOptimizer });
+
+    const refineResponse = await server.inject({
+      method: "POST",
+      url: "/api/refine",
+      payload: { runId: "refine-run-local", prompt: "make the app better" }
+    });
+    const optimizationsResponse = await server.inject({ method: "GET", url: "/api/runs/refine-run-local/prompt-optimizations" });
+
+    await server.close();
+
+    expect(refineResponse.statusCode).toBe(201);
+    expect(refineResponse.json()).toMatchObject({
+      run: { id: "refine-run-local" },
+      optimization: {
+        deterministicOrModel: "model_assisted",
+        rewriteReason: "Optimized by local DeepSeek R1."
+      }
+    });
+    expect(optimizationsResponse.json()[0]).toMatchObject({ runId: "refine-run-local", deterministicOrModel: "model_assisted" });
+  });
+
+  it("returns and records steering recommendations for repeated commands", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false });
+
+    await server.inject({ method: "POST", url: "/api/runs", payload: { id: "steer-run-1", provider: "generic", status: "active" } });
+    for (const id of ["cmd-1", "cmd-2", "cmd-3"]) {
+      await server.inject({
+        method: "POST",
+        url: "/api/events",
+        payload: {
+          id,
+          runId: "steer-run-1",
+          agent: "generic",
+          eventType: "tool_call",
+          timestamp: "2026-06-12T00:00:00.000Z",
+          actor: "user",
+          summary: "pnpm test",
+          command: { type: "test", executable: "pnpm", args: ["test"], normalized: "pnpm test", riskLevel: "low", toolKind: "test_runner" },
+          compactMetadata: {}
+        }
+      });
+    }
+
+    const steeringResponse = await server.inject({ method: "POST", url: "/api/runs/steer-run-1/steering", payload: {} });
+    const decisionsResponse = await server.inject({ method: "GET", url: "/api/runs/steer-run-1/decisions" });
+
+    await server.close();
+
+    expect(steeringResponse.statusCode).toBe(201);
+    expect(steeringResponse.json()).toMatchObject({ action: "warn", reasonCode: "loop.repeated_command" });
+    expect(decisionsResponse.json()).toEqual(expect.arrayContaining([expect.objectContaining({ source: "steering_ensemble", reasonCode: "loop.repeated_command" })]));
+  });
+
 
 });

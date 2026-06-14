@@ -26,6 +26,9 @@ importers:
       '@agent-sidecar/prompt-optimizer':
         specifier: workspace:^
         version: link:../../packages/prompt-optimizer
+      '@agent-sidecar/steering':
+        specifier: workspace:^
+        version: link:../../packages/steering
       '@agent-sidecar/storage':
         specifier: workspace:^
         version: link:../../packages/storage
@@ -141,6 +144,10 @@ importers:
   packages/prompt-optimizer: {}
 
   packages/steering:
+    dependencies:
+      '@agent-sidecar/detectors':
+        specifier: workspace:^
+        version: link:../detectors
     devDependencies:
       typescript:
         specifier: ^5.7.2

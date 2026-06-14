@@ -3,5 +3,9 @@ dist/
 .next/
 coverage/
 .turbo/
+build/
+.venv/
+__pycache__/
+*.egg-info/
 .DS_Store
 *.log

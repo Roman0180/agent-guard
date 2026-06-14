@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "build": "next build",
-    "dev": "next dev --hostname 127.0.0.1 --port 4738",
-    "start": "next start --hostname 127.0.0.1 --port 4738",
+    "dev": "node scripts/next-with-available-port.mjs dev",
+    "dev:website": "node scripts/next-with-available-port.mjs dev /",
+    "dev:dashboard": "node scripts/next-with-available-port.mjs dev /dashboard",
+    "start": "node scripts/next-with-available-port.mjs start",
+    "start:website": "node scripts/next-with-available-port.mjs start /",
+    "start:dashboard": "node scripts/next-with-available-port.mjs start /dashboard",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },

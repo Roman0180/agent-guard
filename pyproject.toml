@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-sidecar"
+version = "0.1.0"
+description = "pip wrapper for the Agent Sidecar Node CLI."
+requires-python = ">=3.10"
+
+[project.scripts]
+agent-sidecar = "agent_sidecar.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]

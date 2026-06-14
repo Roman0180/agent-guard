@@ -11,7 +11,8 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "dev:daemon": "pnpm --filter @agent-sidecar/daemon dev",
-    "dev:dashboard": "pnpm --filter @agent-sidecar/dashboard dev",
+    "dev:website": "pnpm --filter @agent-sidecar/dashboard dev:website",
+    "dev:dashboard": "pnpm --filter @agent-sidecar/dashboard dev:dashboard",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {

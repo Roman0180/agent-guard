@@ -10,6 +10,7 @@ import {
   normalizeGenericHook
 } from "@agent-sidecar/core";
 import { PromptOptimizer, type PromptOptimizationInput } from "@agent-sidecar/prompt-optimizer";
+import { SteeringEngine, type LocalModelSteeringOptions, type SteeringDecision } from "@agent-sidecar/steering";
 import {
   Storage,
   type Decision,
@@ -39,6 +40,7 @@ export type BuildServerOptions = {
     timeoutMs?: number;
     fetch?: typeof fetch;
   };
+  localSteering?: LocalModelSteeringOptions;
 };
 
 type HookProvider = "codex" | "claude" | "generic";
@@ -100,6 +102,11 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       totalEstimatedCostUsd: numberValue(body.totalEstimatedCostUsd)
     };
 
+    const existing = storage.getRun(run.id);
+    if (existing) {
+      return reply.code(200).send(existing);
+    }
+
     storage.createRun(run);
     return reply.code(201).send(run);
   });
@@ -126,6 +133,15 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
   server.get<{ Params: { id: string } }>("/api/runs/:id/prompt-optimizations", async (request) =>
     storage.getPromptOptimizationsForRun(request.params.id)
   );
+
+  server.post<{ Params: { id: string } }>("/api/runs/:id/steering", async (request, reply) => {
+    const decision = await evaluateAndStoreSteering(storage, request.params.id, options);
+    if (!decision) {
+      return reply.code(404).send({ error: "run_not_found" });
+    }
+
+    return reply.code(201).send(decision);
+  });
 
   server.get<{ Params: { id: string } }>("/api/runs/:id/demo", async (request, reply) => {
     const run = storage.getRun(request.params.id);
@@ -171,7 +187,9 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     ensureRun(storage, event.runId, event.agent);
     storage.addEvent(event);
     storage.updateRunFromEvent(event);
-    return reply.code(201).send(event);
+    maybeUpdateRunState(storage, event);
+    const steering = await maybeAutoSteer(storage, event.runId, options);
+    return reply.code(201).send(steering ? { event, steering } : event);
   });
 
   server.post("/api/decide", async (request, reply) => {
@@ -272,6 +290,31 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     return reply.code(201).send(policy);
   });
 
+
+  server.post("/api/refine", async (request, reply) => {
+    const body = asRecord(request.body);
+    const prompt = requiredString(body.prompt, "prompt");
+    const now = new Date().toISOString();
+    const run = ensureRun(storage, stringValue(body.runId) ?? randomUUID(), providerValue(body.provider) ?? "generic");
+    const event: NormalizedAgentEvent = {
+      id: stringValue(body.eventId) ?? randomUUID(),
+      runId: run.id,
+      agent: run.provider,
+      providerEventType: "RefinePrompt",
+      eventType: "prompt",
+      timestamp: now,
+      actor: "user",
+      summary: truncate(prompt, 240),
+      compactMetadata: { source: "cli.refine" }
+    };
+    storage.addEvent(event);
+    storage.updateRunFromEvent(event);
+    const runState = maybeUpdateRunState(storage, event) ?? createFallbackRunState(run, event);
+    const optimization = await optimizePromptForRun(storage, run, event, prompt, now, runState, options, true);
+    storage.savePromptOptimization(optimization, { originalPrompt: prompt });
+    return reply.code(201).send({ run, event, optimization });
+  });
+
   server.post("/api/prompt-optimizations", async (request, reply) => {
     const body = asRecord(request.body);
     const optimization = body.optimization as PromptOptimizationResult;
@@ -348,9 +391,12 @@ async function ingestHook(
   const { rawPayload: _rawPayload, ...eventForState } = event;
   const runState = runStateManager.applyEvent(CoreNormalizedAgentEventSchema.parse(eventForState)) as RunState;
   const promptOptimization = await maybeOptimizePrompt(storage, run, event, body, now, runState, options);
+  const steeringDecision = await maybeAutoSteer(storage, run.id, options);
   const decision = promptOptimization
     ? createPromptOptimizationDecision(run.id, event.id, promptOptimization)
-    : createAllowDecision(run.id, event.id);
+    : steeringDecision
+      ? createDecisionFromSteering(run.id, event.id, steeringDecision)
+      : createAllowDecision(run.id, event.id);
   storage.addDecision(decision);
 
   return {
@@ -360,7 +406,8 @@ async function ingestHook(
     run: updatedRun,
     event,
     decision,
-    ...(promptOptimization ? { prompt_optimization: promptOptimization } : {})
+    ...(promptOptimization ? { prompt_optimization: promptOptimization } : {}),
+    ...(steeringDecision ? { steering: steeringDecision } : {})
   };
 }
 
@@ -403,7 +450,7 @@ function createDemoReplay(
         id: "prompt-optimization",
         label: "Prompt optimization",
         status: promptOptimizations.length > 0 ? "complete" : "pending",
-        summary: "Vague prompts can be converted into compact deterministic task contracts."
+        summary: "Vague prompts can be expanded by local DeepSeek attempts or deterministic task-contract fallback."
       },
       {
         id: "run-state",
@@ -464,34 +511,8 @@ async function maybeOptimizePrompt(
     return undefined;
   }
 
-  const policy = storage.getPolicyForRepo(run.repoRoot)?.policy ?? createDefaultPolicy();
-  const optimizer = new PromptOptimizer({
-    now: () => now,
-    localModel: options.localPromptOptimizer
-  });
-  const optimizationInput: PromptOptimizationInput = {
-    runId: run.id,
-    eventId: event.id,
-    mode: "initial_task",
-    agent: event.agent,
-    originalPrompt,
-    repoPath: run.repoRoot,
-    eventType: event.eventType,
-    compactRunState: asRecord(body.contextSnapshot),
-    policySummary: [],
-    approvedMatchingLessons: [],
-    validationStatus: undefined,
-    latestErrorSignature: undefined,
-    changedFileCount: 0,
-    recentCommandSignatures: [],
-    normalizedEvent: event,
-    runState,
-    policy,
-    approvedLessons: storage.listLessons("approved"),
-    maxPromptLength: 2_400
-  };
-  const optimization = await optimizer.optimizeWithLocalModel(optimizationInput).catch(() => undefined);
-  if (!optimization?.shouldInject) {
+  const optimization = await optimizePromptForRun(storage, run, event, originalPrompt, now, runState, options, true, asRecord(body.contextSnapshot));
+  if (!optimization.shouldInject) {
     return undefined;
   }
 
@@ -517,6 +538,84 @@ async function maybeOptimizePrompt(
   return injectedOptimization;
 }
 
+async function optimizePromptForRun(
+  storage: Storage,
+  run: StoredRun,
+  event: NormalizedAgentEvent,
+  originalPrompt: string,
+  now: string,
+  runState: RunState,
+  options: BuildServerOptions = {},
+  preferLocalModel = true,
+  contextSnapshot: UnknownRecord = {}
+): Promise<PromptOptimizationResult> {
+  const policy = storage.getPolicyForRepo(run.repoRoot)?.policy ?? createDefaultPolicy();
+  const optimizer = new PromptOptimizer({
+    now: () => now,
+    localModel: preferLocalModel ? options.localPromptOptimizer : undefined
+  });
+  const optimizationInput: PromptOptimizationInput = {
+    runId: run.id,
+    eventId: event.id,
+    mode: "initial_task",
+    agent: event.agent,
+    originalPrompt,
+    repoPath: run.repoRoot,
+    eventType: event.eventType,
+    compactRunState: contextSnapshot,
+    policySummary: [],
+    approvedMatchingLessons: [],
+    validationStatus: runState.lastValidationPassed ? "passed" : undefined,
+    latestErrorSignature: runState.latestErrorSignature,
+    changedFileCount: runState.changedFileCount ?? 0,
+    recentCommandSignatures: runState.recentCommandSignatures ?? [],
+    normalizedEvent: event,
+    runState,
+    policy,
+    approvedLessons: storage.listLessons("approved"),
+    maxPromptLength: 2_400
+  };
+  return (await optimizer.optimizeWithLocalModel(optimizationInput).catch(() => undefined)) ?? optimizer.optimize(optimizationInput);
+}
+
+function createFallbackRunState(run: StoredRun, event: NormalizedAgentEvent): RunState {
+  return {
+    runId: run.id,
+    status: run.status,
+    startedAt: run.startedAt,
+    updatedAt: event.timestamp,
+    agent: run.provider,
+    repoRoot: run.repoRoot,
+    branch: run.branch,
+    taskSummary: event.summary,
+    eventCounts: { prompt: 1 },
+    recentCommands: [],
+    commandFrequency: {},
+    editedFiles: [],
+    changedFileCount: 0,
+    estimatedChangedLines: 0,
+    validationSinceLastEdit: false,
+    pendingApprovals: [],
+    interventions: {},
+    tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    costEstimate: { amountUsd: 0, source: "estimated" },
+    filesChanged: [],
+    filesRead: [],
+    filesInspected: [],
+    commandSignatures: [],
+    recentCommandSignatures: [],
+    repeatedCommandCounts: {},
+    latestErrors: [],
+    validationCommandCount: 0,
+    toolCallCount: 0,
+    riskEvents: [],
+    injectedLessons: [],
+    promptOptimizationCount: 0,
+    continuationPromptCount: 0,
+    compactionPromptCount: 0
+  };
+}
+
 function createPromptOptimizationDecision(
   runId: string,
   eventId: string,
@@ -539,6 +638,82 @@ function createPromptOptimizationDecision(
       rewriteReason: optimization.rewriteReason,
       estimatedTokenDelta: optimization.estimatedTokenDelta,
       deterministicOrModel: optimization.deterministicOrModel
+    }
+  };
+}
+
+function maybeUpdateRunState(storage: Storage, event: NormalizedAgentEvent): RunState | undefined {
+  const runStateManager = new RunStateManager({
+    getLatestRunStateSnapshot: (runId) => {
+      const snapshot = storage.getLatestRunStateSnapshot(runId);
+      return snapshot ? { state: CoreRunStateSchema.parse(snapshot.state) } : undefined;
+    },
+    saveRunStateSnapshot: (snapshot) => storage.saveRunStateSnapshot({
+      ...snapshot,
+      state: snapshot.state as RunState
+    })
+  });
+  const { rawPayload: _rawPayload, ...eventForState } = event as NormalizedAgentEvent & { rawPayload?: unknown };
+  return runStateManager.applyEvent(CoreNormalizedAgentEventSchema.parse(eventForState)) as RunState;
+}
+
+async function maybeAutoSteer(
+  storage: Storage,
+  runId: string,
+  options: BuildServerOptions = {}
+): Promise<SteeringDecision | undefined> {
+  const snapshot = storage.getLatestRunStateSnapshot(runId);
+  if (!snapshot) return undefined;
+  const latestEvent = storage.listEventsForRun(runId).at(-1);
+  if (!latestEvent || !["tool_call", "tool_result", "file_edit", "validation", "final_attempt"].includes(latestEvent.eventType)) {
+    return undefined;
+  }
+  const decision = await evaluateSteering(storage, runId, options);
+  return decision?.action === "continue" ? undefined : decision;
+}
+
+async function evaluateAndStoreSteering(
+  storage: Storage,
+  runId: string,
+  options: BuildServerOptions = {}
+): Promise<SteeringDecision | undefined> {
+  const decision = await evaluateSteering(storage, runId, options);
+  const latestEvent = storage.listEventsForRun(runId).at(-1);
+  if (decision && latestEvent && decision.action !== "continue") {
+    storage.addDecision(createDecisionFromSteering(runId, latestEvent.id, decision));
+  }
+  return decision;
+}
+
+async function evaluateSteering(
+  storage: Storage,
+  runId: string,
+  options: BuildServerOptions = {}
+): Promise<SteeringDecision | undefined> {
+  const run = storage.getRun(runId);
+  if (!run) return undefined;
+  const events = storage.listEventsForRun(runId);
+  const snapshot = storage.getLatestRunStateSnapshot(runId);
+  return new SteeringEngine({ localModel: options.localSteering }).evaluateWithLocalModel(runId, { runState: snapshot?.state, events });
+}
+
+function createDecisionFromSteering(runId: string, eventId: string, steering: SteeringDecision): Decision {
+  return {
+    id: randomUUID(),
+    runId,
+    eventId,
+    createdAt: steering.createdAt,
+    source: "steering_ensemble",
+    action: steering.action === "warn" ? "warn" : "allow",
+    severity: steering.action === "warn" ? "warning" : "info",
+    reasonCode: steering.reasonCode,
+    message: steering.recommendedNextStep,
+    steeringDecisionId: steering.id,
+    compactMetadata: {
+      confidence: steering.confidence,
+      source: steering.source,
+      findings: steering.findings.map((finding) => finding.detectorId ?? finding.reasonCode).filter(Boolean),
+      estimatedAvoidedWaste: steering.estimatedAvoidedWaste
     }
   };
 }

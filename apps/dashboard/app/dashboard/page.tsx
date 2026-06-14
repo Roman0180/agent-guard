@@ -1,21 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import {
-  Activity,
-  BookOpen,
-  Bot,
-  CheckCircle2,
-  Clock,
-  DollarSign,
-  FileText,
-  RefreshCw,
-  ShieldCheck,
-  Terminal,
-  Zap,
-  type LucideIcon
-} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, RefreshCw } from "lucide-react";
 
 type StoredRun = {
   id: string;
@@ -101,9 +88,12 @@ type DashboardReplay = {
   state?: RunState;
 };
 
-type DashboardView = "timeline" | "decisions" | "prompt" | "state";
+type DashboardView = "traces" | "decisions" | "policies" | "lessons" | "analytics";
 
 const daemonUrl = (process.env.NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL ?? "http://127.0.0.1:4319").replace(/\/$/, "");
+const modelCostPerToken = Number(process.env.NEXT_PUBLIC_AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD ?? "0.00001");
+
+const dashboardNav: DashboardView[] = ["traces", "decisions", "policies", "lessons", "analytics"];
 
 export default function LocalDashboardPage() {
   const [runs, setRuns] = useState<StoredRun[]>([]);
@@ -113,7 +103,7 @@ export default function LocalDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>();
   const [refreshSeq, setRefreshSeq] = useState(0);
-  const [activeView, setActiveView] = useState<DashboardView>("timeline");
+  const [activeView, setActiveView] = useState<DashboardView>("traces");
 
   useEffect(() => {
     let cancelled = false;
@@ -186,405 +176,367 @@ export default function LocalDashboardPage() {
   }, [selectedRunId, refreshSeq]);
 
   const selectedRun = details?.run ?? runs.find((run) => run.id === selectedRunId);
-  const promptEvents = useMemo(() => details?.events.filter((event) => event.eventType === "prompt") ?? [], [details]);
-  const latestPrompt = details?.promptOptimizations[0]?.originalPrompt ?? promptEvents.at(-1)?.summary ?? selectedRun?.taskSummary;
-  const totalTokens = (selectedRun?.totalInputTokens ?? 0) + (selectedRun?.totalOutputTokens ?? 0);
 
   return (
-    <main className="min-h-screen bg-[#050509] p-4 text-white sm:p-6 lg:p-8">
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_18%_8%,rgba(124,92,255,0.14),transparent_32%),radial-gradient(circle_at_82%_12%,rgba(34,211,238,0.14),transparent_30%),linear-gradient(180deg,#050509_0%,#0a0a12_52%,#050509_100%)]" />
-      <div className="mx-auto max-w-7xl overflow-hidden rounded-[28px] border border-white/10 bg-[#07070b] shadow-2xl shadow-[#22d3ee]/10">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
-          <div className="flex items-center gap-2">
-            <span className="size-3 rounded-full bg-red-400/80" />
-            <span className="size-3 rounded-full bg-amber-300/80" />
-            <span className="size-3 rounded-full bg-emerald-300/80" />
+    <main className="min-h-screen overflow-x-hidden bg-[#050509] text-white md:p-4">
+      <div className="mx-auto min-h-screen max-w-[1500px] overflow-hidden border border-white/10 bg-[#050509] shadow-2xl shadow-black/40 md:min-h-[calc(100vh-2rem)] md:rounded-[28px]">
+        <div className="flex h-20 items-center justify-between border-b border-white/10 px-8">
+          <div className="flex items-center gap-4">
+            <span className="size-4 rounded-full bg-red-400/85" />
+            <span className="size-4 rounded-full bg-amber-300/85" />
+            <span className="size-4 rounded-full bg-emerald-300/85" />
           </div>
-          <span className="font-mono text-sm text-neutral-500">Agent Sidecar runtime dashboard</span>
-          <LiveBadge connected={!error} />
+          <span className="hidden font-mono text-2xl font-semibold tracking-[0.08em] text-neutral-500 sm:block">Acme account dashboard</span>
         </div>
 
-        <div className="grid min-h-[760px] bg-[radial-gradient(circle_at_78%_18%,rgba(34,211,238,0.12),transparent_30%),#07070b] lg:grid-cols-[320px_1fr]">
-          <aside className="border-b border-white/10 p-5 lg:border-b-0 lg:border-r">
-            <div className="flex items-center gap-4">
-              <span className="relative grid size-16 place-items-center rounded-3xl border border-white/80 bg-white/[0.04]">
-                <Bot size={30} />
-                <span className="absolute right-4 top-4 size-3 rounded-full bg-[#22d3ee]" />
+        <div className="grid min-h-[calc(100vh-5rem)] lg:grid-cols-[380px_1fr]">
+          <aside className="border-b border-white/10 p-8 lg:border-b-0 lg:border-r">
+            <div className="flex items-center gap-6">
+              <span className="relative grid size-[72px] place-items-center rounded-[24px] border-2 border-white/85 bg-white/[0.035]">
+                <Bot size={34} />
+                <span className="absolute right-4 top-4 size-3.5 rounded-full bg-[#22d3ee]" />
               </span>
               <div>
-                <p className="text-2xl font-semibold">Agent Sidecar</p>
-                <p className="mt-1 font-mono text-sm text-neutral-500">local runtime</p>
+                <p className="text-3xl font-semibold tracking-normal">Agent Sidecar</p>
+                <p className="mt-2 font-mono text-xl text-neutral-500">Acme workspace</p>
               </div>
             </div>
 
-            <div className="mt-10 grid gap-3">
-              <SidebarButton icon={Activity} label="Timeline" active={activeView === "timeline"} onClick={() => setActiveView("timeline")} />
-              <SidebarButton icon={ShieldCheck} label="Decisions" active={activeView === "decisions"} onClick={() => setActiveView("decisions")} />
-              <SidebarButton icon={FileText} label="Prompt" active={activeView === "prompt"} onClick={() => setActiveView("prompt")} />
-              <SidebarButton icon={BookOpen} label="Run State" active={activeView === "state"} onClick={() => setActiveView("state")} />
-            </div>
+            <nav className="mt-14 grid gap-5">
+              {dashboardNav.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setActiveView(item)}
+                  className={`rounded-[24px] px-6 py-5 text-left text-3xl font-semibold capitalize transition ${
+                    activeView === item
+                      ? "border border-[#22d3ee]/40 bg-[#07171c] text-white"
+                      : "text-neutral-500 hover:bg-white/[0.035] hover:text-neutral-200"
+                  }`}
+                >
+                  {item}
+                </button>
+              ))}
+            </nav>
 
             <button
               type="button"
               onClick={() => setRefreshSeq((value) => value + 1)}
-              className="mt-6 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-black/25 px-4 py-3 font-mono text-xs text-neutral-300 transition hover:border-[#22d3ee]/40 hover:text-white"
+              className="mt-10 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-4 font-mono text-sm text-neutral-400 transition hover:border-[#22d3ee]/40 hover:text-white"
             >
-              <span>{lastRefresh ? `updated ${lastRefresh.toLocaleTimeString()}` : "waiting"}</span>
-              <RefreshCw size={15} />
+              <span>{lastRefresh ? `updated ${lastRefresh.toLocaleTimeString()}` : "waiting for daemon"}</span>
+              <RefreshCw size={17} />
             </button>
-
-            <div className="mt-8">
-              <p className="font-mono text-xs uppercase tracking-[0.22em] text-neutral-500">Prompt runs</p>
-              <div className="mt-4 grid gap-3">
-                {runs.map((run) => (
-                <button
-                  key={run.id}
-                  type="button"
-                  onClick={() => setSelectedRunId(run.id)}
-                  className={`rounded-2xl border p-4 text-left shadow-lg transition ${
-                    run.id === selectedRunId
-                      ? "border-[#22d3ee]/50 bg-[#061015] shadow-[#22d3ee]/10"
-                      : "border-white/10 bg-white/[0.025] hover:border-white/25 hover:bg-white/[0.04]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-xs uppercase text-[#22d3ee]">{run.provider}</span>
-                    <StatusText status={run.status} />
-                  </div>
-                  <p className="mt-3 line-clamp-3 text-sm font-semibold leading-6 text-neutral-100">
-                    {run.taskSummary ?? run.id}
-                  </p>
-                  <p className="mt-3 truncate font-mono text-xs text-neutral-500">{formatDate(run.updatedAt)}</p>
-                </button>
-                ))}
-              </div>
-            </div>
           </aside>
 
-          <section className="p-5 sm:p-8 lg:p-10">
-            {loading ? (
-              <EmptyState title="Loading local runs" body="Reading hook events from the local Agent Sidecar daemon." />
-            ) : error && runs.length === 0 ? (
-              <EmptyState
-                title="Daemon not reachable"
-                body={`Start the daemon with pnpm dev:daemon, then submit hook events through the CLI. ${error}`}
-              />
-            ) : !selectedRun ? (
-              <EmptyState
-                title="No prompt runs yet"
-                body="Start the daemon, then pipe a Codex or generic hook event into agent-sidecar hook. New runs appear here automatically."
-              />
-            ) : (
-              <RunDetails
-                run={selectedRun}
-                details={details}
-                latestPrompt={latestPrompt}
-                totalTokens={totalTokens}
-                promptCount={promptEvents.length}
-                activeView={activeView}
-                setActiveView={setActiveView}
-              />
-            )}
-          </section>
+          <DashboardContent
+            activeView={activeView}
+            details={details}
+            error={error}
+            loading={loading}
+            runs={runs}
+            selectedRun={selectedRun}
+            selectedRunId={selectedRunId}
+            setSelectedRunId={setSelectedRunId}
+          />
         </div>
       </div>
     </main>
   );
 }
 
-function RunDetails({
-  run,
-  details,
-  latestPrompt,
-  totalTokens,
-  promptCount,
+function DashboardContent({
   activeView,
-  setActiveView
+  details,
+  error,
+  loading,
+  runs,
+  selectedRun,
+  selectedRunId,
+  setSelectedRunId
 }: {
-  run: StoredRun;
-  details?: DashboardReplay;
-  latestPrompt?: string;
-  totalTokens: number;
-  promptCount: number;
   activeView: DashboardView;
-  setActiveView: (view: DashboardView) => void;
+  details?: DashboardReplay;
+  error?: string;
+  loading: boolean;
+  runs: StoredRun[];
+  selectedRun?: StoredRun;
+  selectedRunId?: string;
+  setSelectedRunId: (runId: string) => void;
 }) {
   const events = details?.events ?? [];
   const decisions = details?.decisions ?? [];
-  const optimization = details?.promptOptimizations.at(-1);
-  const state = details?.state;
+  const promptOptimizations = details?.promptOptimizations ?? [];
+  const savings = useMemo(() => calculateSavings(promptOptimizations), [promptOptimizations]);
+  const lessons = useMemo(() => collectLessons(promptOptimizations), [promptOptimizations]);
+  const guardedRuns = runs.length;
+  const visibleRuns = runs.length > 0 ? runs : selectedRun ? [selectedRun] : [];
 
   return (
-    <div>
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+    <section className="min-w-0 p-8 sm:p-10">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <p className="font-mono text-sm uppercase tracking-[0.28em] text-[#22d3ee]">Selected CLI request</p>
-          <h1 className="mt-3 max-w-4xl text-3xl font-semibold leading-tight sm:text-5xl">
-            {latestPrompt ?? run.taskSummary ?? run.id}
-          </h1>
-          <div className="mt-4 flex flex-wrap gap-2 font-mono text-xs text-neutral-400">
-            <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">{run.provider}</span>
-            <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">{run.repoRoot ?? "repo unknown"}</span>
-            <span className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">{run.branch ?? "branch unknown"}</span>
-          </div>
+          <p className="font-mono text-2xl uppercase tracking-[0.34em] text-[#22d3ee]">Live runs</p>
+          <h1 className="mt-8 text-5xl font-semibold tracking-normal sm:text-6xl">Runtime control plane</h1>
         </div>
-        <StatusPanel run={run} />
+        <span className={`w-fit rounded-full border px-7 py-3 font-mono text-2xl font-semibold ${error ? "border-red-300/25 bg-red-300/[0.08] text-red-200" : "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-200"}`}>
+          {error ? "daemon offline" : "daemon connected"}
+        </span>
       </div>
 
-      <div className="mt-8 grid gap-4 md:grid-cols-4">
-        <MetricCard icon={Terminal} label="events" value={events.length.toString()} />
-        <MetricCard icon={Zap} label="prompts" value={promptCount.toString()} />
-        <MetricCard icon={Activity} label="tokens" value={formatInteger(totalTokens)} />
-        <MetricCard icon={DollarSign} label="cost" value={formatUsd(run.totalEstimatedCostUsd ?? 0)} />
+      {error ? (
+        <p className="mt-5 rounded-2xl border border-red-300/20 bg-red-300/[0.06] px-5 py-4 text-sm leading-6 text-red-100/80">
+          {loading ? "Connecting to local daemon." : `Dashboard shell is ready. Start the daemon to populate live traces. ${error}`}
+        </p>
+      ) : null}
+
+      <div className="mt-12 grid gap-6 xl:grid-cols-3">
+        <DashboardMetric label="guarded runs" value={formatInteger(guardedRuns)} />
+        <DashboardMetric label="decisions" value={formatInteger(decisions.length)} />
+        <DashboardMetric label="saved lessons" value={formatInteger(lessons.length)} />
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <TabButton label="Timeline" active={activeView === "timeline"} onClick={() => setActiveView("timeline")} />
-        <TabButton label="Decisions" active={activeView === "decisions"} onClick={() => setActiveView("decisions")} />
-        <TabButton label="Prompt Optimization" active={activeView === "prompt"} onClick={() => setActiveView("prompt")} />
-        <TabButton label="Run State" active={activeView === "state"} onClick={() => setActiveView("state")} />
+      <SavingsPanel savings={savings} />
+
+      <div className="mt-8 grid gap-8 xl:grid-cols-[1.08fr_0.92fr]">
+        <MainPanel
+          activeView={activeView}
+          decisions={decisions}
+          events={events}
+          lessons={lessons}
+          runs={visibleRuns}
+          savings={savings}
+          selectedRunId={selectedRunId}
+          setSelectedRunId={setSelectedRunId}
+        />
+        <SelectedTracePanel
+          decisions={decisions}
+          events={events}
+          promptOptimizations={promptOptimizations}
+          selectedRun={selectedRun}
+        />
       </div>
-
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-        {activeView === "timeline" ? (
-          <Panel title="Timeline">
-          <div className="grid gap-3">
-            {events.map((event) => (
-              <button
-                key={event.id}
-                type="button"
-                className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-[#22d3ee]/35 hover:bg-[#071012]"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 font-mono text-xs uppercase text-neutral-300">
-                    {event.eventType}
-                  </span>
-                  <span className="font-mono text-xs text-neutral-500">{formatDate(event.timestamp)}</span>
-                </div>
-                <p className="mt-3 text-sm font-semibold leading-6 text-neutral-100">{event.summary}</p>
-                <EventMeta event={event} />
-              </button>
-            ))}
-            {events.length === 0 ? <MutedLine>No events recorded for this run yet.</MutedLine> : null}
-          </div>
-          </Panel>
-        ) : null}
-
-        {activeView === "timeline" || activeView === "decisions" ? (
-          <div className="grid gap-6">
-          <Panel title="Cost And Usage">
-            <div className="grid gap-3">
-              <UsageRow label="input tokens" value={formatInteger(run.totalInputTokens ?? 0)} />
-              <UsageRow label="output tokens" value={formatInteger(run.totalOutputTokens ?? 0)} />
-              <UsageRow label="estimated cost" value={formatUsd(run.totalEstimatedCostUsd ?? 0)} />
-              <UsageRow label="cost source" value={events.some((event) => event.costEstimate?.source === "provider") ? "provider" : "estimated"} />
-            </div>
-          </Panel>
-
-          <Panel title="Decisions">
-            <div className="grid gap-3">
-              {decisions.map((decision) => (
-                <button
-                  key={decision.id}
-                  type="button"
-                  className="rounded-2xl border border-white/10 bg-black/20 p-4 text-left transition hover:border-[#22d3ee]/35 hover:bg-[#071012]"
-                >
-                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{decision.action}</p>
-                  <p className="mt-2 text-sm font-semibold leading-6">{decision.reasonCode}</p>
-                  <p className="mt-2 line-clamp-4 text-sm leading-6 text-neutral-400">{decision.message}</p>
-                </button>
-              ))}
-              {decisions.length === 0 ? <MutedLine>No runtime decisions recorded yet.</MutedLine> : null}
-            </div>
-          </Panel>
-          </div>
-        ) : null}
-      </div>
-
-      <div className={`mt-6 grid gap-6 ${activeView === "timeline" ? "xl:grid-cols-2" : ""}`}>
-        {activeView === "timeline" || activeView === "prompt" ? (
-        <Panel title="Prompt Optimization">
-          {optimization ? (
-            <div>
-              <p className="text-sm leading-7 text-neutral-300">{optimization.result.rewriteReason}</p>
-              <div className="mt-4 rounded-xl border border-[#22d3ee]/20 bg-[#061015] p-4">
-                <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">optimized prompt</p>
-                <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-words pr-2 text-sm leading-6 text-neutral-200">
-                  {optimization.result.optimizedPrompt}
-                </pre>
-              </div>
-            </div>
-          ) : (
-            <MutedLine>No prompt optimization was injected for this run.</MutedLine>
-          )}
-        </Panel>
-        ) : null}
-
-        {activeView === "timeline" || activeView === "state" ? (
-        <Panel title="Run State">
-          {state ? (
-            <div className="grid gap-3">
-              <UsageRow label="validation after edit" value={state.validationSinceLastEdit ? "yes" : "no"} />
-              <UsageRow label="last validation" value={state.lastValidationPassed === undefined ? "unknown" : state.lastValidationPassed ? "passed" : "failed"} />
-              <UsageRow label="files changed" value={formatInteger(state.filesChanged?.length ?? 0)} />
-              <UsageRow label="prompt optimizations" value={formatInteger(state.promptOptimizationCount ?? 0)} />
-            </div>
-          ) : (
-            <MutedLine>No run-state snapshot recorded yet.</MutedLine>
-          )}
-        </Panel>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function EventMeta({ event }: { event: StoredEvent }) {
-  const cost = event.costEstimate?.amountUsd;
-  const tokens = event.tokenUsage?.totalTokens ?? (event.tokenUsage?.inputTokens ?? 0) + (event.tokenUsage?.outputTokens ?? 0);
-  const command = event.command?.normalized ?? event.validation?.command;
-  const files = event.fileEdit?.paths ?? [];
-
-  if (!cost && !tokens && !command && files.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="mt-3 flex flex-wrap gap-2 font-mono text-xs text-neutral-400">
-      {tokens ? <span className="rounded-md bg-white/[0.05] px-2 py-1">{formatInteger(tokens)} tokens</span> : null}
-      {cost ? <span className="rounded-md bg-white/[0.05] px-2 py-1">{formatUsd(cost)}</span> : null}
-      {command ? <span className="max-w-full truncate rounded-md bg-white/[0.05] px-2 py-1">{command}</span> : null}
-      {files.slice(0, 3).map((file) => (
-        <span key={file} className="max-w-full truncate rounded-md bg-white/[0.05] px-2 py-1">{file}</span>
-      ))}
-    </div>
-  );
-}
-
-function SidebarButton({
-  icon: Icon,
-  label,
-  active,
-  onClick
-}: {
-  icon: LucideIcon;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-3 rounded-2xl px-5 py-4 text-left text-lg font-semibold transition ${
-        active ? "border border-[#22d3ee]/35 bg-[#22d3ee]/[0.08] text-white" : "text-neutral-500 hover:bg-white/[0.035] hover:text-neutral-200"
-      }`}
-    >
-      <Icon size={20} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full border px-4 py-2 font-mono text-sm transition ${
-        active
-          ? "border-[#22d3ee]/55 bg-[#22d3ee]/[0.12] text-white shadow-lg shadow-[#22d3ee]/10"
-          : "border-white/10 bg-black/20 text-neutral-400 hover:border-white/25 hover:text-white"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-function StatusPanel({ run }: { run: StoredRun }) {
-  return (
-    <div className="w-full rounded-xl border border-white/10 bg-black/20 p-4 xl:w-64">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">status</span>
-        <StatusText status={run.status} />
-      </div>
-      <div className="mt-4 grid gap-2 font-mono text-xs text-neutral-400">
-        <span>started {formatDate(run.startedAt)}</span>
-        <span>updated {formatDate(run.updatedAt)}</span>
-      </div>
-    </div>
-  );
-}
-
-function MetricCard({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.035] p-5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-neutral-500">{label}</p>
-        <Icon size={18} className="text-[#22d3ee]" />
-      </div>
-      <p className="mt-5 text-3xl font-semibold leading-none sm:text-4xl">{value}</p>
-    </div>
-  );
-}
-
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="rounded-xl border border-white/10 bg-white/[0.025] p-5">
-      <h2 className="font-mono text-xs uppercase tracking-[0.22em] text-neutral-500">{title}</h2>
-      <div className="mt-4">{children}</div>
     </section>
   );
 }
 
-function UsageRow({ label, value }: { label: string; value: string }) {
+function MainPanel({
+  activeView,
+  decisions,
+  events,
+  lessons,
+  runs,
+  savings,
+  selectedRunId,
+  setSelectedRunId
+}: {
+  activeView: DashboardView;
+  decisions: Decision[];
+  events: StoredEvent[];
+  lessons: string[];
+  runs: StoredRun[];
+  savings: SavingsStats;
+  selectedRunId?: string;
+  setSelectedRunId: (runId: string) => void;
+}) {
+  if (activeView === "decisions") {
+    return (
+      <DashboardPanel title="Decision" companionTitle="Reason">
+        {decisions.length > 0 ? decisions.map((decision) => (
+          <InfoRow key={decision.id} title={decision.action} subtitle={decision.reasonCode} pill={decision.severity} />
+        )) : <MutedLine>No runtime decisions recorded yet.</MutedLine>}
+      </DashboardPanel>
+    );
+  }
+
+  if (activeView === "policies") {
+    return (
+      <DashboardPanel title="Policy" companionTitle="Status">
+        {["validation after edit", "block repeated failures", "require continuation"].map((policy) => (
+          <InfoRow key={policy} title={policy} subtitle="active for guarded runs" pill="enabled" />
+        ))}
+      </DashboardPanel>
+    );
+  }
+
+  if (activeView === "lessons") {
+    return (
+      <DashboardPanel title="Lesson" companionTitle="Source">
+        {lessons.length > 0 ? lessons.map((lesson) => (
+          <InfoRow key={lesson} title={lesson} subtitle="pattern library match" pill="injected" />
+        )) : <MutedLine>No saved lessons or pattern matches recorded yet.</MutedLine>}
+      </DashboardPanel>
+    );
+  }
+
+  if (activeView === "analytics") {
+    return (
+      <DashboardPanel title="Metric" companionTitle="Value">
+        <InfoRow title="candidate traces" subtitle="pattern or prompt optimization records" pill={formatInteger(savings.tracesInjected)} />
+        <InfoRow title="avg task cost delta" subtitle="token-based proxy per successful trace" pill={formatUsd(savings.avgCostDeltaPerTrace)} />
+        <InfoRow title="model cost input" subtitle="current configured model pricing" pill={formatRate(savings.modelCostPerToken)} />
+      </DashboardPanel>
+    );
+  }
+
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-      <span className="text-sm text-neutral-400">{label}</span>
-      <span className="text-right font-mono text-sm text-neutral-100">{value}</span>
-    </div>
+    <DashboardPanel title="Trace" companionTitle="Decision">
+      {runs.length > 0 ? runs.map((run) => {
+        const isSelected = run.id === selectedRunId;
+        return (
+          <button
+            key={run.id}
+            type="button"
+            onClick={() => setSelectedRunId(run.id)}
+            className={`grid gap-4 rounded-[24px] border p-6 text-left transition sm:grid-cols-[1fr_auto] sm:items-center ${
+              isSelected ? "border-white/15 bg-white/[0.035]" : "border-white/10 bg-[#08080d] hover:border-[#22d3ee]/35"
+            }`}
+          >
+            <div>
+              <p className="max-w-[18rem] text-3xl font-semibold leading-tight">{run.taskSummary ?? run.id}</p>
+              <p className="mt-4 font-mono text-xl text-neutral-500">{statusLabel(run.status)}</p>
+            </div>
+            <span className="w-fit rounded-full border border-white/10 px-6 py-3 font-mono text-xl text-neutral-300">
+              {run.status === "active" ? "watching" : run.status === "completed" ? "validated" : "require validation"}
+            </span>
+          </button>
+        );
+      }) : <MutedLine>No traces yet. Start the daemon and run a Codex hook to populate this panel.</MutedLine>}
+      {events.slice(0, 3).map((event) => (
+        <InfoRow key={event.id} title={event.summary} subtitle={event.eventType} pill={formatDate(event.timestamp)} />
+      ))}
+    </DashboardPanel>
   );
 }
 
-function EmptyState({ title, body }: { title: string; body: string }) {
+function SelectedTracePanel({
+  decisions,
+  events,
+  promptOptimizations,
+  selectedRun
+}: {
+  decisions: Decision[];
+  events: StoredEvent[];
+  promptOptimizations: PromptOptimizationRecord[];
+  selectedRun?: StoredRun;
+}) {
+  const optimization = promptOptimizations.at(-1);
+  const latestDecision = decisions.at(-1);
+  const latestValidation = [...events].reverse().find((event) => event.validation)?.validation;
+  const cards = [
+    latestDecision ? `policy: ${latestDecision.action}` : "policy: validation after edit",
+    optimization ? `lesson: ${optimization.result.taskContract.relevant_lessons[0] ?? "pattern match recorded"}` : "lesson: awaiting pattern match",
+    latestValidation ? `action: ${latestValidation.status}` : selectedRun ? `action: ${selectedRun.status}` : "action: waiting for trace"
+  ];
+
   return (
-    <div className="grid min-h-[620px] place-items-center">
-      <div className="max-w-xl text-center">
-        <Clock className="mx-auto text-[#22d3ee]" size={38} />
-        <h1 className="mt-5 text-3xl font-semibold">{title}</h1>
-        <p className="mt-4 text-base leading-7 text-neutral-400">{body}</p>
+    <aside className="rounded-[28px] border border-[#22d3ee]/25 bg-[#061015] p-8">
+      <p className="font-mono text-2xl uppercase tracking-[0.34em] text-[#22d3ee]">Selected trace</p>
+      <h2 className="mt-10 text-4xl font-semibold leading-tight">{selectedRun?.taskSummary ?? selectedRun?.id ?? "No trace selected"}</h2>
+      <div className="mt-10 grid gap-5">
+        {cards.map((card) => (
+          <div key={card} className="rounded-[22px] border border-white/10 bg-[#091011] p-6 text-2xl font-semibold leading-9 text-neutral-200">
+            {card}
+          </div>
+        ))}
       </div>
+    </aside>
+  );
+}
+
+function SavingsPanel({ savings }: { savings: SavingsStats }) {
+  return (
+    <section className="mt-8 rounded-[28px] border border-emerald-300/25 bg-emerald-300/[0.06] p-8">
+      <div className="grid gap-6 xl:grid-cols-[270px_1fr] xl:items-center">
+        <div>
+          <p className="font-mono text-2xl uppercase tracking-[0.28em] text-emerald-100">Task cost improved</p>
+          <p className="mt-8 text-6xl font-semibold leading-none text-emerald-100">{formatUsd(savings.estimatedSavings)}</p>
+        </div>
+        <p className="text-3xl font-semibold leading-[1.55] text-emerald-50/75">
+          Estimated from prompt refinements, quality gates, and token-based cost evidence. Count it only when the task outcome is still successful.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function DashboardMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[28px] border border-white/10 bg-white/[0.035] p-8">
+      <p className="font-mono text-2xl uppercase tracking-[0.24em] text-neutral-500">{label}</p>
+      <p className="mt-8 text-6xl font-semibold leading-none">{value}</p>
     </div>
   );
 }
 
-function LiveBadge({ connected }: { connected: boolean }) {
+function DashboardPanel({ title, companionTitle, children }: { title: string; companionTitle: string; children: ReactNode }) {
   return (
-    <span className={`rounded-full border px-3 py-1 font-mono text-xs ${connected ? "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-200" : "border-red-300/25 bg-red-300/[0.08] text-red-200"}`}>
-      {connected ? "live" : "offline"}
-    </span>
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.018] p-6">
+      <div className="grid grid-cols-[1fr_auto] gap-4 px-5 font-mono text-2xl uppercase tracking-[0.24em] text-neutral-500">
+        <span>{title}</span>
+        <span>{companionTitle}</span>
+      </div>
+      <div className="mt-6 grid gap-4">{children}</div>
+    </section>
   );
 }
 
-function StatusText({ status }: { status: StoredRun["status"] }) {
-  const className =
-    status === "completed"
-      ? "text-emerald-200"
-      : status === "failed" || status === "blocked"
-        ? "text-red-200"
-        : "text-amber-200";
-
+function InfoRow({ title, subtitle, pill }: { title: string; subtitle: string; pill: string }) {
   return (
-    <span className={`inline-flex items-center gap-1 font-mono text-xs uppercase ${className}`}>
-      <CheckCircle2 size={13} />
-      {status}
-    </span>
+    <div className="grid gap-4 rounded-[24px] border border-white/10 bg-[#08080d] p-6 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div>
+        <p className="text-3xl font-semibold leading-tight">{title}</p>
+        <p className="mt-4 font-mono text-xl text-neutral-500">{subtitle}</p>
+      </div>
+      <span className="w-fit rounded-full border border-white/10 px-6 py-3 font-mono text-xl text-neutral-300">{pill}</span>
+    </div>
   );
 }
 
 function MutedLine({ children }: { children: ReactNode }) {
-  return <p className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-neutral-500">{children}</p>;
+  return <p className="rounded-[24px] border border-white/10 bg-[#08080d] p-6 text-xl leading-9 text-neutral-500">{children}</p>;
+}
+
+type SavingsStats = {
+  tracesInjected: number;
+  avgTokensSavedPerInjection: number;
+  avgCostDeltaPerTrace: number;
+  modelCostPerToken: number;
+  estimatedSavings: number;
+};
+
+function calculateSavings(promptOptimizations: PromptOptimizationRecord[]): SavingsStats {
+  const tracesInjected = promptOptimizations.length;
+  const totalTokensSaved = promptOptimizations.reduce((sum, record) => {
+    return sum + Math.max(0, -record.result.estimatedTokenDelta);
+  }, 0);
+  const avgTokensSavedPerInjection = tracesInjected > 0 ? totalTokensSaved / tracesInjected : 0;
+
+  return {
+    tracesInjected,
+    avgTokensSavedPerInjection,
+    avgCostDeltaPerTrace: avgTokensSavedPerInjection * modelCostPerToken,
+    modelCostPerToken,
+    estimatedSavings: tracesInjected * avgTokensSavedPerInjection * modelCostPerToken
+  };
+}
+
+function collectLessons(promptOptimizations: PromptOptimizationRecord[]): string[] {
+  const lessons = new Set<string>();
+  for (const record of promptOptimizations) {
+    for (const lesson of record.result.taskContract.relevant_lessons) {
+      if (lesson.trim()) {
+        lessons.add(lesson);
+      }
+    }
+  }
+  return [...lessons];
+}
+
+function statusLabel(status: StoredRun["status"]): string {
+  if (status === "active") return "watching";
+  if (status === "completed") return "healthy";
+  return status;
 }
 
 function formatDate(value: string): string {
@@ -594,6 +546,10 @@ function formatDate(value: string): string {
 
 function formatInteger(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatRate(value: number): string {
+  return value.toLocaleString("en-US", { maximumSignificantDigits: 3 });
 }
 
 function formatUsd(value: number): string {

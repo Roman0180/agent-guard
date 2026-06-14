@@ -1,74 +1,39 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity,
   Bot,
   Code2,
-  FileText,
-  GitBranch,
   Menu,
   Pause,
   Play,
   RotateCcw,
-  Sparkles,
   X
 } from "lucide-react";
 
 const navItems = [
   ["Demo", "#demo"],
-  ["Capabilities", "#capabilities"],
   ["Privacy", "#privacy"],
   ["How to use", "#how-to-use"]
 ] as const;
-
-const capabilities = [
-  {
-    icon: Sparkles,
-    title: "Prompt compression",
-    body: "Compress vague requests into precise task contracts with only the repo context, acceptance criteria, boundaries, and tests the coding agent needs.",
-    detail: "Fewer broad instructions means fewer exploratory tokens."
-  },
-  {
-    icon: GitBranch,
-    title: "Cheap-model steering",
-    body: "Use an ensemble of lower-cost models for narrow steering decisions, such as where to look next, what to validate, and when a run is drifting.",
-    detail: "Expensive models spend tokens on implementation, not routine routing."
-  },
-  {
-    icon: FileText,
-    title: "Selective memory",
-    body: "Apply specialized importance algorithms to decide which lessons, files, diffs, and prior outcomes are worth remembering for the current task.",
-    detail: "Queries become more precise because irrelevant history stays out."
-  },
-  {
-    icon: Activity,
-    title: "Telemetry for analysis",
-    body: "Capture prompt lineage, token estimates, model routing, run outcomes, and validation evidence for later cost and efficiency analysis.",
-    detail: "Teams can see which optimizations actually reduce spend per successful engineering task."
-  }
-];
 
 const workflow = [
   "Install the sidecar package with pip",
   "Start the daemon from your terminal",
   "Code in Codex like normal while Agent Sidecar runs in the background",
   "Sidecar optimizes prompts, context, model routing, and telemetry behind the scenes",
-  "Review original prompts, optimized prompts, token estimates, result quality, decisions, and evidence-labeled analytics"
+  "Review original prompts, optimized prompts, cost evidence, result quality, decisions, and evidence-labeled analytics"
 ];
 
 export default function HomePage() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#07070b] text-white">
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[radial-gradient(circle_at_18%_8%,rgba(124,92,255,0.18),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(34,211,238,0.12),transparent_30%),linear-gradient(180deg,#07070b_0%,#0a0a12_46%,#07070b_100%)]" />
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:48px_48px] opacity-45" />
+    <main className="website-shell min-h-screen overflow-x-hidden bg-[#07070b] text-white">
       <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
       <Hero />
       <DemoSection />
-      <Capabilities />
       <PrivacySection />
       <HowToUse />
     </main>
@@ -83,7 +48,7 @@ function Navbar({
   setMobileOpen: (open: boolean) => void;
 }) {
   return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#07070b]/78 backdrop-blur-xl">
+    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#07070b]/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-7 lg:px-10">
         <a href="#" className="flex items-center gap-3">
           <LogoMark />
@@ -128,55 +93,17 @@ function Navbar({
 
 function Hero() {
   return (
-    <section className="mx-auto flex max-w-7xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-7 lg:px-10 lg:pb-20 lg:pt-20">
-      <div className="flex w-full max-w-7xl flex-col items-center">
-        <h1 className="max-w-5xl text-4xl font-semibold leading-[1.02] tracking-normal sm:text-5xl lg:text-6xl">
-          Enterprise Telemetry and Cost Control for Coding Agents
+    <section className="mx-auto flex min-w-0 max-w-7xl flex-col items-center overflow-hidden px-3 pb-16 pt-14 text-center sm:px-7 sm:pt-16 lg:px-10 lg:pb-20 lg:pt-20">
+      <div className="flex w-full min-w-0 max-w-7xl flex-col items-center">
+        <h1 className="hero-headline max-w-full break-words text-3xl font-semibold leading-[1.08] tracking-normal sm:max-w-5xl sm:text-5xl sm:leading-[1.02] lg:text-6xl">
+          Stop Tokenmaxxing. Start Proving Savings.
         </h1>
-        <p className="mt-6 max-w-3xl text-lg leading-8 text-neutral-300 sm:text-xl sm:leading-9">
-          Log runs, surface cost evidence, and cut wasted tokens across Codex, Claude Code, and other agentic coding tools.
+        <p className="hero-subcopy mt-6 max-w-2xl break-words text-base leading-7 text-neutral-300 sm:max-w-3xl sm:text-xl sm:leading-9">
+          Agent Sidecar lowers Codex and Claude Code costs by turning every run into measurable, validated task economics.
         </p>
-        <div className="mt-8 w-full max-w-6xl">
+        <div className="mt-8 w-full min-w-0 max-w-6xl overflow-hidden">
           <HeroComparisonCard />
         </div>
-      </div>
-    </section>
-  );
-}
-
-function Capabilities() {
-  return (
-    <section
-      id="capabilities"
-      className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10"
-    >
-      <Badge>Capabilities</Badge>
-      <h2 className="mt-8 max-w-5xl text-4xl font-semibold leading-tight tracking-normal sm:text-5xl lg:text-6xl">
-        Four capabilities for controlling coding-agent cost
-      </h2>
-      <p className="mt-6 max-w-4xl text-xl leading-9 text-neutral-300">
-        Agent Sidecar keeps coding agents focused, routes work more efficiently, preserves useful repo memory, and records telemetry so teams can analyze cost and engineering efficiency after each run.
-      </p>
-      <div className="mt-12 divide-y divide-white/10 border-y border-white/10">
-        {capabilities.map((capability, index) => {
-          const Icon = capability.icon;
-          return (
-            <article
-              key={capability.title}
-              className="grid gap-5 py-8 md:grid-cols-[120px_1fr_0.75fr] md:items-start"
-            >
-              <div className="flex items-center gap-4 font-mono text-sm text-neutral-500">
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <Icon size={22} className="text-[#22d3ee]" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-semibold">{capability.title}</h3>
-                <p className="mt-4 max-w-2xl text-base leading-8 text-neutral-400">{capability.body}</p>
-              </div>
-              <p className="font-mono text-sm leading-7 text-[#22d3ee]">{capability.detail}</p>
-            </article>
-          );
-        })}
       </div>
     </section>
   );
@@ -188,7 +115,7 @@ function HowToUse() {
       <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
+            The dashboard is the separate control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
           </p>
           <div className="mt-5 grid gap-3">
             {workflow.map((item, index) => (
@@ -201,13 +128,13 @@ function HowToUse() {
             ))}
           </div>
         </div>
-        <DashboardMock />
+        <DashboardPreview />
       </div>
     </Section>
   );
 }
 
-function DashboardMock() {
+function DashboardPreview() {
   const nav = ["Traces", "Decisions", "Policies", "Lessons", "Analytics"];
   const runs = [
     ["auth-refresh-fix", "require validation", "healthy"],
@@ -227,7 +154,7 @@ function DashboardMock() {
           <span className="font-mono text-xs text-neutral-500">Acme account dashboard</span>
         </div>
 
-        <div className="grid min-h-[520px] bg-[radial-gradient(circle_at_78%_18%,rgba(34,211,238,0.12),transparent_30%),#07070b] md:grid-cols-[190px_1fr]">
+        <div className="dashboard-preview-bg grid min-h-[520px] md:grid-cols-[190px_1fr]">
           <aside className="border-b border-white/10 p-4 md:border-b-0 md:border-r">
             <div className="flex items-center gap-3">
               <LogoMark />
@@ -277,11 +204,11 @@ function DashboardMock() {
             <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.065] p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-emerald-200">total cost saved</p>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-emerald-200">validated cost reduction</p>
                   <p className="mt-2 text-3xl font-semibold text-emerald-100">$4,820</p>
                 </div>
                 <p className="max-w-xs text-sm leading-6 text-emerald-50/70">
-                  Estimated from guarded runs compared with matched baseline traces
+                  Estimated from successful traces, observed cost movement, and current model pricing.
                 </p>
               </div>
             </div>
@@ -453,7 +380,7 @@ function DemoSection() {
           </div>
 
           <div
-            className={`relative bg-[radial-gradient(circle_at_28%_18%,rgba(124,92,255,0.2),transparent_30%),radial-gradient(circle_at_82%_72%,rgba(34,211,238,0.14),transparent_34%),#050509] p-4 sm:p-6 ${
+            className={`demo-stage-bg relative p-4 sm:p-6 ${
               demoPaused ? "demo-video-paused" : ""
             }`}
           >
@@ -468,11 +395,11 @@ function DemoSection() {
                   toggleDemoPlayback();
                 }
               }}
-              className="demo-video-frame relative block min-h-[640px] w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-[#07070b]/88 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#22d3ee]/70"
+              className="demo-video-frame relative block w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-[#07070b]/90 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#22d3ee]/70"
             >
               <div className={`${sceneClass(0, 5)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Codex coding session" body="Coding agents burn tokens while they work." />
+                  <PhaseHeading title="Codex coding session" body="Agent cost accrues while the task is still unresolved." />
                 <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
@@ -548,7 +475,7 @@ function DemoSection() {
                     <div className="rounded-2xl border border-red-300/20 bg-red-300/[0.045] p-5">
                       <p className="font-mono text-xs uppercase tracking-[0.18em] text-red-200">Waste detected</p>
                       <div className="mt-4 grid gap-3">
-                        {["+18k repeated tokens", "3 duplicated file reads", "model route: overpowered"].map((item, index) => (
+                        {["costly repeated context", "3 duplicated file reads", "model route: overpowered"].map((item, index) => (
                           <div
                             key={item}
                             className={`rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-neutral-200 transition duration-300 ${
@@ -566,7 +493,7 @@ function DemoSection() {
 
               <div className={`${sceneClass(9, 14)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-5xl">
-                  <PhaseHeading title="Prompt Refiner" body="Prompt Refiner cuts the waste before the next call." />
+                  <PhaseHeading title="Prompt Refiner" body="Prompt Refiner improves the task path before more cost accrues." />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
                     <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                       <div>
@@ -574,7 +501,7 @@ function DemoSection() {
                         <h3 className="mt-2 text-2xl font-semibold">Bloated prompt becomes a focused coding task</h3>
                       </div>
                       <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                        fewer tokens
+                        lower task cost
                       </span>
                     </div>
                     <div className="grid gap-4 p-5 lg:grid-cols-[0.9fr_1.1fr]">
@@ -592,7 +519,7 @@ function DemoSection() {
                             </p>
                           ))}
                         </div>
-                        <p className="mt-4 font-mono text-xs text-red-200">~24k prompt tokens</p>
+                        <p className="mt-4 font-mono text-xs text-red-200">high-cost prompt context</p>
                       </div>
                       <div className="rounded-2xl border border-[#22d3ee]/25 bg-[#22d3ee]/[0.045] p-4">
                         <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Refined prompt</p>
@@ -608,7 +535,7 @@ function DemoSection() {
                             </p>
                           ))}
                         </div>
-                        <p className="mt-4 font-mono text-xs text-emerald-200">~8k prompt tokens</p>
+                        <p className="mt-4 font-mono text-xs text-emerald-200">focused task contract</p>
                       </div>
                     </div>
                   </div>
@@ -727,7 +654,7 @@ function DemoSection() {
                           ))}
                         </nav>
                       </aside>
-                      <section className="min-w-0 bg-[radial-gradient(circle_at_88%_12%,rgba(34,211,238,0.1),transparent_26%),#050509] p-4">
+                      <section className="demo-dashboard-bg min-w-0 p-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div>
                             <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#22d3ee]">Live runs</p>
@@ -740,9 +667,9 @@ function DemoSection() {
 
                         <div className="mt-5 grid gap-3 sm:grid-cols-3">
                           {[
-                            ["Tokens saved", "66%"],
-                            ["Spend", "-50%"],
-                            ["Output", "validated"]
+                            ["Cost/task", "-50%"],
+                            ["Quality", "validated"],
+                            ["Scope", "unchanged"]
                           ].map(([label, value]) => (
                             <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
                               <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{label}</p>
@@ -754,14 +681,14 @@ function DemoSection() {
                         <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.055] p-3">
                           <div className="grid gap-3 sm:grid-cols-[210px_1fr_170px] sm:items-center">
                             <div>
-                              <p className="font-mono text-xs uppercase tracking-[0.18em] text-emerald-200">Total cost saved</p>
+                              <p className="font-mono text-xs uppercase tracking-[0.18em] text-emerald-200">Validated cost reduction</p>
                               <p className="mt-2 text-4xl font-semibold text-emerald-100">$4,820</p>
                             </div>
                             <p className="text-sm leading-7 text-neutral-300">
                               Prompt Refiner removed repeated context, memory avoided duplicate file reads, and routing kept simple edits off the strongest model.
                             </p>
                             <div className="rounded-xl border border-emerald-300/20 bg-black/20 p-3">
-                              <p className="font-mono text-xs uppercase tracking-[0.14em] text-emerald-200">This run saved</p>
+                              <p className="font-mono text-xs uppercase tracking-[0.14em] text-emerald-200">This successful run</p>
                               <p className="mt-2 text-2xl font-semibold text-emerald-100">$1.43</p>
                               <p className="mt-1 font-mono text-[11px] text-neutral-500">$2.84 to $1.41</p>
                             </div>
@@ -883,108 +810,118 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
 }
 
 function HeroComparisonCard() {
+  const baselineSteps = [
+    "Reads session.ts again",
+    "Explores stale callback path",
+    "Routes simple edit to strongest model",
+    "Needs follow-up validation"
+  ];
+  const sidecarSteps = [
+    "Refines into a task contract",
+    "Local DeepSeek checks steering evidence",
+    "Routes narrow edit to cheaper model",
+    "Counts result only after tests pass"
+  ];
+  const steeringSteps = [
+    ["01", "Prompt refined", "scope, files, acceptance criteria"],
+    ["02", "Pattern matched", "auth refresh dead end avoided"],
+    ["03", "Model steered", "cheaper route for narrow edit"],
+    ["04", "Quality gate", "cost delta counted after pass"]
+  ] as const;
+
   return (
     <div
       role="img"
-      aria-label="Hero image comparing a coding-agent run without Agent Sidecar at $2.84 per run against a run with Agent Sidecar at $1.41 per run."
-      className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur"
+      aria-label="Animated prompt-to-cost flow showing a coding-agent prompt entering Agent Sidecar, model steering steps, and final lower cost per successful task."
+      className="reason-hero-card relative mx-auto min-w-0 max-w-full overflow-hidden border border-white/10 p-3 text-left shadow-2xl shadow-[#7c5cff]/10 sm:max-w-6xl sm:p-4"
     >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
-      <div className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5 sm:min-h-[430px] lg:min-h-[360px]">
-        <div className="border-b border-white/10 pb-5">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">User prompt</p>
-            <h3 className="mt-2 text-xl font-semibold leading-tight">
-              The auth refresh flow keeps breaking after token renewal; can you look through the session code, figure out what is going on, and fix it without changing unrelated auth behavior?
+      <div className="reason-grid-bg absolute inset-0" />
+      <div className="relative grid min-w-0 gap-3 sm:gap-4">
+        <div className="grid min-w-0 gap-3 lg:grid-cols-[0.82fr_1.18fr] lg:items-stretch">
+          <div className="reason-copy-panel flex min-h-[340px] min-w-0 flex-col justify-center border border-white/10 bg-[#0b0b12]/90 p-5 sm:p-7">
+            <h3 className="max-w-md text-3xl font-semibold leading-[1.04] tracking-normal text-white sm:text-5xl">
+              Provable cost savings for coding agents.
             </h3>
+          </div>
+
+          <div className="reason-terminal min-h-[430px] min-w-0 overflow-hidden border border-white/12 bg-[#08080d] text-white shadow-[0_24px_70px_rgba(34,211,238,0.08)]">
+            <div className="border-b border-white/10 p-3">
+              <div className="flex min-h-9 min-w-0 items-center overflow-hidden border border-white/12 bg-black/35 px-3 font-mono text-xs text-neutral-100">
+                <span className="mr-2 shrink-0 text-[#67e8f9]">Prompt:</span>
+                <span className="reason-prompt-feed">fix auth refresh; preserve unrelated session behavior</span>
+                <span className="reason-cursor ml-1 inline-block h-4 w-1 bg-[#22d3ee]" />
+              </div>
+            </div>
+            <div className="grid border-b border-white/10 bg-[#11111a] font-mono text-[10px] uppercase tracking-[0.16em] sm:grid-cols-2">
+              <div className="flex items-center justify-between border-b border-white/10 px-3 py-3 sm:border-b-0 sm:border-r">
+                <span className="text-neutral-500">Without sidecar</span>
+                <span className="reason-cost-bad text-lg font-semibold text-red-300">$2.84</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-3">
+                <span className="text-neutral-500">+ Agent Sidecar</span>
+                <span className="reason-cost-good text-lg font-semibold text-emerald-300">$1.41</span>
+              </div>
+            </div>
+            <div className="grid min-h-[290px] sm:grid-cols-2">
+              <div className="grid content-start gap-3 border-b border-white/10 p-4 sm:border-b-0 sm:border-r">
+                {baselineSteps.map((step, index) => (
+                  <HeroCostStep key={step} tone="bad" index={index} label={step} />
+                ))}
+              </div>
+              <div className="grid content-start gap-3 p-4">
+                {sidecarSteps.map((step, index) => (
+                  <HeroCostStep key={step} tone="good" index={index} label={step} />
+                ))}
+              </div>
+            </div>
+            <div className="reason-terminal-result grid gap-2 border-t border-white/10 bg-[#050509] px-4 py-3 text-white sm:grid-cols-[1fr_auto] sm:items-center">
+              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-neutral-400">Final cost delta after validation</p>
+              <p className="font-mono text-xl font-semibold text-emerald-300">-$1.43 per successful task</p>
+            </div>
           </div>
         </div>
 
-        <div className="mt-5 grid flex-1 gap-4 lg:grid-cols-2">
-          <RunComparisonPanel
-            title="Without Agent Sidecar"
-            tone="red"
-            cost="$2.84"
-            outcome="wasteful run"
-            lines={[
-              "bloated prompt drifts from user goal",
-              "same repo context reread repeatedly",
-              "expensive model handles simple edits"
-            ]}
-          />
-          <RunComparisonPanel
-            title="With Agent Sidecar"
-            tone="emerald"
-            cost="$1.41"
-            outcome="steered run"
-            lines={[
-              "condensed prompt aligned to user goals",
-              "repo memory prevents duplicate reads",
-              "smart routing matches task difficulty"
-            ]}
-          />
+        <div className="reason-steering-rail grid gap-3 border border-white/10 bg-[#08080d] p-3 text-white shadow-[0_24px_70px_rgba(124,92,255,0.1)] lg:grid-cols-4">
+          {steeringSteps.map(([number, title, body], index) => (
+            <div
+              key={title}
+              className="reason-steering-step border border-white/15 bg-[#101018] p-4"
+              style={{ "--delay": `${1.4 + index * 1.15}s` } as CSSProperties}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono text-xs text-[#22d3ee]">{number}</span>
+                <span className="reason-step-dot size-2 bg-[#22d3ee]" />
+              </div>
+              <p className="mt-4 text-sm font-semibold leading-5">{title}</p>
+              <p className="mt-2 text-xs leading-5 text-neutral-400">{body}</p>
+            </div>
+          ))}
         </div>
+
       </div>
     </div>
   );
 }
 
-function RunComparisonPanel({
-  title,
-  tone,
-  cost,
-  outcome,
-  lines
-}: {
-  title: string;
-  tone: "red" | "emerald";
-  cost: string;
-  outcome: string;
-  lines: string[];
-}) {
-  const isGood = tone === "emerald";
-  const accent = isGood ? "text-emerald-200" : "text-red-200";
-  const panel = isGood ? "border-emerald-300/20 bg-emerald-300/[0.055]" : "border-red-400/20 bg-red-400/[0.055]";
-  const barColor = isGood ? "#4ade80" : "#f87171";
-  const barWidth = isGood ? "52%" : "100%";
+function HeroCostStep({ tone, index, label }: { tone: "bad" | "good"; index: number; label: string }) {
+  const toneClass = tone === "good" ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100" : "border-red-300/20 bg-red-300/[0.06] text-red-100";
+  const markerClass = tone === "good" ? "bg-emerald-300" : "bg-red-300";
 
   return (
-    <article
-      className={`flex min-h-0 flex-col rounded-xl border p-4 ${panel}`}
+    <div
+      className={`reason-cost-step grid grid-cols-[22px_1fr] items-center gap-3 border px-3 py-2 font-mono text-xs ${toneClass}`}
+      style={{ "--delay": `${1.25 + index * 0.95}s` } as CSSProperties}
     >
-      <div className="grid min-h-[92px] grid-cols-[1fr_auto] items-start gap-4 border-b border-white/10 pb-4">
-        <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">{title}</p>
-        <span className={`rounded-full border px-3 py-1 font-mono text-xs ${isGood ? "border-emerald-300/25 text-emerald-200" : "border-red-400/25 text-red-200"}`}>
-          {outcome}
-        </span>
-        <div className="col-span-2 flex items-baseline gap-2">
-          <p className={`text-4xl font-semibold leading-none ${accent}`}>{cost}</p>
-          <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">per run</p>
-        </div>
-      </div>
-      <div className="mt-4 grid gap-2">
-        {lines.map((line) => (
-          <div key={line} className="flex min-h-11 items-center rounded-lg border border-white/10 bg-[#07070b]/60 px-3 py-2 text-sm text-neutral-300">
-            {line}
-          </div>
-        ))}
-      </div>
-      <div className="mt-auto pt-5">
-        <div className="h-2 overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full"
-            style={{ backgroundColor: barColor, width: barWidth }}
-          />
-        </div>
-      </div>
-    </article>
+      <span className={`size-2.5 ${markerClass}`} />
+      <span>{label}</span>
+    </div>
   );
 }
 
 function PrivacyComparisonCard() {
   const readableItems = [
     ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
-    ["Cost evidence", "Token estimates, model usage, and matched baseline savings"],
+    ["Cost evidence", "Token estimates, model usage, validated traces, and task-cost calculations"],
     ["Policy outcomes", "Allowed actions, blocked waste, and reason codes for audit"]
   ] as const;
   const privateItems = [
@@ -995,8 +932,8 @@ function PrivacyComparisonCard() {
 
   return (
     <div className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(124,92,255,0.22),transparent_32%),radial-gradient(circle_at_84%_82%,rgba(34,211,238,0.13),transparent_32%)]" />
-      <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/84 p-5">
+      <div className="card-radial-overlay absolute inset-0" />
+      <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/90 p-5">
         <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Local-first telemetry boundary</p>
@@ -1087,7 +1024,7 @@ function Badge({ children }: { children: ReactNode }) {
 
 function LogoMark() {
   return (
-    <span className="relative grid size-9 place-items-center rounded-xl border border-white/12 bg-white/[0.04]">
+    <span className="relative grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04]">
       <Bot size={19} />
       <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#22d3ee]" />
     </span>
