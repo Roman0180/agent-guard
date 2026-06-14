@@ -135,6 +135,91 @@ estimated_task_cost_delta = validated_trace_count × avg_cost_delta_per_validate
 
 For the MVP, prompt optimization records provide a token-based fallback through `estimatedTokenDelta`. The dashboard can use those records as cost evidence, but the user-facing claim should be framed as lower cost per successful task rather than tokens saved in isolation.
 
+### SWE-bench Evaluation
+
+Agent Sidecar includes a lightweight SWE-bench runner for paired baseline-vs-sidecar experiments. It does not replace the official SWE-bench evaluator; it produces prediction files and cost artifacts that you feed into the official evaluator, then joins the evaluator results with Sidecar cost telemetry.
+
+The recommended measurement is paired and validation-gated:
+
+1. Run baseline Codex on each SWE-bench instance from the exact `base_commit`.
+2. Reset the repo to the same clean checkout.
+3. Run Codex through Agent Sidecar on the same instance.
+4. Export both patches in SWE-bench prediction JSONL format.
+5. Run the official SWE-bench Docker evaluator on both prediction files.
+6. Summarize accuracy, total cost, and cost per resolved task.
+
+Prepare local SWE-bench checkouts under a repo directory. The runner looks for `<repos-dir>/<instance_id>`, `<repos-dir>/<repo basename>`, or `<repos-dir>/<repo with / replaced by __>`. Each checkout must contain the target `base_commit`. Then run a small smoke batch first:
+
+```bash
+# Baseline: call the real Codex binary directly.
+pnpm bench:swebench -- run \
+  --instances ./swebench-lite.jsonl \
+  --repos-dir ./swebench-repos \
+  --out-dir ./bench-runs/swebench-lite \
+  --agent baseline \
+  --limit 3 \
+  --codex-bin /opt/homebrew/bin/codex
+
+# Sidecar: optimize/steer the prompt through Agent Sidecar before Codex runs.
+pnpm bench:swebench -- run \
+  --instances ./swebench-lite.jsonl \
+  --repos-dir ./swebench-repos \
+  --out-dir ./bench-runs/swebench-lite \
+  --agent sidecar \
+  --limit 3
+```
+
+The runner writes:
+
+- `predictions-baseline.jsonl` and `predictions-sidecar.jsonl` for the official SWE-bench evaluator.
+- `costs-baseline.jsonl` and `costs-sidecar.jsonl` with run IDs, prompt hashes, estimated prompt tokens, status, and replay commands.
+- per-instance logs under `logs/baseline` and `logs/sidecar`.
+
+Evaluate the patches with SWE-bench, for example:
+
+```bash
+python -m venv .swebench
+source .swebench/bin/activate
+pip install swebench
+
+python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-bench_Lite \
+  --predictions_path ./bench-runs/swebench-lite/predictions-baseline.jsonl \
+  --max_workers 1 \
+  --run_id baseline-lite
+
+python -m swebench.harness.run_evaluation \
+  --dataset_name princeton-nlp/SWE-bench_Lite \
+  --predictions_path ./bench-runs/swebench-lite/predictions-sidecar.jsonl \
+  --max_workers 1 \
+  --run_id sidecar-lite
+```
+
+After the official evaluator emits result files, summarize the paired result:
+
+```bash
+pnpm bench:swebench -- summarize \
+  --baseline-predictions ./bench-runs/swebench-lite/predictions-baseline.jsonl \
+  --sidecar-predictions ./bench-runs/swebench-lite/predictions-sidecar.jsonl \
+  --baseline-costs ./bench-runs/swebench-lite/costs-baseline.jsonl \
+  --sidecar-costs ./bench-runs/swebench-lite/costs-sidecar.jsonl \
+  --baseline-results ./swebench-results/baseline-lite.json \
+  --sidecar-results ./swebench-results/sidecar-lite.json \
+  --out ./bench-runs/swebench-lite/summary.json
+```
+
+The summary reports:
+
+```text
+baseline_accuracy = baseline_resolved / total_instances
+sidecar_accuracy = sidecar_resolved / total_instances
+baseline_cost_per_success = baseline_total_cost / baseline_resolved
+sidecar_cost_per_success = sidecar_total_cost / sidecar_resolved
+savings_per_success = baseline_cost_per_success - sidecar_cost_per_success
+```
+
+Only treat cost reduction as real savings when the Sidecar run is non-inferior on SWE-bench resolution. A cheaper failed patch is not counted as a successful-task saving.
+
 ### Measuring Prompt Optimization Quality
 
 Cost reductions only count when the optimized prompt still produces the same quality of engineering result as the original prompt. Measure this with paired baseline runs instead of comparing prompt text directly.
