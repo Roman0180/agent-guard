@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import Database from "better-sqlite3";
 
 export type AgentKind = "codex" | "claude-code" | "generic";
@@ -174,12 +176,40 @@ export type PromptOptimizationResult = {
   createdAt: string;
 };
 
+export type SavingsMode = "codex_baseline" | "historical_local_baseline" | "heuristic";
+
+export type CostEvidence = {
+  runId: string;
+  updatedAt: string;
+  baselineInputTokens: number;
+  baselineOutputTokens: number;
+  baselineEstimatedCostUsd: number;
+  actualInputTokens: number;
+  actualOutputTokens: number;
+  actualCostUsd: number;
+  modelRoute?: string;
+  taskType: string;
+  savingsMode: SavingsMode;
+  confidence: number;
+  promptHashes: Record<string, string>;
+};
+
 export type SqliteStorageConfig = {
   databasePath: string;
   storeRawPrompts?: boolean;
 };
 
 export const DEFAULT_DATABASE_FILENAME = "agent-sidecar.sqlite";
+const PROMPT_TEXT_REDACTED = "[prompt text redacted]";
+const PROMPT_HASH_KEYS = [
+  "prompt",
+  "userPrompt",
+  "user_prompt",
+  "originalPrompt",
+  "original_prompt",
+  "optimizedPrompt",
+  "optimized_prompt"
+];
 
 export function createStorageConfig(databasePath: string): SqliteStorageConfig {
   return { databasePath };
@@ -261,6 +291,15 @@ type EventRow = {
   event_json: string;
 };
 
+type EventPrivacyRow = {
+  id: string;
+  run_id: string;
+  event_type: HookEventType;
+  summary: string;
+  event_json: string;
+  raw_payload_json: string | null;
+};
+
 type DecisionRow = {
   decision_json: string;
 };
@@ -295,13 +334,29 @@ type PromptOptimizationRow = {
   result_json: string;
 };
 
+type CostEvidenceRow = {
+  run_id: string;
+  updated_at: string;
+  baseline_input_tokens: number;
+  baseline_output_tokens: number;
+  baseline_estimated_cost_usd: number;
+  actual_input_tokens: number;
+  actual_output_tokens: number;
+  actual_cost_usd: number;
+  model_route: string | null;
+  task_type: string;
+  savings_mode: SavingsMode;
+  confidence: number;
+  prompt_hashes_json: string;
+};
+
 export class Storage {
   private readonly db: Database.Database;
   private readonly storeRawPrompts: boolean;
 
   constructor(config: SqliteStorageConfig) {
     this.db = new Database(config.databasePath);
-    this.storeRawPrompts = config.storeRawPrompts ?? true;
+    this.storeRawPrompts = config.storeRawPrompts ?? false;
     this.db.pragma("foreign_keys = ON");
     this.migrate();
   }
@@ -671,6 +726,14 @@ export class Storage {
     optimization: PromptOptimizationResult,
     options: { originalPrompt?: string } = {}
   ): PromptOptimizationResult {
+    const persistedOptimization: PromptOptimizationResult = this.storeRawPrompts
+      ? optimization
+      : {
+          ...optimization,
+          originalPrompt: undefined,
+          optimizedPrompt: PROMPT_TEXT_REDACTED
+        };
+
     this.db
       .prepare(
         `
@@ -691,7 +754,7 @@ export class Storage {
         eventId: optimization.eventId,
         mode: optimization.mode,
         originalPrompt: this.storeRawPrompts ? (options.originalPrompt ?? null) : null,
-        optimizedPrompt: optimization.optimizedPrompt,
+        optimizedPrompt: persistedOptimization.optimizedPrompt,
         taskContractJson: JSON.stringify(optimization.taskContract),
         rewriteReason: optimization.rewriteReason,
         shouldInject: optimization.shouldInject ? 1 : 0,
@@ -699,10 +762,10 @@ export class Storage {
         deterministicOrModel: optimization.deterministicOrModel,
         estimatedTokenDelta: optimization.estimatedTokenDelta,
         createdAt: optimization.createdAt,
-        resultJson: JSON.stringify(stripUndefined(optimization))
+        resultJson: JSON.stringify(stripUndefined(persistedOptimization))
       });
 
-    return optimization;
+    return persistedOptimization;
   }
 
   getPromptOptimizationsForRun(runId: string): PromptOptimizationResult[] {
@@ -736,19 +799,164 @@ export class Storage {
     }));
   }
 
+  saveCostEvidence(evidence: CostEvidence): CostEvidence {
+    this.db
+      .prepare(
+        `
+        INSERT INTO cost_evidence (
+          run_id, updated_at, baseline_input_tokens, baseline_output_tokens,
+          baseline_estimated_cost_usd, actual_input_tokens, actual_output_tokens,
+          actual_cost_usd, model_route, task_type, savings_mode, confidence,
+          prompt_hashes_json
+        ) VALUES (
+          @runId, @updatedAt, @baselineInputTokens, @baselineOutputTokens,
+          @baselineEstimatedCostUsd, @actualInputTokens, @actualOutputTokens,
+          @actualCostUsd, @modelRoute, @taskType, @savingsMode, @confidence,
+          @promptHashesJson
+        )
+        ON CONFLICT(run_id) DO UPDATE SET
+          updated_at = excluded.updated_at,
+          baseline_input_tokens = excluded.baseline_input_tokens,
+          baseline_output_tokens = excluded.baseline_output_tokens,
+          baseline_estimated_cost_usd = excluded.baseline_estimated_cost_usd,
+          actual_input_tokens = excluded.actual_input_tokens,
+          actual_output_tokens = excluded.actual_output_tokens,
+          actual_cost_usd = excluded.actual_cost_usd,
+          model_route = excluded.model_route,
+          task_type = excluded.task_type,
+          savings_mode = excluded.savings_mode,
+          confidence = excluded.confidence,
+          prompt_hashes_json = excluded.prompt_hashes_json
+      `
+      )
+      .run({
+        ...evidence,
+        modelRoute: evidence.modelRoute ?? null,
+        promptHashesJson: JSON.stringify(evidence.promptHashes)
+      });
+
+    return evidence;
+  }
+
+  getCostEvidenceForRun(runId: string): CostEvidence | undefined {
+    const row = this.db.prepare("SELECT * FROM cost_evidence WHERE run_id = ?").get(runId) as CostEvidenceRow | undefined;
+    return row ? costEvidenceFromRow(row) : undefined;
+  }
+
+  getHistoricalCostEvidence(taskType: string, excludeRunId?: string, limit = 20): CostEvidence[] {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT * FROM cost_evidence
+        WHERE task_type = ?
+          AND run_id != COALESCE(?, '')
+          AND (baseline_estimated_cost_usd > 0 OR actual_cost_usd > 0)
+        ORDER BY updated_at DESC
+        LIMIT ?
+      `
+      )
+      .all(taskType, excludeRunId ?? null, limit) as CostEvidenceRow[];
+    return rows.map(costEvidenceFromRow);
+  }
+
   private getLesson(id: string): Lesson | undefined {
     const row = this.db.prepare("SELECT id, lesson_json FROM lessons WHERE id = ?").get(id) as LessonRow | undefined;
     return row ? (JSON.parse(row.lesson_json) as Lesson) : undefined;
   }
 
-  private migrate(): void {
-    const version = this.db.pragma("user_version", { simple: true }) as number;
-    if (version >= 1) {
-      return;
+  private redactStoredPromptText(): void {
+    const promptRows = this.db.prepare("SELECT id, result_json FROM prompt_optimizations").all() as Array<{
+      id: string;
+      result_json: string;
+    }>;
+    const updatePromptOptimization = this.db.prepare(
+      `
+      UPDATE prompt_optimizations
+      SET original_prompt = NULL,
+          optimized_prompt = @optimizedPrompt,
+          result_json = @resultJson
+      WHERE id = @id
+    `
+    );
+
+    for (const row of promptRows) {
+      const result = safeJsonParse(row.result_json);
+      const redacted = {
+        ...result,
+        originalPrompt: undefined,
+        optimizedPrompt: PROMPT_TEXT_REDACTED
+      };
+      updatePromptOptimization.run({
+        id: row.id,
+        optimizedPrompt: PROMPT_TEXT_REDACTED,
+        resultJson: JSON.stringify(stripUndefined(redacted))
+      });
     }
 
-    const runMigration = this.db.transaction(() => {
-      this.db.exec(`
+    const eventRows = this.db
+      .prepare("SELECT id, run_id, event_type, summary, event_json, raw_payload_json FROM events")
+      .all() as EventPrivacyRow[];
+    const updateEvent = this.db.prepare(
+      `
+      UPDATE events
+      SET summary = @summary,
+          event_json = @eventJson,
+          raw_payload_json = @rawPayloadJson
+      WHERE id = @id
+    `
+    );
+    const updateRunTaskSummary = this.db.prepare(
+      `
+      UPDATE runs
+      SET task_summary = @taskSummary
+      WHERE id = @runId
+        AND task_summary = @previousSummary
+    `
+    );
+
+    for (const row of eventRows) {
+      const eventJson = safeJsonParse(row.event_json);
+      const rawPayload = row.raw_payload_json ? safeJsonParse(row.raw_payload_json) : undefined;
+      const promptText =
+        findPromptTextInValue(rawPayload) ??
+        findPromptTextInValue(asStorageRecord(eventJson).compactMetadata) ??
+        (row.event_type === "prompt" ? row.summary : undefined);
+      const promptHash = promptText ? hashStorageString(promptText) : undefined;
+      const sanitizedRawPayload = sanitizePromptStoragePayload(rawPayload);
+      const sanitizedEvent = sanitizePromptStoragePayload({
+        ...eventJson,
+        rawPayload: sanitizedRawPayload,
+        compactMetadata: {
+          ...asStorageRecord(asStorageRecord(eventJson).compactMetadata),
+          ...(promptHash ? { promptHash } : {})
+        }
+      }) as JsonRecord;
+      const summary = row.event_type === "prompt" ? "Prompt submitted" : row.summary;
+      sanitizedEvent.summary = summary;
+
+      updateEvent.run({
+        id: row.id,
+        summary,
+        eventJson: JSON.stringify(stripUndefined(sanitizedEvent)),
+        rawPayloadJson: sanitizedRawPayload === undefined ? null : JSON.stringify(stripUndefined(sanitizedRawPayload))
+      });
+
+      if (row.event_type === "prompt") {
+        updateRunTaskSummary.run({
+          runId: row.run_id,
+          previousSummary: row.summary,
+          taskSummary: "Prompt submitted"
+        });
+      }
+    }
+  }
+
+  private migrate(): void {
+    const version = this.db.pragma("user_version", { simple: true }) as number;
+
+    if (version < 1) {
+      const runMigration = this.db.transaction(() => {
+        this.db.exec(`
         CREATE TABLE IF NOT EXISTS runs (
           id TEXT PRIMARY KEY,
           provider TEXT NOT NULL,
@@ -871,10 +1079,50 @@ export class Storage {
         CREATE INDEX IF NOT EXISTS idx_prompt_optimizations_event_id ON prompt_optimizations(event_id);
       `);
 
-      this.db.pragma("user_version = 1");
-    });
+        this.db.pragma("user_version = 1");
+      });
 
-    runMigration();
+      runMigration();
+    }
+
+    if (version < 2) {
+      const costEvidenceMigration = this.db.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS cost_evidence (
+            run_id TEXT PRIMARY KEY,
+            updated_at TEXT NOT NULL,
+            baseline_input_tokens INTEGER NOT NULL DEFAULT 0,
+            baseline_output_tokens INTEGER NOT NULL DEFAULT 0,
+            baseline_estimated_cost_usd REAL NOT NULL DEFAULT 0,
+            actual_input_tokens INTEGER NOT NULL DEFAULT 0,
+            actual_output_tokens INTEGER NOT NULL DEFAULT 0,
+            actual_cost_usd REAL NOT NULL DEFAULT 0,
+            model_route TEXT,
+            task_type TEXT NOT NULL,
+            savings_mode TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            prompt_hashes_json TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES runs(id)
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_cost_evidence_task_type_updated_at
+            ON cost_evidence(task_type, updated_at);
+        `);
+
+        this.db.pragma("user_version = 2");
+      });
+
+      costEvidenceMigration();
+    }
+
+    if (version < 3) {
+      const promptPrivacyMigration = this.db.transaction(() => {
+        this.redactStoredPromptText();
+        this.db.pragma("user_version = 3");
+      });
+
+      promptPrivacyMigration();
+    }
   }
 }
 
@@ -923,6 +1171,24 @@ function lessonParams(lesson: Lesson): Record<string, unknown> {
   };
 }
 
+function costEvidenceFromRow(row: CostEvidenceRow): CostEvidence {
+  return {
+    runId: row.run_id,
+    updatedAt: row.updated_at,
+    baselineInputTokens: row.baseline_input_tokens,
+    baselineOutputTokens: row.baseline_output_tokens,
+    baselineEstimatedCostUsd: row.baseline_estimated_cost_usd,
+    actualInputTokens: row.actual_input_tokens,
+    actualOutputTokens: row.actual_output_tokens,
+    actualCostUsd: row.actual_cost_usd,
+    modelRoute: row.model_route ?? undefined,
+    taskType: row.task_type,
+    savingsMode: row.savings_mode,
+    confidence: row.confidence,
+    promptHashes: JSON.parse(row.prompt_hashes_json) as Record<string, string>
+  };
+}
+
 function numberFromRecord(record: JsonRecord | undefined, keys: string[]): number {
   if (!record) {
     return 0;
@@ -936,6 +1202,75 @@ function numberFromRecord(record: JsonRecord | undefined, keys: string[]): numbe
   }
 
   return 0;
+}
+
+function sanitizePromptStoragePayload(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePromptStoragePayload(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const sanitized: JsonRecord = {};
+  for (const [key, childValue] of Object.entries(value as JsonRecord)) {
+    if (PROMPT_HASH_KEYS.includes(key) && typeof childValue === "string") {
+      sanitized[`${key}Hash`] = hashStorageString(childValue);
+      continue;
+    }
+    sanitized[key] = sanitizePromptStoragePayload(childValue);
+  }
+  return sanitized;
+}
+
+function findPromptTextInValue(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const nested = findPromptTextInValue(item);
+      if (nested) {
+        return nested;
+      }
+    }
+    return undefined;
+  }
+
+  const record = asStorageRecord(value);
+  for (const key of PROMPT_HASH_KEYS) {
+    const candidate = record[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    const candidate = findPromptTextInValue(nested);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+function asStorageRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
+}
+
+function safeJsonParse(value: string): JsonRecord {
+  try {
+    return asStorageRecord(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function hashStorageString(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function stripUndefined<T>(value: T): T {

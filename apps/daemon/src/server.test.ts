@@ -104,7 +104,7 @@ describe("@agent-sidecar/daemon", () => {
       event: {
         id: "hook-event-1",
         eventType: "prompt",
-        summary: "Implement the daemon routes."
+        summary: "Prompt submitted"
       },
       decision: {
         action: "inject_context",
@@ -126,9 +126,10 @@ describe("@agent-sidecar/daemon", () => {
     expect(eventsResponse.json()[0]).toMatchObject({
       id: "hook-event-1",
       rawPayload: {
-        prompt: "Implement the daemon routes."
+        promptHash: expect.any(String)
       }
     });
+    expect(eventsResponse.json()[0].rawPayload.prompt).toBeUndefined();
 
     expect(decisionsResponse.json()).toHaveLength(1);
     expect(decisionsResponse.json()[0]).toMatchObject({
@@ -168,14 +169,20 @@ describe("@agent-sidecar/daemon", () => {
 
     await server.inject({
       method: "POST",
-      url: "/hooks/generic",
+      url: "/hooks/codex",
       payload: {
         id: "usage-prompt",
         runId: "usage-run-1",
         providerEventType: "UserPromptSubmit",
         prompt: "Add billing telemetry",
         tokenUsage: { inputTokens: 1200, outputTokens: 140, totalTokens: 1340 },
-        costEstimate: { amountUsd: 0.043, source: "provider" }
+        costEstimate: { amountUsd: 0.043, source: "provider" },
+        codexBaseline: {
+          inputTokens: 2000,
+          outputTokens: 300,
+          estimatedCostUsd: 0.09,
+          modelRoute: "gpt-5-codex"
+        }
       }
     });
 
@@ -207,8 +214,8 @@ describe("@agent-sidecar/daemon", () => {
     expect(runsResponse.statusCode).toBe(200);
     expect(runsResponse.json()[0]).toMatchObject({
       id: "usage-run-1",
-      provider: "generic",
-      taskSummary: "Add billing telemetry",
+      provider: "codex",
+      taskSummary: "Prompt submitted",
       totalInputTokens: 1280,
       totalOutputTokens: 160
     });
@@ -231,7 +238,20 @@ describe("@agent-sidecar/daemon", () => {
           tokenUsage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
           costEstimate: { amountUsd: 0.006, source: "estimated" }
         }
-      ]
+      ],
+      costEvidence: {
+        runId: "usage-run-1",
+        baselineInputTokens: 2000,
+        baselineOutputTokens: 300,
+        baselineEstimatedCostUsd: 0.09,
+        actualInputTokens: 1280,
+        actualOutputTokens: 160,
+        actualCostUsd: 0.049,
+        modelRoute: "gpt-5-codex",
+        taskType: "prompt_refinement",
+        savingsMode: "codex_baseline",
+        confidence: 0.95
+      }
     });
     expect(dashboardResponse.json().run.totalEstimatedCostUsd).toBeCloseTo(0.049);
   });
@@ -267,7 +287,7 @@ describe("@agent-sidecar/daemon", () => {
     expect(hookResponse.json()).toMatchObject({
       action: "inject_context",
       reason: "prompt_optimized",
-      message: expect.stringContaining("Task:\nFix the logger issue"),
+      message: "Prompt optimized; use the immediate hook response for generated prompt text.",
       run: {
         id: "demo-run-2",
         provider: "codex",
@@ -276,7 +296,7 @@ describe("@agent-sidecar/daemon", () => {
       event: {
         eventType: "prompt",
         providerEventType: "UserPromptSubmit",
-        summary: "Fix the logger issue"
+        summary: "Prompt submitted"
       },
       decision: {
         action: "inject_context",
@@ -288,6 +308,7 @@ describe("@agent-sidecar/daemon", () => {
           task: "Fix the logger issue"
         },
         rewriteReason: "Optimized by local DeepSeek R1.",
+        optimizedPrompt: expect.stringContaining("Task:\nFix the logger issue"),
         shouldInject: true,
         injected: true,
         deterministicOrModel: "model_assisted"
@@ -299,9 +320,10 @@ describe("@agent-sidecar/daemon", () => {
       expect.objectContaining({
         runId: "demo-run-2",
         mode: "initial_task",
-        optimizedPrompt: expect.stringContaining("Task:\nFix the logger issue")
+        optimizedPrompt: "[prompt text redacted]"
       })
     ]);
+    expect(optimizationsResponse.json()[0].originalPrompt).toBeUndefined();
     expect(demoResponse.statusCode).toBe(200);
     expect(demoResponse.json()).toMatchObject({
       run: { id: "demo-run-2" },
@@ -313,11 +335,14 @@ describe("@agent-sidecar/daemon", () => {
       ],
       promptOptimizations: [
         {
-          originalPrompt: "Fix the logger issue",
-          result: { mode: "initial_task" }
+          result: {
+            mode: "initial_task",
+            optimizedPrompt: "[prompt text redacted]"
+          }
         }
       ]
     });
+    expect(demoResponse.json().promptOptimizations[0].originalPrompt).toBeUndefined();
   });
   it("ingests generic hooks and updates run state across prompt, tool, edit, and validation events", async () => {
     const databasePath = await createTempDatabasePath();
@@ -427,7 +452,11 @@ describe("@agent-sidecar/daemon", () => {
       optimization: { deterministicOrModel: "deterministic", originalPrompt: "make the app better" }
     });
     expect(refineResponse.json().optimization.optimizedPrompt).toContain("Task:");
-    expect(optimizationsResponse.json()[0]).toMatchObject({ runId: "refine-run-1", deterministicOrModel: "deterministic" });
+    expect(optimizationsResponse.json()[0]).toMatchObject({
+      runId: "refine-run-1",
+      deterministicOrModel: "deterministic",
+      optimizedPrompt: "[prompt text redacted]"
+    });
   });
 
   it("tries the local DeepSeek optimizer for API prompt refinement when configured", async () => {

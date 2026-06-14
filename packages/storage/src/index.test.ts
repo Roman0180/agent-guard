@@ -9,6 +9,7 @@ import {
   createStorageConfig,
   DEFAULT_DATABASE_FILENAME,
   Storage,
+  type CostEvidence,
   type Decision,
   type Lesson,
   type NormalizedAgentEvent,
@@ -93,7 +94,7 @@ describe("@agent-sidecar/storage", () => {
     const userVersion = db.pragma("user_version", { simple: true });
     db.close();
 
-    expect(userVersion).toBe(1);
+    expect(userVersion).toBe(3);
     expect(tables.map((table) => table.name)).toEqual(
       expect.arrayContaining([
         "runs",
@@ -103,7 +104,8 @@ describe("@agent-sidecar/storage", () => {
         "lessons",
         "feedback",
         "run_state_snapshots",
-        "prompt_optimizations"
+        "prompt_optimizations",
+        "cost_evidence"
       ])
     );
   });
@@ -303,7 +305,14 @@ describe("@agent-sidecar/storage", () => {
     expect(storage.getPolicyForRepo("/repo")?.policy.validation.requireAfterEdit).toBe(true);
     expect(storage.getPolicyForRepo("/unknown")?.id).toBe("policy-global-2");
     expect(storage.listLessons("approved")).toHaveLength(1);
-    expect(storage.getPromptOptimizationsForRun(run.id)).toEqual([promptOptimization]);
+    const { originalPrompt: _discardedPrompt, ...expectedPromptOptimization } = promptOptimization;
+    const storedPromptOptimizations = storage.getPromptOptimizationsForRun(run.id);
+    expect(storedPromptOptimizations).toHaveLength(1);
+    expect(storedPromptOptimizations[0]).toMatchObject({
+      ...expectedPromptOptimization,
+      optimizedPrompt: "[prompt text redacted]"
+    });
+    expect(storedPromptOptimizations[0]?.originalPrompt).toBeUndefined();
 
     storage.close();
   });
@@ -360,11 +369,51 @@ describe("@agent-sidecar/storage", () => {
 
     const db = new Database(databasePath, { readonly: true });
     const row = db
-      .prepare("SELECT original_prompt, optimized_prompt FROM prompt_optimizations WHERE id = ?")
-      .get("prompt-optimization-privacy") as { original_prompt: string | null; optimized_prompt: string };
+      .prepare("SELECT original_prompt, optimized_prompt, result_json FROM prompt_optimizations WHERE id = ?")
+      .get("prompt-optimization-privacy") as { original_prompt: string | null; optimized_prompt: string; result_json: string };
     db.close();
 
     expect(row.original_prompt).toBeNull();
-    expect(row.optimized_prompt).toBe("Task: Keep prompt text out of storage.");
+    expect(row.optimized_prompt).toBe("[prompt text redacted]");
+    expect(row.result_json).not.toContain("Sensitive raw prompt");
+    expect(row.result_json).not.toContain("Task: Keep prompt text out of storage.");
+  });
+
+  it("stores run cost evidence without prompt text", async () => {
+    const databasePath = await createTempDatabasePath();
+    const storage = new Storage({ databasePath });
+    storage.createRun({
+      id: "run-cost",
+      provider: "codex",
+      status: "active",
+      startedAt: now,
+      updatedAt: now
+    });
+
+    const evidence: CostEvidence = {
+      runId: "run-cost",
+      updatedAt: now,
+      baselineInputTokens: 1000,
+      baselineOutputTokens: 250,
+      baselineEstimatedCostUsd: 0.0725,
+      actualInputTokens: 650,
+      actualOutputTokens: 180,
+      actualCostUsd: 0.045,
+      modelRoute: "gpt-5-codex",
+      taskType: "code_edit",
+      savingsMode: "codex_baseline",
+      confidence: 0.95,
+      promptHashes: {
+        originalPrompt: "abc123",
+        optimizedPrompt: "def456"
+      }
+    };
+
+    storage.saveCostEvidence(evidence);
+
+    expect(storage.getCostEvidenceForRun("run-cost")).toEqual(evidence);
+    expect(storage.getHistoricalCostEvidence("code_edit", "other-run")).toEqual([evidence]);
+
+    storage.close();
   });
 });

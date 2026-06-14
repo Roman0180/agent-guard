@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import Fastify, { type FastifyInstance } from "fastify";
 import {
@@ -13,6 +13,7 @@ import { PromptOptimizer, type PromptOptimizationInput } from "@agent-sidecar/pr
 import { SteeringEngine, type LocalModelSteeringOptions, type SteeringDecision } from "@agent-sidecar/steering";
 import {
   Storage,
+  type CostEvidence,
   type Decision,
   type Feedback,
   type Lesson,
@@ -21,6 +22,7 @@ import {
   type PromptOptimizationRecord,
   type PromptOptimizationResult,
   type RunState,
+  type SavingsMode,
   type StoredRun
 } from "@agent-sidecar/storage";
 
@@ -47,6 +49,40 @@ type HookProvider = "codex" | "claude" | "generic";
 
 type UnknownRecord = Record<string, unknown>;
 
+type TokenCostTotals = {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+};
+
+type BaselineEstimate = {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  modelRoute?: string;
+  savingsMode: SavingsMode;
+  confidence: number;
+};
+
+const DEFAULT_INPUT_COST_PER_TOKEN_USD = envNumber(
+  "AGENT_SIDECAR_INPUT_COST_PER_TOKEN_USD",
+  envNumber("AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD", 0.00001)
+);
+const DEFAULT_OUTPUT_COST_PER_TOKEN_USD = envNumber(
+  "AGENT_SIDECAR_OUTPUT_COST_PER_TOKEN_USD",
+  envNumber("AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD", 0.00001)
+);
+
+const PROMPT_HASH_KEYS = [
+  "prompt",
+  "userPrompt",
+  "user_prompt",
+  "originalPrompt",
+  "original_prompt",
+  "optimizedPrompt",
+  "optimized_prompt"
+];
+
 type HookIngestResult = {
   action: Decision["action"];
   reason: string;
@@ -54,6 +90,7 @@ type HookIngestResult = {
   run: StoredRun;
   event: NormalizedAgentEvent;
   decision: Decision;
+  cost_evidence?: CostEvidence;
   prompt_optimization?: PromptOptimizationResult;
 };
 
@@ -154,6 +191,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       storage.listEventsForRun(run.id),
       storage.listDecisionsForRun(run.id),
       storage.getPromptOptimizationRecordsForRun(run.id),
+      storage.getCostEvidenceForRun(run.id),
       storage.getLatestRunStateSnapshot(run.id)
     );
   });
@@ -169,6 +207,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       storage.listEventsForRun(run.id),
       storage.listDecisionsForRun(run.id),
       storage.getPromptOptimizationRecordsForRun(run.id),
+      storage.getCostEvidenceForRun(run.id),
       storage.getLatestRunStateSnapshot(run.id)
     );
   });
@@ -184,12 +223,14 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
 
   server.post("/api/events", async (request, reply) => {
     const event = request.body as NormalizedAgentEvent & { rawPayload?: unknown };
-    ensureRun(storage, event.runId, event.agent);
-    storage.addEvent(event);
-    storage.updateRunFromEvent(event);
-    maybeUpdateRunState(storage, event);
+    const run = ensureRun(storage, event.runId, event.agent);
+    const storedEvent = sanitizeEventForStorage(event);
+    storage.addEvent(storedEvent);
+    const updatedRun = storage.updateRunFromEvent(storedEvent) ?? run;
+    maybeUpdateRunState(storage, storedEvent);
+    const costEvidence = updateCostEvidence(storage, updatedRun, storedEvent, asRecord(request.body));
     const steering = await maybeAutoSteer(storage, event.runId, options);
-    return reply.code(201).send(steering ? { event, steering } : event);
+    return reply.code(201).send(steering ? { event: storedEvent, steering, costEvidence } : { event: storedEvent, costEvidence });
   });
 
   server.post("/api/decide", async (request, reply) => {
@@ -296,7 +337,7 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     const prompt = requiredString(body.prompt, "prompt");
     const now = new Date().toISOString();
     const run = ensureRun(storage, stringValue(body.runId) ?? randomUUID(), providerValue(body.provider) ?? "generic");
-    const event: NormalizedAgentEvent = {
+    const event: NormalizedAgentEvent = sanitizeEventForStorage({
       id: stringValue(body.eventId) ?? randomUUID(),
       runId: run.id,
       agent: run.provider,
@@ -306,13 +347,14 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       actor: "user",
       summary: truncate(prompt, 240),
       compactMetadata: { source: "cli.refine" }
-    };
+    });
     storage.addEvent(event);
     storage.updateRunFromEvent(event);
     const runState = maybeUpdateRunState(storage, event) ?? createFallbackRunState(run, event);
     const optimization = await optimizePromptForRun(storage, run, event, prompt, now, runState, options, true);
     storage.savePromptOptimization(optimization, { originalPrompt: prompt });
-    return reply.code(201).send({ run, event, optimization });
+    const costEvidence = updateCostEvidence(storage, run, event, body, optimization);
+    return reply.code(201).send({ run, event, optimization, costEvidence });
   });
 
   server.post("/api/prompt-optimizations", async (request, reply) => {
@@ -321,6 +363,11 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
     storage.savePromptOptimization(optimization, {
       originalPrompt: stringValue(body.originalPrompt)
     });
+    const run = storage.getRun(optimization.runId);
+    const event = storage.listEventsForRun(optimization.runId).find((candidate) => candidate.id === optimization.eventId);
+    if (run && event) {
+      updateCostEvidence(storage, run, event, body, optimization);
+    }
     return reply.code(201).send(optimization);
   });
 
@@ -365,7 +412,7 @@ async function ingestHook(
     runId: run.id,
     timestamp: stringValue(body.timestamp) ?? now
   });
-  const event: NormalizedAgentEvent & { rawPayload: unknown } = {
+  const event: NormalizedAgentEvent & { rawPayload?: unknown } = sanitizeEventForStorage({
     ...normalized,
     runId: run.id,
     rawEventId: stringValue(body.rawEventId) ?? normalized.rawEventId,
@@ -374,7 +421,7 @@ async function ingestHook(
       hookProvider: provider
     },
     rawPayload: payload
-  };
+  });
 
   storage.addEvent(event);
   const updatedRun = storage.updateRunFromEvent(event) ?? run;
@@ -391,6 +438,7 @@ async function ingestHook(
   const { rawPayload: _rawPayload, ...eventForState } = event;
   const runState = runStateManager.applyEvent(CoreNormalizedAgentEventSchema.parse(eventForState)) as RunState;
   const promptOptimization = await maybeOptimizePrompt(storage, run, event, body, now, runState, options);
+  const costEvidence = updateCostEvidence(storage, updatedRun, event, body, promptOptimization);
   const steeringDecision = await maybeAutoSteer(storage, run.id, options);
   const decision = promptOptimization
     ? createPromptOptimizationDecision(run.id, event.id, promptOptimization)
@@ -406,6 +454,7 @@ async function ingestHook(
     run: updatedRun,
     event,
     decision,
+    cost_evidence: costEvidence,
     ...(promptOptimization ? { prompt_optimization: promptOptimization } : {}),
     ...(steeringDecision ? { steering: steeringDecision } : {})
   };
@@ -417,6 +466,7 @@ type DemoReplay = {
   events: NormalizedAgentEvent[];
   decisions: Decision[];
   promptOptimizations: PromptOptimizationRecord[];
+  costEvidence?: CostEvidence;
   state?: RunState;
 };
 
@@ -425,6 +475,7 @@ function createDemoReplay(
   events: NormalizedAgentEvent[],
   decisions: Decision[],
   promptOptimizations: PromptOptimizationRecord[],
+  costEvidence?: CostEvidence,
   snapshot?: { state: RunState }
 ): DemoReplay {
   const hasPrompt = events.some((event) => event.eventType === "prompt");
@@ -462,6 +513,7 @@ function createDemoReplay(
     events,
     decisions,
     promptOptimizations,
+    costEvidence,
     state: snapshot?.state
   };
 }
@@ -616,6 +668,408 @@ function createFallbackRunState(run: StoredRun, event: NormalizedAgentEvent): Ru
   };
 }
 
+function sanitizeEventForStorage<T extends NormalizedAgentEvent & { rawPayload?: unknown }>(
+  event: T
+): NormalizedAgentEvent & { rawPayload?: unknown } {
+  const promptText = findPromptText(asRecord(event.rawPayload)) ?? stringValue(event.compactMetadata?.userPrompt) ?? (event.eventType === "prompt" ? event.summary : undefined);
+  const promptHash = promptText ? hashString(promptText) : undefined;
+  const compactMetadata = sanitizePromptPayload({
+    ...event.compactMetadata,
+    ...(promptHash ? { promptHash } : {})
+  }) as UnknownRecord;
+
+  return {
+    ...event,
+    summary: event.eventType === "prompt" ? "Prompt submitted" : event.summary,
+    compactMetadata,
+    rawPayload: sanitizePromptPayload(event.rawPayload)
+  };
+}
+
+function sanitizePromptPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizePromptPayload(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const sanitized: UnknownRecord = {};
+  for (const [key, childValue] of Object.entries(value as UnknownRecord)) {
+    if (PROMPT_HASH_KEYS.includes(key) && typeof childValue === "string") {
+      sanitized[`${key}Hash`] = hashString(childValue);
+      continue;
+    }
+    sanitized[key] = sanitizePromptPayload(childValue);
+  }
+  return sanitized;
+}
+
+function findPromptText(record: UnknownRecord): string | undefined {
+  for (const key of PROMPT_HASH_KEYS) {
+    const value = stringValue(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    if (value && typeof value === "object") {
+      const nested = findPromptText(asRecord(value));
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function updateCostEvidence(
+  storage: Storage,
+  run: StoredRun,
+  event?: NormalizedAgentEvent & { rawPayload?: unknown },
+  body: UnknownRecord = {},
+  optimization?: PromptOptimizationResult
+): CostEvidence {
+  const events = storage.listEventsForRun(run.id) as Array<NormalizedAgentEvent & { rawPayload?: unknown }>;
+  const promptOptimizationRecords = storage.getPromptOptimizationRecordsForRun(run.id);
+  const taskType = classifyTaskType(run, events, promptOptimizationRecords, body);
+  const eventTotals = sumActualCostFromEvents(events);
+  const optimizationTotals = estimateActualFromPromptOptimizations(promptOptimizationRecords, optimization);
+  const actualInputTokens = eventTotals.inputTokens > 0 ? eventTotals.inputTokens : (run.totalInputTokens ?? 0) || optimizationTotals.inputTokens;
+  const actualOutputTokens = eventTotals.outputTokens > 0 ? eventTotals.outputTokens : (run.totalOutputTokens ?? 0) || optimizationTotals.outputTokens;
+  const actualCostUsd =
+    eventTotals.costUsd > 0
+      ? eventTotals.costUsd
+      : (run.totalEstimatedCostUsd ?? 0) || estimateTokenCost(actualInputTokens, actualOutputTokens);
+  const records = [body, asRecord(event?.rawPayload), ...events.map((storedEvent) => asRecord(storedEvent.rawPayload))];
+  const codexBaseline = findCodexBaseline(records);
+  const baseline =
+    codexBaseline ??
+    findHistoricalBaseline(storage, taskType, run.id) ??
+    heuristicBaseline(taskType, { inputTokens: actualInputTokens, outputTokens: actualOutputTokens, costUsd: actualCostUsd }, promptOptimizationRecords, optimization);
+  const modelRoute = baseline.modelRoute ?? findModelRoute(records) ?? run.provider;
+  const evidence: CostEvidence = {
+    runId: run.id,
+    updatedAt: event?.timestamp ?? new Date().toISOString(),
+    baselineInputTokens: Math.round(baseline.inputTokens),
+    baselineOutputTokens: Math.round(baseline.outputTokens),
+    baselineEstimatedCostUsd: roundCurrency(baseline.costUsd),
+    actualInputTokens: Math.round(actualInputTokens),
+    actualOutputTokens: Math.round(actualOutputTokens),
+    actualCostUsd: roundCurrency(actualCostUsd),
+    modelRoute,
+    taskType,
+    savingsMode: baseline.savingsMode,
+    confidence: baseline.confidence,
+    promptHashes: collectPromptHashes(records, optimization)
+  };
+  return storage.saveCostEvidence(evidence);
+}
+
+function sumActualCostFromEvents(events: Array<NormalizedAgentEvent & { rawPayload?: unknown }>): TokenCostTotals {
+  return events.reduce<TokenCostTotals>(
+    (sum, event) => {
+      const totals = extractActualCostFromEvent(event);
+      return {
+        inputTokens: sum.inputTokens + totals.inputTokens,
+        outputTokens: sum.outputTokens + totals.outputTokens,
+        costUsd: sum.costUsd + totals.costUsd
+      };
+    },
+    { inputTokens: 0, outputTokens: 0, costUsd: 0 }
+  );
+}
+
+function extractActualCostFromEvent(event: NormalizedAgentEvent & { rawPayload?: unknown }): TokenCostTotals {
+  const raw = asRecord(event.rawPayload);
+  const tokenSources = [asRecord(event.tokenUsage), asRecord(raw.tokenUsage), asRecord(raw.token_usage), asRecord(raw.usage), raw];
+  const costSources = [asRecord(event.costEstimate), asRecord(raw.costEstimate), asRecord(raw.cost_estimate), asRecord(raw.cost), raw];
+  const inputTokens = firstNumber(tokenSources, ["inputTokens", "input_tokens", "prompt_tokens", "promptTokens"]) ?? 0;
+  const outputTokens = firstNumber(tokenSources, ["outputTokens", "output_tokens", "completion_tokens", "completionTokens"]) ?? 0;
+  const inputTokenCost =
+    firstNumber(costSources, ["actualInputTokenCostUsd", "actual_input_token_cost_usd", "inputTokenCostUsd", "input_token_cost_usd"]) ??
+    inputTokens * DEFAULT_INPUT_COST_PER_TOKEN_USD;
+  const outputTokenCost =
+    firstNumber(costSources, ["actualOutputTokenCostUsd", "actual_output_token_cost_usd", "outputTokenCostUsd", "output_token_cost_usd"]) ??
+    outputTokens * DEFAULT_OUTPUT_COST_PER_TOKEN_USD;
+  const overheadUsd = firstNumber(costSources, ["actualRetryToolOverheadUsd", "actual_retry_tool_overhead_usd", "retryToolOverheadUsd", "retry_tool_overhead_usd", "toolOverheadUsd", "tool_overhead_usd", "overheadUsd", "overhead_usd"]) ?? 0;
+  const directCost = firstNumber(costSources, ["amountUsd", "amount_usd", "costUsd", "cost_usd", "actualCostUsd", "actual_cost_usd"]);
+  const costUsd = directCost ?? inputTokenCost + outputTokenCost + overheadUsd;
+
+  return {
+    inputTokens,
+    outputTokens,
+    costUsd
+  };
+}
+
+function estimateActualFromPromptOptimizations(
+  records: PromptOptimizationRecord[],
+  optimization?: PromptOptimizationResult
+): TokenCostTotals {
+  const seen = new Set<string>();
+  const optimizations = [...records.map((record) => record.result), optimization].filter(
+    (record): record is PromptOptimizationResult => Boolean(record && !seen.has(record.id) && seen.add(record.id))
+  );
+  const inputTokens = optimizations.reduce((sum, record) => sum + Math.max(0, record.estimatedOptimizedTokens), 0);
+  return {
+    inputTokens,
+    outputTokens: 0,
+    costUsd: estimateTokenCost(inputTokens, 0)
+  };
+}
+
+function findCodexBaseline(records: UnknownRecord[]): BaselineEstimate | undefined {
+  for (const record of records) {
+    for (const source of baselineSources(record)) {
+      const inputTokens = firstNumber([source.record], source.strict ? ["baselineInputTokens", "baseline_input_tokens", "codexBaselineInputTokens", "codex_baseline_input_tokens"] : ["baselineInputTokens", "baseline_input_tokens", "inputTokens", "input_tokens", "prompt_tokens", "promptTokens"]);
+      const outputTokens = firstNumber([source.record], source.strict ? ["baselineOutputTokens", "baseline_output_tokens", "codexBaselineOutputTokens", "codex_baseline_output_tokens"] : ["baselineOutputTokens", "baseline_output_tokens", "outputTokens", "output_tokens", "completion_tokens", "completionTokens"]);
+      const directCost = firstNumber([source.record], source.strict ? ["baselineEstimatedCostUsd", "baseline_estimated_cost_usd", "codexBaselineEstimatedCostUsd", "codex_baseline_estimated_cost_usd", "baselineCostUsd", "baseline_cost_usd"] : ["baselineEstimatedCostUsd", "baseline_estimated_cost_usd", "estimatedCostUsd", "estimated_cost_usd", "costUsd", "cost_usd", "amountUsd", "amount_usd"]);
+      const inputCost = firstNumber([source.record], ["baselineInputTokenCostUsd", "baseline_input_token_cost_usd", "inputTokenCostUsd", "input_token_cost_usd"]);
+      const outputCost = firstNumber([source.record], ["baselineOutputTokenCostUsd", "baseline_output_token_cost_usd", "outputTokenCostUsd", "output_token_cost_usd"]);
+      const overheadUsd = firstNumber([source.record], ["baselineRetryToolOverheadUsd", "baseline_retry_tool_overhead_usd", "retryToolOverheadUsd", "retry_tool_overhead_usd", "toolOverheadUsd", "tool_overhead_usd", "overheadUsd", "overhead_usd"]) ?? 0;
+
+      if (inputTokens === undefined && outputTokens === undefined && directCost === undefined && inputCost === undefined && outputCost === undefined) {
+        continue;
+      }
+
+      const baselineInputTokens = inputTokens ?? 0;
+      const baselineOutputTokens = outputTokens ?? 0;
+      const estimatedCost =
+        directCost ??
+        (inputCost ?? baselineInputTokens * DEFAULT_INPUT_COST_PER_TOKEN_USD) +
+          (outputCost ?? baselineOutputTokens * DEFAULT_OUTPUT_COST_PER_TOKEN_USD) +
+          overheadUsd;
+      return {
+        inputTokens: baselineInputTokens,
+        outputTokens: baselineOutputTokens,
+        costUsd: estimatedCost,
+        modelRoute: findModelRoute([source.record]),
+        savingsMode: "codex_baseline",
+        confidence: 0.95
+      };
+    }
+  }
+
+  return undefined;
+}
+
+function baselineSources(record: UnknownRecord): Array<{ record: UnknownRecord; strict: boolean }> {
+  const sources: Array<{ record: UnknownRecord; strict: boolean }> = [{ record, strict: true }];
+  for (const key of [
+    "codexBaseline",
+    "codex_baseline",
+    "baselineTelemetry",
+    "baseline_telemetry",
+    "baseline",
+    "unmodifiedRun",
+    "unmodified_run",
+    "unmodifiedPath",
+    "unmodified_path"
+  ]) {
+    const nested = asRecord(record[key]);
+    if (Object.keys(nested).length > 0) {
+      sources.push({ record: nested, strict: false });
+    }
+  }
+
+  const codex = asRecord(record.codex);
+  for (const key of ["baseline", "baselineTelemetry", "baseline_telemetry"]) {
+    const nested = asRecord(codex[key]);
+    if (Object.keys(nested).length > 0) {
+      sources.push({ record: nested, strict: false });
+    }
+  }
+
+  return sources;
+}
+
+function findHistoricalBaseline(storage: Storage, taskType: string, runId: string): BaselineEstimate | undefined {
+  const history = storage.getHistoricalCostEvidence(taskType, runId);
+  if (history.length === 0) {
+    return undefined;
+  }
+
+  const inputTokens = average(history.map((record) => record.baselineInputTokens || record.actualInputTokens));
+  const outputTokens = average(history.map((record) => record.baselineOutputTokens || record.actualOutputTokens));
+  const costUsd = average(history.map((record) => record.baselineEstimatedCostUsd || record.actualCostUsd));
+  return {
+    inputTokens,
+    outputTokens,
+    costUsd,
+    modelRoute: history.find((record) => record.modelRoute)?.modelRoute,
+    savingsMode: "historical_local_baseline",
+    confidence: 0.7
+  };
+}
+
+function heuristicBaseline(
+  taskType: string,
+  actual: TokenCostTotals,
+  records: PromptOptimizationRecord[],
+  optimization?: PromptOptimizationResult
+): BaselineEstimate {
+  const profile = heuristicProfile(taskType);
+  const promptOptimizations = [...records.map((record) => record.result), optimization].filter(
+    (record): record is PromptOptimizationResult => Boolean(record)
+  );
+  const originalPromptTokenEstimate = promptOptimizations.reduce((sum, record) => {
+    return sum + Math.max(0, record.estimatedOptimizedTokens - record.estimatedTokenDelta);
+  }, 0);
+  const optimizedPromptTokenEstimate = promptOptimizations.reduce((sum, record) => sum + Math.max(0, record.estimatedOptimizedTokens), 0);
+  const actualInputTokens = actual.inputTokens || optimizedPromptTokenEstimate;
+  const actualOutputTokens = actual.outputTokens;
+  const baselineInputTokens =
+    actualInputTokens > 0
+      ? Math.max(originalPromptTokenEstimate, actualInputTokens * profile.inputMultiplier)
+      : 0;
+  const baselineOutputTokens = actualOutputTokens > 0 ? actualOutputTokens * profile.outputMultiplier : 0;
+  const baselineCostUsd =
+    actual.costUsd > 0
+      ? actual.costUsd * profile.costMultiplier
+      : estimateTokenCost(baselineInputTokens, baselineOutputTokens);
+
+  return {
+    inputTokens: baselineInputTokens,
+    outputTokens: baselineOutputTokens,
+    costUsd: baselineCostUsd,
+    savingsMode: "heuristic",
+    confidence: 0.45
+  };
+}
+
+function heuristicProfile(taskType: string): { inputMultiplier: number; outputMultiplier: number; costMultiplier: number } {
+  if (taskType === "tool_loop") {
+    return { inputMultiplier: 1.7, outputMultiplier: 1.35, costMultiplier: 1.7 };
+  }
+  if (taskType === "validation_repair") {
+    return { inputMultiplier: 1.5, outputMultiplier: 1.25, costMultiplier: 1.5 };
+  }
+  if (taskType === "code_edit") {
+    return { inputMultiplier: 1.35, outputMultiplier: 1.2, costMultiplier: 1.35 };
+  }
+  if (taskType === "prompt_refinement") {
+    return { inputMultiplier: 1.25, outputMultiplier: 1.1, costMultiplier: 1.25 };
+  }
+  return { inputMultiplier: 1.2, outputMultiplier: 1.1, costMultiplier: 1.2 };
+}
+
+function classifyTaskType(
+  run: StoredRun,
+  events: Array<NormalizedAgentEvent & { rawPayload?: unknown }>,
+  promptOptimizations: PromptOptimizationRecord[],
+  body: UnknownRecord
+): string {
+  const provided = stringValue(body.taskType) ?? stringValue(body.task_type);
+  if (provided) {
+    return provided.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "coding_agent_run";
+  }
+
+  if (events.some((event) => event.validation?.status === "failed" || event.eventType === "error")) {
+    return "validation_repair";
+  }
+  if (events.filter((event) => event.eventType === "tool_call").length >= 3) {
+    return "tool_loop";
+  }
+  if (events.some((event) => event.eventType === "file_edit")) {
+    return "code_edit";
+  }
+  if (promptOptimizations.length > 0) {
+    return "prompt_refinement";
+  }
+  if (events.some((event) => event.eventType === "prompt") || run.taskSummary) {
+    return "coding_prompt";
+  }
+  return "coding_agent_run";
+}
+
+function collectPromptHashes(records: UnknownRecord[], optimization?: PromptOptimizationResult): Record<string, string> {
+  const hashes: Record<string, string> = {};
+  for (const record of records) {
+    for (const key of PROMPT_HASH_KEYS) {
+      addPromptHash(hashes, key, record[key]);
+    }
+    for (const nestedKey of ["baseline", "codexBaseline", "codex_baseline", "promptOptimization", "prompt_optimization"]) {
+      const nested = asRecord(record[nestedKey]);
+      for (const key of PROMPT_HASH_KEYS) {
+        addPromptHash(hashes, key, nested[key]);
+      }
+    }
+  }
+
+  addPromptHash(hashes, "originalPrompt", optimization?.originalPrompt);
+  addPromptHash(hashes, "optimizedPrompt", optimization?.optimizedPrompt);
+  return hashes;
+}
+
+function addPromptHash(hashes: Record<string, string>, key: string, value: unknown): void {
+  if (typeof value === "string" && value.trim().length > 0) {
+    hashes[key] = hashString(value);
+  }
+}
+
+function findModelRoute(records: UnknownRecord[]): string | undefined {
+  for (const record of records) {
+    const direct = stringValue(record.modelRoute) ?? stringValue(record.model_route) ?? stringValue(record.route) ?? stringValue(record.model) ?? stringValue(record.model_slug);
+    if (direct) {
+      return direct;
+    }
+    for (const nestedKey of ["baseline", "codexBaseline", "codex_baseline", "cost", "costEstimate", "cost_estimate"]) {
+      const nested = asRecord(record[nestedKey]);
+      const nestedRoute = stringValue(nested.modelRoute) ?? stringValue(nested.model_route) ?? stringValue(nested.route) ?? stringValue(nested.model) ?? stringValue(nested.model_slug);
+      if (nestedRoute) {
+        return nestedRoute;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function estimateTokenCost(inputTokens: number, outputTokens: number): number {
+  return inputTokens * DEFAULT_INPUT_COST_PER_TOKEN_USD + outputTokens * DEFAULT_OUTPUT_COST_PER_TOKEN_USD;
+}
+
+function firstNumber(records: UnknownRecord[], keys: string[]): number | undefined {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = numberFromUnknown(record[key]);
+      if (value !== undefined) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function numberFromUnknown(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function average(values: number[]): number {
+  const filtered = values.filter((value) => Number.isFinite(value) && value > 0);
+  return filtered.length > 0 ? filtered.reduce((sum, value) => sum + value, 0) / filtered.length : 0;
+}
+
+function roundCurrency(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function hashString(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function createPromptOptimizationDecision(
   runId: string,
   eventId: string,
@@ -630,14 +1084,15 @@ function createPromptOptimizationDecision(
     action: "inject_context",
     severity: "info",
     reasonCode: "prompt_optimized",
-    message: optimization.optimizedPrompt,
-    continuationPrompt: optimization.optimizedPrompt,
+    message: "Prompt optimized; use the immediate hook response for generated prompt text.",
     lessonIds: optimization.relevantLessons.map((lesson) => lesson.id),
     compactMetadata: {
       promptOptimizationId: optimization.id,
       rewriteReason: optimization.rewriteReason,
       estimatedTokenDelta: optimization.estimatedTokenDelta,
-      deterministicOrModel: optimization.deterministicOrModel
+      deterministicOrModel: optimization.deterministicOrModel,
+      originalPromptHash: optimization.originalPrompt ? hashString(optimization.originalPrompt) : undefined,
+      optimizedPromptHash: hashString(optimization.optimizedPrompt)
     }
   };
 }
@@ -784,6 +1239,11 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function envNumber(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function providerValue(value: unknown): StoredRun["provider"] | undefined {

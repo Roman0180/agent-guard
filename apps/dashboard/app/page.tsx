@@ -136,11 +136,6 @@ function HowToUse() {
 
 function DashboardPreview() {
   const nav = ["Traces", "Decisions", "Policies", "Lessons", "Analytics"];
-  const runs = [
-    ["auth-refresh-fix", "require validation", "healthy"],
-    ["billing-webhook", "inject lesson", "watching"],
-    ["worker-memory-leak", "block repeat", "review"]
-  ];
 
   return (
     <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
@@ -213,36 +208,17 @@ function DashboardPreview() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 lg:grid-cols-[1.08fr_0.92fr]">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 flex items-center justify-between px-2 font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">
-                  <span>trace</span>
-                  <span>decision</span>
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              {[
+                ["prompt contract", "scope and validation extracted before Codex runs"],
+                ["model route", "narrow edits stay on the cheaper viable path"],
+                ["validated delta", "cost movement counted after the task succeeds"]
+              ].map(([label, copy]) => (
+                <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#22d3ee]">{label}</p>
+                  <p className="mt-3 text-sm leading-6 text-neutral-300">{copy}</p>
                 </div>
-                <div className="grid gap-2">
-                  {runs.map(([name, decision, status]) => (
-                    <div key={name} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-[#090910] px-3 py-3">
-                      <div>
-                        <p className="text-sm font-medium">{name}</p>
-                        <p className="mt-1 font-mono text-[11px] text-neutral-500">{status}</p>
-                      </div>
-                      <span className="rounded-full border border-white/10 px-2.5 py-1 font-mono text-[11px] text-neutral-300">
-                        {decision}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-[#22d3ee]/20 bg-[#22d3ee]/[0.045] p-4">
-                <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">selected trace</p>
-                <h4 className="mt-3 text-lg font-semibold">auth-refresh-fix</h4>
-                <div className="mt-4 grid gap-2 text-sm text-neutral-300">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">policy: validation after edit</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">lesson: refresh token callback</div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">action: require continuation</div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
@@ -695,46 +671,17 @@ function DemoSection() {
                           </div>
                         </div>
 
-                        <div className="mt-3 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-                          <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-3">
-                            <div className="grid grid-cols-[1fr_170px] gap-3 px-2 font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">
-                              <span>Trace</span>
-                              <span>Decision</span>
+                        <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                          {[
+                            ["prompt contract", "original and optimized prompt hashes recorded"],
+                            ["route steering", "simple session fix kept off the strongest model"],
+                            ["quality gate", "savings counted after auth tests pass"]
+                          ].map(([label, copy]) => (
+                            <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+                              <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{label}</p>
+                              <p className="mt-3 text-sm leading-6 text-neutral-300">{copy}</p>
                             </div>
-                            <div className="mt-3 grid gap-3">
-                              {[
-                                ["auth-refresh-fix", "validated", "prompt refined"],
-                                ["session.ts edit", "complete", "cheaper route"],
-                                ["auth tests", "passed", "strong model kept idle"]
-                              ].map(([trace, status, decision]) => (
-                                <div key={trace} className="grid grid-cols-[1fr_170px] items-center gap-3 rounded-xl border border-white/10 bg-[#08080d] p-2.5">
-                                  <div>
-                                    <p className="text-base font-semibold">{trace}</p>
-                                    <p className="mt-1 font-mono text-xs text-neutral-500">{status}</p>
-                                  </div>
-                                  <span className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-center font-mono text-xs text-neutral-300">
-                                    {decision}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="rounded-2xl border border-[#22d3ee]/25 bg-[#22d3ee]/[0.045] p-3">
-                            <p className="font-mono text-xs uppercase tracking-[0.22em] text-[#22d3ee]">Selected trace</p>
-                            <h3 className="mt-4 text-2xl font-semibold">auth-refresh-fix</h3>
-                            <div className="mt-4 grid gap-3">
-                              {[
-                                "original + optimized prompt recorded",
-                                "Prompt Refiner impact: 24k to 8k",
-                                "result quality: validated"
-                              ].map((item) => (
-                                <div key={item} className="rounded-xl border border-white/10 bg-[#071012] p-3 text-sm leading-6 text-neutral-200">
-                                  {item}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          ))}
                         </div>
                       </section>
                     </div>
@@ -818,16 +765,9 @@ function HeroComparisonCard() {
   ];
   const sidecarSteps = [
     "Refines into a task contract",
-    "Local DeepSeek checks steering evidence",
     "Routes narrow edit to cheaper model",
     "Counts result only after tests pass"
   ];
-  const steeringSteps = [
-    ["01", "Prompt refined", "scope, files, acceptance criteria"],
-    ["02", "Pattern matched", "auth refresh dead end avoided"],
-    ["03", "Model steered", "cheaper route for narrow edit"],
-    ["04", "Quality gate", "cost delta counted after pass"]
-  ] as const;
 
   return (
     <div
@@ -879,23 +819,6 @@ function HeroComparisonCard() {
               <p className="font-mono text-xl font-semibold text-emerald-300">-$1.43 per successful task</p>
             </div>
           </div>
-        </div>
-
-        <div className="reason-steering-rail grid gap-3 border border-white/10 bg-[#08080d] p-3 text-white shadow-[0_24px_70px_rgba(124,92,255,0.1)] lg:grid-cols-4">
-          {steeringSteps.map(([number, title, body], index) => (
-            <div
-              key={title}
-              className="reason-steering-step border border-white/15 bg-[#101018] p-4"
-              style={{ "--delay": `${1.4 + index * 1.15}s` } as CSSProperties}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-mono text-xs text-[#22d3ee]">{number}</span>
-                <span className="reason-step-dot size-2 bg-[#22d3ee]" />
-              </div>
-              <p className="mt-4 text-sm font-semibold leading-5">{title}</p>
-              <p className="mt-2 text-xs leading-5 text-neutral-400">{body}</p>
-            </div>
-          ))}
         </div>
 
       </div>

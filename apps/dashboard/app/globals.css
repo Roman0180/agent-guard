@@ -123,7 +123,6 @@ a {
 
 .reason-copy-panel,
 .reason-terminal,
-.reason-steering-rail,
 .reason-terminal-result {
   position: relative;
   z-index: 1;
@@ -241,12 +240,6 @@ a {
 }
 
 .reason-cost-step {
-  animation: reason-step-in 0.7s ease-out both;
-  animation-delay: var(--delay);
-  opacity: 0;
-}
-
-.reason-steering-step {
   animation: reason-step-in 0.7s ease-out both;
   animation-delay: var(--delay);
   opacity: 0;

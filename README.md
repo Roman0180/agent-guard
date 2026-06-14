@@ -32,12 +32,23 @@ agent-sidecar start
 Then, in another terminal:
 
 ```bash
-codex
-# or
-claude
+pnpm install
+pnpm build
+python -m venv .venv
+source .venv/bin/activate
+pip install .
+agent-sidecar start
+agent-sidecar --help
+agent-sidecar codex-shim install
+export PATH="/Users/roman/.agent-sidecar/bin:$PATH"
+codex "fix auth refresh; preserve unrelated session behavior"
+# Finish the Codex task, then exit Codex with /quit or Ctrl-D.
+agent-sidecar session list
+# Show task cost delta, baseline cost, actual cost, and prompt optimization evidence.
+agent-sidecar dashboard
 ```
 
-Then associate the coding-agent run with a local sidecar session:
+For manual event demos, create a named local sidecar session:
 
 ```bash
 agent-sidecar session start --agent codex --repo . --name demo-session-001
@@ -69,14 +80,16 @@ The daemon starts on `127.0.0.1:4319` by default, then scans to the next free po
 
 ### Codex and Claude Integration
 
-Current integration is companion-first:
+Current Codex integration is terminal-shim first:
 
-- `agent-sidecar codex "prompt"` sends a Codex-shaped prompt event to `/hooks/codex`, includes lightweight repo context, and prints the optimized prompt payload for copying or forwarding.
-- `agent-sidecar hook --provider codex|claude-code|generic < event.json` accepts hook JSON on stdin and posts it to `/hooks/codex`, `/hooks/claude`, or `/hooks/generic`.
-- `agent-sidecar hook install --provider codex|claude-code` prints the hook command that an agent runtime can call.
+- `agent-sidecar codex-shim install` writes a `codex` shim to `~/.agent-sidecar/bin/codex`. Put that directory before the real Codex binary on `PATH`.
+- `codex "prompt"` then enters Agent Sidecar first. The shim sends the prompt and lightweight repo context to the local daemon, receives an optimized prompt, and launches the real Codex binary with that optimized prompt.
+- `agent-sidecar codex "prompt"` runs the same interception path without installing the shim. Use `--dry-run` to inspect the optimized prompt and final Codex argv without launching Codex. Use `--print` to print only the optimized prompt.
+- `agent-sidecar hook --provider codex|claude-code|generic < event.json` accepts hook JSON on stdin and posts it to `/hooks/codex`, `/hooks/claude`, or `/hooks/generic`. For Codex `UserPromptSubmit` events, the hook enriches the payload with repo context, runs prompt optimization immediately, and returns `optimizedPromptForCodex`, `promptReplacement`, and `promptAppend` on stdout for the Codex hook adapter to consume.
+- `agent-sidecar hook install --provider codex|claude-code` prints the recommended integration command. For Codex, this now points at the terminal shim.
 - Manual demo commands such as `event command`, `event edit`, and `event validation` simulate agent activity without requiring Codex or Claude Code.
 
-The product does not yet automatically intercept every Codex or Claude Code prompt. Real prompt interception depends on configuring the agent runtime to pipe hook JSON to `agent-sidecar hook ...`, or using the `agent-sidecar codex` wrapper path.
+Realtime prompt interception for terminal-launched Codex prompts is available through the shim. Bare interactive `codex` still launches the real Codex TUI unchanged; interception applies when a prompt is supplied as argv or stdin, such as `codex "fix auth refresh"`.
 
 ### Prompt Refinement
 
@@ -88,6 +101,20 @@ Prompt refinement has two paths:
 By default, the daemon tries `http://127.0.0.1:11434` with model `deepseek-r1:7b`. Set `AGENT_SIDECAR_LOCAL_PROMPT_OPTIMIZER=off` to skip local-model attempts and use deterministic refinement only.
 
 Relevant approved lessons are selected by keyword matching against the prompt, latest error, recent command signatures, and changed or inspected files. Prompt optimizations are stored with the run and can be replayed or exported.
+
+### How Cost Savings Are Achieved
+
+Agent Sidecar lowers the cost per successful task by reducing waste before and during the coding-agent run, then counting savings only when the run still reaches the expected quality gate.
+
+The main savings methods are:
+
+- Prompt interception before Codex starts: terminal prompts such as `codex "fix auth refresh"` pass through Agent Sidecar first. The sidecar expands vague requests into compact task contracts with scope, constraints, acceptance criteria, and validation expectations. This reduces expensive back-and-forth caused by underspecified prompts.
+- Local-model-first refinement: the daemon tries a local DeepSeek-compatible optimizer before falling back to deterministic refinement. Local refinement can improve task framing without spending frontier-model budget on the prompt-improvement step itself.
+- Context selection instead of context stuffing: the optimizer attaches lightweight repo context, recent plan snippets, approved lessons, file-tree hints, and relevant diffs instead of blindly pushing broad source context into the coding agent.
+- Avoided dead ends: detectors watch for repeated commands, repeated failed validations, repeated edits, missing validation, and task drift. Steering decisions can warn or suggest the next step before the agent spends more calls exploring the same path.
+- Cheaper steering loops: deterministic detectors produce compact evidence, and the optional local model judges that evidence. The expensive coding model does not need to reason from the full raw trace just to decide whether the run is looping or drifting.
+- Validation-gated accounting: savings are not treated as real just because a prompt got shorter or a route got cheaper. Agent Sidecar records the baseline, actual cost, prompt hashes, model route, task type, confidence, and validation evidence so the dashboard can focus on cost per successful task.
+- Future model-route enforcement: current steering records route evidence and recommendations. The next routing step is to use those decisions to send narrow edits, summarization, and simple investigation work to cheaper or local models while reserving frontier calls for tasks that need them.
 
 ### Cost per Successful Task Accounting
 

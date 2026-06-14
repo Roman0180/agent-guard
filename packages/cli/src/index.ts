@@ -2,10 +2,10 @@
 
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type CliResult = { exitCode: number; stdout: string; stderr: string };
@@ -19,6 +19,12 @@ const DEFAULT_DASHBOARD_PORT = 4738;
 const DEFAULT_STATE_DIR = join(homedir(), ".agent-sidecar");
 const MAX_PORT = 65_535;
 type HookProvider = "generic" | "codex" | "claude-code";
+type CodexPromptResult = {
+  originalPrompt: string;
+  optimizedPrompt?: string;
+  response?: JsonRecord;
+  result: CliResult;
+};
 
 type JsonRecord = Record<string, unknown>;
 
@@ -56,21 +62,28 @@ export async function runCli(argv: string[], io: CliIo = {}): Promise<CliResult>
   if (command === "refine") return handleRefine([subcommand ?? "", ...rest], fetchImpl, daemonUrl);
   if (command === "website") return handleWebApp("website", io.spawn ?? spawn, fetchImpl, env);
   if (command === "dashboard") return handleWebApp("dashboard", io.spawn ?? spawn, fetchImpl, env);
+  if (command === "codex-shim") return handleCodexShim(subcommand, rest, env);
 
   if (command === "hook" && subcommand === "install") return ok(`${JSON.stringify(renderHookInstall(parseProvider(rest)), null, 2)}\n`);
-  if (command === "hook") return postHook(fetchImpl, daemonUrl, parseProvider([subcommand ?? "", ...rest]), parseStdinPayload(io.stdin ?? readStdin()), env);
+  if (command === "hook") return postHook(fetchImpl, daemonUrl, parseProvider([subcommand ?? "", ...rest]), parseStdinPayload(io.stdin ?? readStdin()), env, cwd);
 
-  if (command === "codex" || command === "task") {
+  if (command === "codex") {
+    return handleCodexPrompt([subcommand ?? "", ...rest].filter(Boolean), fetchImpl, daemonUrl, io.spawn ?? spawn, env, cwd, io.stdin);
+  }
+
+  if (command === "task") {
     const prompt = parseTaskPrompt([subcommand ?? "", ...rest], io.stdin);
     if (!prompt) return fail(1, `missing task prompt\n${renderHelp()}`);
-    return postTaskPrompt(fetchImpl, daemonUrl, prompt, cwd);
+    const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, prompt, cwd);
+    if (optimization.result.exitCode !== 0) return optimization.result;
+    return ok(`${JSON.stringify(optimization.response ?? { optimizedPromptForCodex: optimization.optimizedPrompt ?? prompt }, null, 2)}\n`);
   }
 
   return fail(1, `unknown command: ${argv.join(" ")}\n${renderHelp()}`);
 }
 
 function renderHelp(): string {
-  return `agent-sidecar\n\nCommands:\n  agent-sidecar start\n  agent-sidecar status\n  agent-sidecar session start --agent codex --repo . --name demo\n  agent-sidecar session list\n  agent-sidecar session stop --session demo\n  agent-sidecar event command --session demo --command "pnpm test"\n  agent-sidecar event edit --session demo --path src/index.ts\n  agent-sidecar event validation --session demo --command "pnpm test" --status passed\n  agent-sidecar trace show <session-id>\n  agent-sidecar refine [--session <id>] "raw prompt"\n  agent-sidecar steer --session <id>\n  agent-sidecar replay <session-id>\n  agent-sidecar summary export <session-id> --format markdown|json\n  agent-sidecar website\n  agent-sidecar dashboard\n  agent-sidecar daemon start [--dry-run]\n  agent-sidecar codex "task prompt"\n  agent-sidecar hook --provider generic|codex|claude-code < event.json\n  agent-sidecar hook install --provider codex|claude-code\n`;
+  return `agent-sidecar\n\nCommands:\n  agent-sidecar start\n  agent-sidecar status\n  agent-sidecar session start --agent codex --repo . --name demo\n  agent-sidecar session list\n  agent-sidecar session stop --session demo\n  agent-sidecar event command --session demo --command "pnpm test"\n  agent-sidecar event edit --session demo --path src/index.ts\n  agent-sidecar event validation --session demo --command "pnpm test" --status passed\n  agent-sidecar trace show <session-id>\n  agent-sidecar refine [--session <id>] "raw prompt"\n  agent-sidecar steer --session <id>\n  agent-sidecar replay <session-id>\n  agent-sidecar summary export <session-id> --format markdown|json\n  agent-sidecar website\n  agent-sidecar dashboard\n  agent-sidecar daemon start [--dry-run]\n  agent-sidecar codex [--dry-run|--print] "task prompt"\n  agent-sidecar codex-shim install\n  agent-sidecar hook --provider generic|codex|claude-code < event.json\n  agent-sidecar hook install --provider codex|claude-code\n`;
 }
 
 async function handleSession(subcommand: string | undefined, args: string[], fetchImpl: typeof fetch, daemonUrl: string, cwd: string): Promise<CliResult> {
@@ -178,6 +191,85 @@ async function handleWebApp(
   ].join("\n") + "\n");
 }
 
+async function handleCodexPrompt(
+  args: string[],
+  fetchImpl: typeof fetch,
+  daemonUrl: string,
+  spawnImpl: typeof spawn,
+  env: Record<string, string | undefined>,
+  cwd: string,
+  stdin?: string
+): Promise<CliResult> {
+  const invocation = parseCodexInvocation(args, stdin);
+  const realCodex = invocation.realCodex ?? resolveRealCodex(env);
+
+  if (invocation.noOptimize || !invocation.prompt) {
+    return runExternalCommand(spawnImpl, realCodex, invocation.codexArgs, env);
+  }
+
+  const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, invocation.prompt, cwd);
+  if (optimization.result.exitCode !== 0) return optimization.result;
+
+  const finalPrompt = optimization.optimizedPrompt ?? invocation.prompt;
+  const codexArgs = replacePromptArg(invocation.codexArgs, invocation.promptStartIndex, invocation.promptEndIndex, finalPrompt);
+
+  if (invocation.printOnly) {
+    return ok(`${finalPrompt}\n`);
+  }
+
+  if (invocation.dryRun) {
+    return ok(`${JSON.stringify({
+      realCodex,
+      originalPrompt: invocation.prompt,
+      optimizedPrompt: finalPrompt,
+      optimized: finalPrompt !== invocation.prompt,
+      codexArgs
+    }, null, 2)}\n`);
+  }
+
+  return runExternalCommand(spawnImpl, realCodex, codexArgs, env);
+}
+
+function handleCodexShim(
+  subcommand: string | undefined,
+  args: string[],
+  env: Record<string, string | undefined>
+): CliResult {
+  if (subcommand === "path") {
+    return ok(`${codexShimPath(env)}\n`);
+  }
+
+  if (subcommand !== "install") {
+    return fail(1, `unknown codex-shim command\n${renderHelp()}`);
+  }
+
+  const shimPath = codexShimPath(env);
+  const shimDir = dirname(shimPath);
+  const realCodex = flag(args, "--real-codex") ?? resolveRealCodex(env, shimDir);
+  const cliEntry = fileURLToPath(import.meta.url);
+
+  mkdirSync(shimDir, { recursive: true });
+  writeFileSync(shimPath, [
+    "#!/usr/bin/env bash",
+    "set -euo pipefail",
+    `export AGENT_SIDECAR_REAL_CODEX=${shellQuote(realCodex)}`,
+    `exec ${shellQuote(process.execPath)} ${shellQuote(cliEntry)} codex "$@"`,
+    ""
+  ].join("\n"));
+  chmodSync(shimPath, 0o755);
+
+  return ok([
+    `Installed Codex interception shim at ${shimPath}`,
+    `Real Codex binary: ${realCodex}`,
+    "",
+    "Add this directory before the real Codex binary on PATH:",
+    `export PATH=${shellQuote(shimDir)}":$PATH"`,
+    "",
+    "Then run:",
+    "codex \"Prompt: fix auth refresh; preserve unrelated session behavior\""
+  ].join("\n") + "\n");
+}
+
 function buildEventPayload(eventType: string, session: string, args: string[], command?: string): JsonRecord {
   const now = new Date().toISOString();
   const status = flag(args, "--status");
@@ -210,24 +302,264 @@ function renderMarkdownSummary(replay: JsonRecord): string {
   return `# Agent Sidecar Run Summary\n\n${renderReplay(replay).replace(/^Run /, "Run: ")}\n`;
 }
 
+type CodexInvocation = {
+  codexArgs: string[];
+  dryRun: boolean;
+  noOptimize: boolean;
+  printOnly: boolean;
+  prompt?: string;
+  promptEndIndex?: number;
+  promptStartIndex?: number;
+  realCodex?: string;
+};
+
+const CODEX_OPTIONS_WITH_VALUE = new Set([
+  "-a",
+  "--add-dir",
+  "--ask-for-approval",
+  "-c",
+  "--cd",
+  "--config",
+  "-C",
+  "-i",
+  "--image",
+  "--local-provider",
+  "-m",
+  "--model",
+  "-p",
+  "--profile",
+  "--remote",
+  "--remote-auth-token-env",
+  "-s",
+  "--sandbox"
+]);
+const CODEX_SUBCOMMANDS = new Set([
+  "exec",
+  "e",
+  "review",
+  "login",
+  "logout",
+  "mcp",
+  "plugin",
+  "mcp-server",
+  "app-server",
+  "remote-control",
+  "app",
+  "completion",
+  "update",
+  "doctor",
+  "sandbox",
+  "debug",
+  "apply",
+  "a",
+  "resume",
+  "fork",
+  "cloud",
+  "exec-server",
+  "features",
+  "help"
+]);
+
+function parseCodexInvocation(args: string[], stdin?: string): CodexInvocation {
+  const codexArgs: string[] = [];
+  let dryRun = false;
+  let noOptimize = false;
+  let printOnly = false;
+  let realCodex: string | undefined;
+  let passThrough = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (!passThrough && arg === "--") {
+      passThrough = true;
+      continue;
+    }
+
+    if (!passThrough && arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+
+    if (!passThrough && arg === "--print") {
+      printOnly = true;
+      continue;
+    }
+
+    if (!passThrough && arg === "--no-optimize") {
+      noOptimize = true;
+      continue;
+    }
+
+    if (!passThrough && arg === "--real-codex") {
+      realCodex = args[index + 1];
+      index += 1;
+      continue;
+    }
+
+    codexArgs.push(arg);
+  }
+
+  const promptRange = findCodexPromptRange(codexArgs);
+  const stdinPrompt = stdin?.trim();
+  const prompt = promptRange ? stripPromptLabel(codexArgs.slice(promptRange.start, promptRange.end + 1).join(" ")) : stdinPrompt ? stripPromptLabel(stdinPrompt) : undefined;
+  return { codexArgs, dryRun, noOptimize, printOnly, prompt, promptStartIndex: promptRange?.start, promptEndIndex: promptRange?.end, realCodex };
+}
+
+function findCodexPromptRange(args: string[]): { start: number; end: number } | undefined {
+  let promptStartIndex: number | undefined;
+  let promptEndIndex: number | undefined;
+  let skipNext = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) continue;
+
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+
+    if (index === 0 && CODEX_SUBCOMMANDS.has(arg)) {
+      continue;
+    }
+
+    if (arg.startsWith("-")) {
+      const optionName = arg.includes("=") ? arg.split("=", 1)[0] ?? arg : arg;
+      skipNext = CODEX_OPTIONS_WITH_VALUE.has(optionName);
+      continue;
+    }
+
+    promptStartIndex ??= index;
+    promptEndIndex = index;
+  }
+
+  return promptStartIndex === undefined || promptEndIndex === undefined ? undefined : { start: promptStartIndex, end: promptEndIndex };
+}
+
+function replacePromptArg(args: string[], promptStartIndex: number | undefined, promptEndIndex: number | undefined, prompt: string): string[] {
+  if (promptStartIndex === undefined || promptEndIndex === undefined) {
+    return [...args, prompt];
+  }
+
+  return [
+    ...args.slice(0, promptStartIndex),
+    prompt,
+    ...args.slice(promptEndIndex + 1)
+  ];
+}
+
+function stripPromptLabel(prompt: string): string {
+  return prompt.replace(/^\s*prompt\s*:\s*/i, "").trim();
+}
+
 function parseTaskPrompt(args: string[], stdin?: string): string { return args.filter(Boolean).join(" ").trim() || (stdin ?? "").trim(); }
 function parseProvider(args: string[]): HookProvider { return normalizeProvider(flag(args, "--provider") ?? flag(args, "-p") ?? args.find((arg) => ["generic", "codex", "claude", "claude-code"].includes(arg))); }
 function normalizeProvider(raw?: string): HookProvider { if (raw === "codex") return "codex"; if (raw === "claude" || raw === "claude-code") return "claude-code"; return "generic"; }
 function parseStdinPayload(stdin: string): unknown { return stdin.trim() ? JSON.parse(stdin) : {}; }
+function parseJsonRecord(value: string): JsonRecord { try { return asRecord(JSON.parse(value)); } catch { return {}; } }
+function asRecord(value: unknown): JsonRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {}; }
+function stringField(value: unknown): string | undefined { return typeof value === "string" && value.length > 0 ? value : undefined; }
+function isRealtimePromptHook(provider: HookProvider, payload: unknown): boolean {
+  if (provider !== "codex") return false;
+  const body = asRecord(payload);
+  const eventName = [
+    body.hook_event_name,
+    body.providerEventType,
+    body.eventType,
+    body.event_type,
+    body.type
+  ].map((value) => stringField(value)?.toLowerCase()).filter((value): value is string => Boolean(value)).join(" ");
+  return Boolean(
+    stringField(body.prompt) || stringField(body.userPrompt) || stringField(body.user_prompt) ||
+    eventName.includes("userpromptsubmit") || eventName === "prompt" || eventName.includes("prompt_submit")
+  );
+}
 function flag(args: string[], name: string): string | undefined { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; }
 function requireFlag(args: string[], name: string): string { const value = flag(args, name); if (!value) throw new Error(`missing ${name}`); return value; }
 function positional(args: string[]): string[] { const values: string[] = []; for (let i=0;i<args.length;i++) { const arg = args[i]; if (!arg) continue; if (arg.startsWith("--")) { i++; } else values.push(arg); } return values; }
 
-async function postHook(fetchImpl: typeof fetch, daemonUrl: string, provider: HookProvider, payload: unknown, env: Record<string, string | undefined>): Promise<CliResult> {
+async function postHook(
+  fetchImpl: typeof fetch,
+  daemonUrl: string,
+  provider: HookProvider,
+  payload: unknown,
+  env: Record<string, string | undefined>,
+  cwd: string
+): Promise<CliResult> {
   const endpointProvider = provider === "claude-code" ? "claude" : provider;
+  const hookPayload = enrichRealtimePromptPayload(provider, payload, cwd);
   try {
-    const result = await postJson(fetchImpl, `${daemonUrl}/hooks/${endpointProvider}`, payload, "hook request failed");
+    const result = await postJson(fetchImpl, `${daemonUrl}/hooks/${endpointProvider}`, hookPayload, "hook request failed");
     if (result.exitCode !== 0 && result.stderr.includes("daemon unavailable at ")) {
       throw new Error(result.stderr.trim());
     }
-    return result;
+    return renderHookResult(provider, hookPayload, result);
   }
   catch (error) { const failMode = env.AGENT_SIDECAR_FAIL_MODE === "closed" ? "closed" : "open"; const fallback = { action: failMode === "closed" ? "block" : "allow", reason: `daemon_unavailable_fail_${failMode}`, message: `Agent Sidecar daemon unavailable at ${daemonUrl}: ${errorMessage(error)}` }; return { exitCode: failMode === "closed" ? 2 : 0, stdout: `${JSON.stringify(fallback)}\n`, stderr: failMode === "closed" ? `${fallback.message}\n` : "" }; }
+}
+
+function enrichRealtimePromptPayload(provider: HookProvider, payload: unknown, cwd: string): unknown {
+  if (!isRealtimePromptHook(provider, payload)) {
+    return payload;
+  }
+
+  const body = asRecord(payload);
+  return {
+    ...body,
+    cwd: stringField(body.cwd) ?? cwd,
+    repoRoot: stringField(body.repoRoot) ?? stringField(body.repo_root) ?? cwd,
+    branch: stringField(body.branch) ?? readGitBranch(cwd),
+    realtimePromptInterception: true,
+    contextSnapshot: Object.keys(asRecord(body.contextSnapshot)).length > 0 ? body.contextSnapshot : collectRepoContext(cwd)
+  };
+}
+
+function renderHookResult(provider: HookProvider, payload: unknown, result: CliResult): CliResult {
+  if (result.exitCode !== 0 || provider !== "codex" || !isRealtimePromptHook(provider, payload)) {
+    return result;
+  }
+
+  const body = parseJsonRecord(result.stdout);
+  const optimization = asRecord(body.prompt_optimization);
+  const optimizedPrompt = stringField(optimization.optimizedPrompt);
+  if (!optimizedPrompt) {
+    return result;
+  }
+
+  const response = stripUndefined({
+    action: stringField(body.action) ?? "inject_context",
+    reason: stringField(body.reason) ?? "prompt_optimized",
+    message: "Agent Sidecar optimized this prompt before Codex execution.",
+    optimizedPrompt,
+    optimizedPromptForCodex: optimizedPrompt,
+    promptReplacement: optimizedPrompt,
+    promptAppend: `\n\nAgent Sidecar optimized task:\n${optimizedPrompt}`,
+    codex: {
+      hookEventName: stringField(asRecord(payload).hook_event_name) ?? stringField(asRecord(payload).providerEventType) ?? "UserPromptSubmit",
+      realtimePromptOptimized: true,
+      promptReplacement: optimizedPrompt,
+      additionalContext: optimizedPrompt
+    },
+    run: body.run,
+    event: body.event,
+    decision: body.decision,
+    costEvidence: body.cost_evidence,
+    promptOptimization: {
+      id: optimization.id,
+      runId: optimization.runId,
+      eventId: optimization.eventId,
+      mode: optimization.mode,
+      optimizedPrompt,
+      estimatedOptimizedTokens: optimization.estimatedOptimizedTokens,
+      estimatedTokenDelta: optimization.estimatedTokenDelta,
+      rewriteReason: optimization.rewriteReason,
+      deterministicOrModel: optimization.deterministicOrModel
+    }
+  });
+
+  return ok(`${JSON.stringify(response)}\n`);
 }
 
 async function postJson(fetchImpl: typeof fetch, url: string, payload: unknown, label: string): Promise<CliResult> {
@@ -245,10 +577,26 @@ async function postJsonWithStatus(fetchImpl: typeof fetch, url: string, payload:
 async function fetchJson(fetchImpl: typeof fetch, url: string, label: string): Promise<CliResult> { try { const response = await fetchImpl(url); const body = await response.text(); return response.ok ? ok(`${body}\n`) : fail(1, `${label}: ${response.status}\n${body}\n`); } catch (error) { return fail(1, `${label}: ${daemonUnavailableMessage(url, error)}`); } }
 async function getText(fetchImpl: typeof fetch, url: string, label: string): Promise<CliResult> { try { const response = await fetchImpl(url); const body = await response.text(); return response.ok ? ok(`${body}\n`) : fail(1, `${label}: ${response.status}\n${body}\n`); } catch (error) { return fail(1, daemonUnavailableMessage(url, error)); } }
 
-async function postTaskPrompt(fetchImpl: typeof fetch, daemonUrl: string, prompt: string, cwd: string): Promise<CliResult> {
+async function optimizeCodexPrompt(fetchImpl: typeof fetch, daemonUrl: string, prompt: string, cwd: string): Promise<CodexPromptResult> {
   const payload = { id: randomUUID(), runId: randomUUID(), providerEventType: "UserPromptSubmit", prompt, cwd, repoRoot: cwd, branch: readGitBranch(cwd), sidecarSubmission: true, contextSnapshot: collectRepoContext(cwd) };
-  const result = await postHook(fetchImpl, daemonUrl, "codex", payload, {}); if (result.exitCode !== 0) return result;
-  try { const response = JSON.parse(result.stdout) as { message?: string; prompt_optimization?: { optimizedPrompt?: string } }; return ok(`${JSON.stringify({ ...response, optimizedPromptForCodex: response.prompt_optimization?.optimizedPrompt ?? response.message }, null, 2)}\n`); } catch { return result; }
+  const result = await postHook(fetchImpl, daemonUrl, "codex", payload, {}, cwd);
+  if (result.exitCode !== 0) return { originalPrompt: prompt, result };
+
+  try {
+    const response = JSON.parse(result.stdout) as JsonRecord;
+    const optimizedPromptForCodex =
+      stringField(response.optimizedPromptForCodex) ??
+      stringField(asRecord(response.promptOptimization).optimizedPrompt) ??
+      stringField(asRecord(response.prompt_optimization).optimizedPrompt);
+    return {
+      originalPrompt: prompt,
+      optimizedPrompt: optimizedPromptForCodex,
+      response: stripUndefined({ ...response, optimizedPromptForCodex }),
+      result
+    };
+  } catch {
+    return { originalPrompt: prompt, result };
+  }
 }
 
 function collectRepoContext(cwd: string): Record<string, unknown> { return { repoType: detectRepoType(cwd), agentsInstructions: readOptionalFile(join(cwd, "AGENTS.md"), 2_000), previousPlans: readPreviousPlans(cwd), fileTree: readFileTree(cwd), activeBranch: readGitBranch(cwd), relevantDiffs: readGitDiff(cwd) }; }
@@ -258,7 +606,92 @@ function readFileTree(cwd: string): string[] { try { return execFileSync("git", 
 function readGitBranch(cwd: string): string | undefined { try { return execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8", timeout: 2_000 }).trim() || undefined; } catch { return undefined; } }
 function readGitDiff(cwd: string): string { try { return execFileSync("git", ["diff", "--stat"], { cwd, encoding: "utf8", timeout: 2_000 }).slice(0, 1_500); } catch { return ""; } }
 function readOptionalFile(path: string, maxLength: number): string { try { return existsSync(path) ? readFileSync(path, "utf8").slice(0, maxLength) : ""; } catch { return ""; } }
-function renderHookInstall(provider: HookProvider): Record<string, unknown> { const command = provider === "claude-code" ? "agent-sidecar hook --provider claude-code" : `agent-sidecar hook --provider ${provider}`; return { provider, command, mode: "stdin-json", note: "Configure the agent runtime to pipe hook event JSON to this command." }; }
+function renderHookInstall(provider: HookProvider): Record<string, unknown> {
+  const command = provider === "codex" ? "agent-sidecar codex-shim install" : provider === "claude-code" ? "agent-sidecar hook --provider claude-code" : `agent-sidecar hook --provider ${provider}`;
+  return {
+    provider,
+    command,
+    mode: provider === "codex" ? "terminal-shim" : "stdin-json",
+    realtimePromptOptimization: provider === "codex",
+    events: provider === "codex" ? ["terminal prompt argv", "stdin prompt"] : ["prompt", "tool", "validation"],
+    stdoutContract: provider === "codex"
+      ? {
+          behavior: "codex shim optimizes the prompt, then launches the real Codex binary with the optimized prompt",
+          installPath: "~/.agent-sidecar/bin/codex",
+          codex: {
+            launchedWithOptimizedPrompt: true
+          }
+        }
+      : undefined,
+    note: provider === "codex"
+      ? "Install the shim and put ~/.agent-sidecar/bin before the real Codex binary on PATH. Then codex \"prompt\" is optimized before the real Codex process starts."
+      : "Configure the agent runtime to pipe hook event JSON to this command."
+  };
+}
+
+function codexShimPath(env: Record<string, string | undefined>): string {
+  return join(env.AGENT_SIDECAR_SHIM_DIR ?? join(homedir(), ".agent-sidecar", "bin"), "codex");
+}
+
+function resolveRealCodex(env: Record<string, string | undefined>, shimDir?: string): string {
+  if (env.AGENT_SIDECAR_REAL_CODEX) {
+    return env.AGENT_SIDECAR_REAL_CODEX;
+  }
+
+  const candidates = (env.PATH ?? process.env.PATH ?? "").split(delimiter)
+    .filter(Boolean)
+    .filter((pathEntry) => !shimDir || resolve(pathEntry) !== resolve(shimDir))
+    .map((pathEntry) => join(pathEntry, process.platform === "win32" ? "codex.cmd" : "codex"));
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  for (const fallback of ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]) {
+    if (existsSync(fallback)) {
+      return fallback;
+    }
+  }
+
+  throw new Error("Could not find the real Codex binary. Set AGENT_SIDECAR_REAL_CODEX=/path/to/codex.");
+}
+
+function runExternalCommand(
+  spawnImpl: typeof spawn,
+  command: string,
+  args: string[],
+  env: Record<string, string | undefined>
+): Promise<CliResult> {
+  return new Promise((resolveResult) => {
+    const child = spawnImpl(command, args, {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ...env,
+        AGENT_SIDECAR_INTERCEPTED: "1"
+      }
+    });
+
+    child.on("error", (error) => {
+      resolveResult(fail(1, `failed to launch Codex: ${errorMessage(error)}\n`));
+    });
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        resolveResult(fail(128, `Codex exited from signal ${signal}\n`));
+        return;
+      }
+
+      resolveResult({ exitCode: code ?? 1, stdout: "", stderr: "" });
+    });
+  });
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 function startDaemonProcess(spawnImpl: typeof spawn, env: Record<string, string | undefined>): string { const entry = resolve(dirname(fileURLToPath(import.meta.url)), "../../../apps/daemon/dist/index.js"); const child = spawnImpl(process.execPath, [entry], { detached: true, stdio: "ignore", env: { ...process.env, ...env } }); child.unref(); return `pid ${child.pid ?? "unknown"}`; }
 function estimateTokens(text: string): number { return Math.max(1, Math.ceil(text.trim().length / 4)); }
 function readStdin(): string { try { return readFileSync(0, "utf8"); } catch { return ""; } }
@@ -295,6 +728,7 @@ function requestOrigin(url: string): string {
     return url.replace(/\/health$/, "");
   }
 }
+function stripUndefined<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T; }
 function parsePort(value: string | undefined, fallback: number): number { const parsed = Number.parseInt(value ?? "", 10); return Number.isInteger(parsed) && parsed > 0 && parsed <= MAX_PORT ? parsed : fallback; }
 function formatLocalUrl(host: string, port: number): string { const browserHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host; const formattedHost = browserHost.includes(":") && !browserHost.startsWith("[") ? `[${browserHost}]` : browserHost; return `http://${formattedHost}:${port}`; }
 async function resolveDaemonStartUrl(env: Record<string, string | undefined>): Promise<string> {

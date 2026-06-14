@@ -80,18 +80,35 @@ type RunState = {
   interventions?: Record<string, number>;
 };
 
+type CostEvidence = {
+  runId: string;
+  updatedAt: string;
+  baselineInputTokens: number;
+  baselineOutputTokens: number;
+  baselineEstimatedCostUsd: number;
+  actualInputTokens: number;
+  actualOutputTokens: number;
+  actualCostUsd: number;
+  modelRoute?: string;
+  taskType: string;
+  savingsMode: "codex_baseline" | "historical_local_baseline" | "heuristic";
+  confidence: number;
+  promptHashes: Record<string, string>;
+};
+
 type DashboardReplay = {
   run: StoredRun;
   events: StoredEvent[];
   decisions: Decision[];
   promptOptimizations: PromptOptimizationRecord[];
+  costEvidence?: CostEvidence;
   state?: RunState;
 };
 
 type DashboardView = "traces" | "decisions" | "policies" | "lessons" | "analytics";
 
 const daemonUrl = (process.env.NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL ?? "http://127.0.0.1:4319").replace(/\/$/, "");
-const modelCostPerToken = Number(process.env.NEXT_PUBLIC_AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD ?? "0.00001");
+const fallbackModelCostPerToken = Number(process.env.NEXT_PUBLIC_AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD ?? "0.00001");
 
 const dashboardNav: DashboardView[] = ["traces", "decisions", "policies", "lessons", "analytics"];
 
@@ -267,7 +284,7 @@ function DashboardContent({
   const events = details?.events ?? [];
   const decisions = details?.decisions ?? [];
   const promptOptimizations = details?.promptOptimizations ?? [];
-  const savings = useMemo(() => calculateSavings(promptOptimizations), [promptOptimizations]);
+  const savings = useMemo(() => calculateSavings(details?.costEvidence, promptOptimizations), [details?.costEvidence, promptOptimizations]);
   const lessons = useMemo(() => collectLessons(promptOptimizations), [promptOptimizations]);
   const guardedRuns = runs.length;
   const visibleRuns = runs.length > 0 ? runs : selectedRun ? [selectedRun] : [];
@@ -292,13 +309,13 @@ function DashboardContent({
 
       <div className="mt-12 grid gap-6 xl:grid-cols-3">
         <DashboardMetric label="guarded runs" value={formatInteger(guardedRuns)} />
-        <DashboardMetric label="decisions" value={formatInteger(decisions.length)} />
-        <DashboardMetric label="saved lessons" value={formatInteger(lessons.length)} />
+        <DashboardMetric label="actual tokens" value={formatInteger(savings.actualInputTokens + savings.actualOutputTokens)} />
+        <DashboardMetric label="task savings" value={formatUsd(savings.estimatedSavings)} />
       </div>
 
       <SavingsPanel savings={savings} />
 
-      <div className="mt-8 grid gap-8 xl:grid-cols-[1.08fr_0.92fr]">
+      <div className="mt-8">
         <MainPanel
           activeView={activeView}
           decisions={decisions}
@@ -308,12 +325,6 @@ function DashboardContent({
           savings={savings}
           selectedRunId={selectedRunId}
           setSelectedRunId={setSelectedRunId}
-        />
-        <SelectedTracePanel
-          decisions={decisions}
-          events={events}
-          promptOptimizations={promptOptimizations}
-          selectedRun={selectedRun}
         />
       </div>
     </section>
@@ -372,75 +383,70 @@ function MainPanel({
   if (activeView === "analytics") {
     return (
       <DashboardPanel title="Metric" companionTitle="Value">
-        <InfoRow title="candidate traces" subtitle="pattern or prompt optimization records" pill={formatInteger(savings.tracesInjected)} />
-        <InfoRow title="avg task cost delta" subtitle="token-based proxy per successful trace" pill={formatUsd(savings.avgCostDeltaPerTrace)} />
-        <InfoRow title="model cost input" subtitle="current configured model pricing" pill={formatRate(savings.modelCostPerToken)} />
+        <InfoRow title="baseline cost" subtitle={savings.sourceLabel} pill={formatUsd(savings.baselineCost)} />
+        <InfoRow title="actual cost" subtitle="sidecar observed usage and overhead" pill={formatUsd(savings.actualCost)} />
+        <InfoRow title="cost delta" subtitle="baseline minus actual" pill={formatUsd(savings.estimatedSavings)} />
+        <InfoRow title="baseline tokens" subtitle="input + output token count" pill={formatInteger(savings.baselineInputTokens + savings.baselineOutputTokens)} />
+        <InfoRow title="actual tokens" subtitle="input + output token count" pill={formatInteger(savings.actualInputTokens + savings.actualOutputTokens)} />
+        <InfoRow title="confidence" subtitle={savings.taskType} pill={formatPercent(savings.confidence)} />
+        <InfoRow title="model route" subtitle="observed or inferred route" pill={savings.modelRoute ?? "unknown"} />
       </DashboardPanel>
     );
   }
 
   return (
-    <DashboardPanel title="Trace" companionTitle="Decision">
-      {runs.length > 0 ? runs.map((run) => {
-        const isSelected = run.id === selectedRunId;
-        return (
-          <button
-            key={run.id}
-            type="button"
-            onClick={() => setSelectedRunId(run.id)}
-            className={`grid gap-4 rounded-[24px] border p-6 text-left transition sm:grid-cols-[1fr_auto] sm:items-center ${
-              isSelected ? "border-white/15 bg-white/[0.035]" : "border-white/10 bg-[#08080d] hover:border-[#22d3ee]/35"
-            }`}
-          >
-            <div>
-              <p className="max-w-[18rem] text-3xl font-semibold leading-tight">{run.taskSummary ?? run.id}</p>
-              <p className="mt-4 font-mono text-xl text-neutral-500">{statusLabel(run.status)}</p>
-            </div>
-            <span className="w-fit rounded-full border border-white/10 px-6 py-3 font-mono text-xl text-neutral-300">
-              {run.status === "active" ? "watching" : run.status === "completed" ? "validated" : "require validation"}
-            </span>
-          </button>
-        );
-      }) : <MutedLine>No traces yet. Start the daemon and run a Codex hook to populate this panel.</MutedLine>}
-      {events.slice(0, 3).map((event) => (
-        <InfoRow key={event.id} title={event.summary} subtitle={event.eventType} pill={formatDate(event.timestamp)} />
-      ))}
-    </DashboardPanel>
-  );
-}
-
-function SelectedTracePanel({
-  decisions,
-  events,
-  promptOptimizations,
-  selectedRun
-}: {
-  decisions: Decision[];
-  events: StoredEvent[];
-  promptOptimizations: PromptOptimizationRecord[];
-  selectedRun?: StoredRun;
-}) {
-  const optimization = promptOptimizations.at(-1);
-  const latestDecision = decisions.at(-1);
-  const latestValidation = [...events].reverse().find((event) => event.validation)?.validation;
-  const cards = [
-    latestDecision ? `policy: ${latestDecision.action}` : "policy: validation after edit",
-    optimization ? `lesson: ${optimization.result.taskContract.relevant_lessons[0] ?? "pattern match recorded"}` : "lesson: awaiting pattern match",
-    latestValidation ? `action: ${latestValidation.status}` : selectedRun ? `action: ${selectedRun.status}` : "action: waiting for trace"
-  ];
-
-  return (
-    <aside className="rounded-[28px] border border-[#22d3ee]/25 bg-[#061015] p-8">
-      <p className="font-mono text-2xl uppercase tracking-[0.34em] text-[#22d3ee]">Selected trace</p>
-      <h2 className="mt-10 text-4xl font-semibold leading-tight">{selectedRun?.taskSummary ?? selectedRun?.id ?? "No trace selected"}</h2>
-      <div className="mt-10 grid gap-5">
-        {cards.map((card) => (
-          <div key={card} className="rounded-[22px] border border-white/10 bg-[#091011] p-6 text-2xl font-semibold leading-9 text-neutral-200">
-            {card}
-          </div>
-        ))}
+    <section className="rounded-[28px] border border-white/10 bg-white/[0.018] p-6">
+      <div className="flex flex-col gap-4 px-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="font-mono text-2xl uppercase tracking-[0.24em] text-neutral-500">Run activity</p>
+          <h2 className="mt-4 text-4xl font-semibold tracking-normal">Live task economics</h2>
+        </div>
+        <span className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-6 py-3 font-mono text-xl text-[#9be8f4]">
+          {formatInteger(runs.length)} guarded {runs.length === 1 ? "run" : "runs"}
+        </span>
       </div>
-    </aside>
+
+      <div className="mt-8 grid gap-4">
+        {runs.length > 0 ? runs.map((run) => {
+          const isSelected = run.id === selectedRunId;
+          return (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() => setSelectedRunId(run.id)}
+              className={`grid gap-5 rounded-[24px] border p-6 text-left transition lg:grid-cols-[1fr_220px_220px] lg:items-center ${
+                isSelected ? "border-[#22d3ee]/35 bg-[#07171c]" : "border-white/10 bg-[#08080d] hover:border-[#22d3ee]/35"
+              }`}
+            >
+              <div>
+                <p className="text-3xl font-semibold leading-tight">{run.taskSummary ?? run.id}</p>
+                <p className="mt-4 font-mono text-xl text-neutral-500">{run.repoRoot ?? run.provider}</p>
+              </div>
+              <div>
+                <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">Status</p>
+                <p className="mt-3 text-2xl font-semibold text-neutral-200">{statusLabel(run.status)}</p>
+              </div>
+              <div>
+                <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">Observed cost</p>
+                <p className="mt-3 text-2xl font-semibold text-emerald-200">{formatUsd(run.totalEstimatedCostUsd ?? 0)}</p>
+              </div>
+            </button>
+          );
+        }) : <MutedLine>No runs yet. Start the daemon and run a Codex hook to populate this panel.</MutedLine>}
+      </div>
+
+      {events.length > 0 ? (
+        <div className="mt-6 grid gap-4 xl:grid-cols-3">
+          {events.slice(0, 3).map((event) => (
+            <div key={event.id} className="rounded-[24px] border border-white/10 bg-[#08080d] p-6">
+              <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">{event.eventType}</p>
+              <p className="mt-4 text-2xl font-semibold leading-tight text-neutral-200">{event.summary}</p>
+              <p className="mt-4 font-mono text-lg text-neutral-500">{formatDate(event.timestamp)}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -449,12 +455,17 @@ function SavingsPanel({ savings }: { savings: SavingsStats }) {
     <section className="mt-8 rounded-[28px] border border-emerald-300/25 bg-emerald-300/[0.06] p-8">
       <div className="grid gap-6 xl:grid-cols-[270px_1fr] xl:items-center">
         <div>
-          <p className="font-mono text-2xl uppercase tracking-[0.28em] text-emerald-100">Task cost improved</p>
+          <p className="font-mono text-2xl uppercase tracking-[0.28em] text-emerald-100">Task cost delta</p>
           <p className="mt-8 text-6xl font-semibold leading-none text-emerald-100">{formatUsd(savings.estimatedSavings)}</p>
         </div>
-        <p className="text-3xl font-semibold leading-[1.55] text-emerald-50/75">
-          Estimated from prompt refinements, quality gates, and token-based cost evidence. Count it only when the task outcome is still successful.
-        </p>
+        <div>
+          <p className="text-3xl font-semibold leading-[1.45] text-emerald-50/75">
+            Baseline cost {formatUsd(savings.baselineCost)} minus actual cost {formatUsd(savings.actualCost)}, updated from live daemon cost evidence.
+          </p>
+          <p className="mt-5 font-mono text-xl uppercase tracking-[0.22em] text-emerald-100/60">
+            {savings.sourceLabel} / {formatPercent(savings.confidence)} confidence
+          </p>
+        </div>
       </div>
     </section>
   );
@@ -501,24 +512,73 @@ type SavingsStats = {
   tracesInjected: number;
   avgTokensSavedPerInjection: number;
   avgCostDeltaPerTrace: number;
-  modelCostPerToken: number;
+  baselineCost: number;
+  actualCost: number;
   estimatedSavings: number;
+  baselineInputTokens: number;
+  baselineOutputTokens: number;
+  actualInputTokens: number;
+  actualOutputTokens: number;
+  sourceLabel: string;
+  confidence: number;
+  modelRoute?: string;
+  taskType: string;
 };
 
-function calculateSavings(promptOptimizations: PromptOptimizationRecord[]): SavingsStats {
+function calculateSavings(costEvidence: CostEvidence | undefined, promptOptimizations: PromptOptimizationRecord[]): SavingsStats {
+  if (costEvidence) {
+    const tokenDelta =
+      costEvidence.baselineInputTokens +
+      costEvidence.baselineOutputTokens -
+      costEvidence.actualInputTokens -
+      costEvidence.actualOutputTokens;
+    const tracesInjected = Math.max(1, promptOptimizations.length);
+    return {
+      tracesInjected: promptOptimizations.length,
+      avgTokensSavedPerInjection: tokenDelta / tracesInjected,
+      avgCostDeltaPerTrace: (costEvidence.baselineEstimatedCostUsd - costEvidence.actualCostUsd) / tracesInjected,
+      baselineCost: costEvidence.baselineEstimatedCostUsd,
+      actualCost: costEvidence.actualCostUsd,
+      estimatedSavings: costEvidence.baselineEstimatedCostUsd - costEvidence.actualCostUsd,
+      baselineInputTokens: costEvidence.baselineInputTokens,
+      baselineOutputTokens: costEvidence.baselineOutputTokens,
+      actualInputTokens: costEvidence.actualInputTokens,
+      actualOutputTokens: costEvidence.actualOutputTokens,
+      sourceLabel: savingsModeLabel(costEvidence.savingsMode),
+      confidence: costEvidence.confidence,
+      modelRoute: costEvidence.modelRoute,
+      taskType: costEvidence.taskType
+    };
+  }
+
   const tracesInjected = promptOptimizations.length;
   const totalTokensSaved = promptOptimizations.reduce((sum, record) => {
     return sum + Math.max(0, -record.result.estimatedTokenDelta);
   }, 0);
   const avgTokensSavedPerInjection = tracesInjected > 0 ? totalTokensSaved / tracesInjected : 0;
+  const estimatedSavings = tracesInjected * avgTokensSavedPerInjection * fallbackModelCostPerToken;
 
   return {
     tracesInjected,
     avgTokensSavedPerInjection,
-    avgCostDeltaPerTrace: avgTokensSavedPerInjection * modelCostPerToken,
-    modelCostPerToken,
-    estimatedSavings: tracesInjected * avgTokensSavedPerInjection * modelCostPerToken
+    avgCostDeltaPerTrace: avgTokensSavedPerInjection * fallbackModelCostPerToken,
+    baselineCost: estimatedSavings,
+    actualCost: 0,
+    estimatedSavings,
+    baselineInputTokens: totalTokensSaved,
+    baselineOutputTokens: 0,
+    actualInputTokens: 0,
+    actualOutputTokens: 0,
+    sourceLabel: "Legacy prompt delta fallback",
+    confidence: tracesInjected > 0 ? 0.25 : 0,
+    taskType: "unknown"
   };
+}
+
+function savingsModeLabel(mode: CostEvidence["savingsMode"]): string {
+  if (mode === "codex_baseline") return "Codex baseline telemetry";
+  if (mode === "historical_local_baseline") return "Historical local baseline";
+  return "Task-type heuristic";
 }
 
 function collectLessons(promptOptimizations: PromptOptimizationRecord[]): string[] {
@@ -550,6 +610,13 @@ function formatInteger(value: number): string {
 
 function formatRate(value: number): string {
   return value.toLocaleString("en-US", { maximumSignificantDigits: 3 });
+}
+
+function formatPercent(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    maximumFractionDigits: 0
+  }).format(value);
 }
 
 function formatUsd(value: number): string {

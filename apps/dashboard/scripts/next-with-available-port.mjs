@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { rmSync } from "node:fs";
 import { createServer } from "node:net";
 
 const DEFAULT_PORT = 4738;
@@ -22,6 +23,10 @@ if (port !== requestedPort) {
 }
 
 console.log(`${route === "/dashboard" ? "Dashboard" : "Website"} URL: ${formatLocalUrl(host, port)}${route === "/" ? "" : route}`);
+
+if (mode === "dev") {
+  rmSync(".next", { recursive: true, force: true });
+}
 
 const child = spawn("next", [mode, "--hostname", host, "--port", String(port)], {
   stdio: "inherit",

@@ -1,5 +1,6 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -98,7 +99,67 @@ describe("@agent-sidecar/cli", () => {
     );
   });
 
-  it("submits a plain user task with repo context and no user-supplied token fields", async () => {
+  it("returns an optimized Codex prompt contract for realtime prompt hooks", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      action: "inject_context",
+      reason: "prompt_optimized",
+      message: "Prompt optimized; use the immediate hook response for generated prompt text.",
+      run: { id: "codex-run-1" },
+      event: { id: "codex-event-1" },
+      cost_evidence: { savingsMode: "heuristic" },
+      prompt_optimization: {
+        id: "prompt-opt-1",
+        runId: "codex-run-1",
+        eventId: "codex-event-1",
+        mode: "initial_task",
+        originalPrompt: "Fix auth",
+        optimizedPrompt: "Task:\nFix auth with validation.",
+        estimatedOptimizedTokens: 8,
+        estimatedTokenDelta: 4,
+        rewriteReason: "Expanded prompt.",
+        deterministicOrModel: "deterministic"
+      }
+    }), { status: 201 }));
+
+    const result = await runCli(["hook", "--provider", "codex"], {
+      stdin: JSON.stringify({ hook_event_name: "UserPromptSubmit", prompt: "Fix auth" }),
+      fetch: fetchMock as never,
+      cwd: "/tmp/not-a-real-repo",
+      env: ISOLATED_ENV
+    });
+
+    expect(result.exitCode).toBe(0);
+    const stdout = JSON.parse(result.stdout) as Record<string, unknown>;
+    expect(stdout).toMatchObject({
+      action: "inject_context",
+      reason: "prompt_optimized",
+      optimizedPromptForCodex: "Task:\nFix auth with validation.",
+      promptReplacement: "Task:\nFix auth with validation.",
+      codex: {
+        realtimePromptOptimized: true,
+        promptReplacement: "Task:\nFix auth with validation."
+      },
+      promptOptimization: {
+        id: "prompt-opt-1",
+        optimizedPrompt: "Task:\nFix auth with validation."
+      }
+    });
+    expect(JSON.stringify(stdout)).not.toContain("originalPrompt");
+
+    const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(firstCall[1].body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      hook_event_name: "UserPromptSubmit",
+      prompt: "Fix auth",
+      realtimePromptInterception: true,
+      repoRoot: "/tmp/not-a-real-repo",
+      contextSnapshot: {
+        repoType: "unknown"
+      }
+    });
+  });
+
+  it("dry-runs Codex prompt interception with repo context and no user-supplied token fields", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       action: "inject_context",
       prompt_optimization: {
@@ -106,15 +167,18 @@ describe("@agent-sidecar/cli", () => {
       }
     }), { status: 201 }));
 
-    const result = await runCli(["codex", "Fix", "auth"], {
+    const result = await runCli(["codex", "--dry-run", "Prompt: Fix auth"], {
       fetch: fetchMock as never,
       cwd: "/tmp/not-a-real-repo",
-      env: ISOLATED_ENV
+      env: { ...ISOLATED_ENV, AGENT_SIDECAR_REAL_CODEX: "/usr/local/bin/codex" }
     });
 
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({
-      optimizedPromptForCodex: "Task:\nFix auth with validation."
+      realCodex: "/usr/local/bin/codex",
+      originalPrompt: "Fix auth",
+      optimizedPrompt: "Task:\nFix auth with validation.",
+      codexArgs: ["Task:\nFix auth with validation."]
     });
     const firstCall = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(firstCall[1].body)) as Record<string, unknown>;
@@ -132,6 +196,53 @@ describe("@agent-sidecar/cli", () => {
     });
     expect(body).not.toHaveProperty("tokenUsage");
     expect(body).not.toHaveProperty("costEstimate");
+  });
+
+  it("launches the real Codex binary with the optimized prompt", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      action: "inject_context",
+      prompt_optimization: {
+        optimizedPrompt: "Task:\nFix auth with validation."
+      }
+    }), { status: 201 }));
+    const spawnMock = createExitSpawnMock(0);
+
+    const result = await runCli(["codex", "-m", "gpt-5", "Fix", "auth"], {
+      fetch: fetchMock as never,
+      spawn: spawnMock as never,
+      cwd: "/tmp/not-a-real-repo",
+      env: { ...ISOLATED_ENV, AGENT_SIDECAR_REAL_CODEX: "/usr/local/bin/codex" }
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(spawnMock).toHaveBeenCalledWith(
+      "/usr/local/bin/codex",
+      ["-m", "gpt-5", "Task:\nFix auth with validation."],
+      expect.objectContaining({ stdio: "inherit" })
+    );
+  });
+
+  it("keeps the original Codex prompt when the daemon returns only a default allow decision", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      action: "allow",
+      reason: "pipeline.default_allow",
+      message: "Allowed by default pipeline placeholder."
+    }), { status: 201 }));
+
+    const result = await runCli(["codex", "--dry-run", "Fix", "auth"], {
+      fetch: fetchMock as never,
+      cwd: "/tmp/not-a-real-repo",
+      env: { ...ISOLATED_ENV, AGENT_SIDECAR_REAL_CODEX: "/usr/local/bin/codex" }
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      originalPrompt: "Fix auth",
+      optimizedPrompt: "Fix auth",
+      optimized: false,
+      codexArgs: ["Fix auth"]
+    });
+    expect(result.stdout).not.toContain("Allowed by default pipeline placeholder");
   });
 
   it("fails open when hook delivery cannot reach the daemon", async () => {
@@ -178,6 +289,40 @@ describe("@agent-sidecar/cli", () => {
       provider: "claude-code",
       command: "agent-sidecar hook --provider claude-code"
     });
+
+    const codexResult = await runCli(["hook", "install", "--provider", "codex"], { env: ISOLATED_ENV });
+    expect(JSON.parse(codexResult.stdout)).toMatchObject({
+      provider: "codex",
+      command: "agent-sidecar codex-shim install",
+      mode: "terminal-shim",
+      realtimePromptOptimization: true,
+      stdoutContract: {
+        behavior: "codex shim optimizes the prompt, then launches the real Codex binary with the optimized prompt"
+      }
+    });
+  });
+
+  it("installs a Codex interception shim", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "agent-sidecar-cli-"));
+    const shimDir = join(stateDir, "bin");
+    try {
+      const result = await runCli(["codex-shim", "install"], {
+        env: {
+          ...ISOLATED_ENV,
+          AGENT_SIDECAR_REAL_CODEX: "/usr/local/bin/codex",
+          AGENT_SIDECAR_SHIM_DIR: shimDir
+        }
+      });
+
+      const shimPath = join(shimDir, "codex");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`Installed Codex interception shim at ${shimPath}`);
+      expect(existsSync(shimPath)).toBe(true);
+      expect(readFileSync(shimPath, "utf8")).toContain("AGENT_SIDECAR_REAL_CODEX='/usr/local/bin/codex'");
+      expect(readFileSync(shimPath, "utf8")).toContain(" codex \"$@\"");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("starts, lists, and stops sessions through the daemon API", async () => {
@@ -367,5 +512,15 @@ function findFreePort(host = "127.0.0.1"): Promise<number> {
         reject(new Error("server did not expose a numeric port"));
       });
     });
+  });
+}
+
+function createExitSpawnMock(exitCode: number) {
+  return vi.fn(() => {
+    const child = new EventEmitter() as EventEmitter & { pid: number; unref: () => void };
+    child.pid = 1234;
+    child.unref = vi.fn();
+    queueMicrotask(() => child.emit("exit", exitCode, null));
+    return child;
   });
 }
