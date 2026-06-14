@@ -13,7 +13,8 @@
     "dev:daemon": "pnpm --filter @agent-sidecar/daemon dev",
     "dev:website": "pnpm --filter @agent-sidecar/dashboard dev:website",
     "dev:dashboard": "pnpm --filter @agent-sidecar/dashboard dev:dashboard",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "bench:swebench": "node scripts/swebench-runner.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",

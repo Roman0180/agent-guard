@@ -74,7 +74,7 @@ export async function runCli(argv: string[], io: CliIo = {}): Promise<CliResult>
   if (command === "task") {
     const prompt = parseTaskPrompt([subcommand ?? "", ...rest], io.stdin);
     if (!prompt) return fail(1, `missing task prompt\n${renderHelp()}`);
-    const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, prompt, cwd);
+    const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, prompt, cwd, io.env ?? process.env);
     if (optimization.result.exitCode !== 0) return optimization.result;
     return ok(`${JSON.stringify(optimization.response ?? { optimizedPromptForCodex: optimization.optimizedPrompt ?? prompt }, null, 2)}\n`);
   }
@@ -207,7 +207,7 @@ async function handleCodexPrompt(
     return runExternalCommand(spawnImpl, realCodex, invocation.codexArgs, env);
   }
 
-  const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, invocation.prompt, cwd);
+  const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, invocation.prompt, cwd, env);
   if (optimization.result.exitCode !== 0) return optimization.result;
 
   const finalPrompt = optimization.optimizedPrompt ?? invocation.prompt;
@@ -577,8 +577,9 @@ async function postJsonWithStatus(fetchImpl: typeof fetch, url: string, payload:
 async function fetchJson(fetchImpl: typeof fetch, url: string, label: string): Promise<CliResult> { try { const response = await fetchImpl(url); const body = await response.text(); return response.ok ? ok(`${body}\n`) : fail(1, `${label}: ${response.status}\n${body}\n`); } catch (error) { return fail(1, `${label}: ${daemonUnavailableMessage(url, error)}`); } }
 async function getText(fetchImpl: typeof fetch, url: string, label: string): Promise<CliResult> { try { const response = await fetchImpl(url); const body = await response.text(); return response.ok ? ok(`${body}\n`) : fail(1, `${label}: ${response.status}\n${body}\n`); } catch (error) { return fail(1, daemonUnavailableMessage(url, error)); } }
 
-async function optimizeCodexPrompt(fetchImpl: typeof fetch, daemonUrl: string, prompt: string, cwd: string): Promise<CodexPromptResult> {
-  const payload = { id: randomUUID(), runId: randomUUID(), providerEventType: "UserPromptSubmit", prompt, cwd, repoRoot: cwd, branch: readGitBranch(cwd), sidecarSubmission: true, contextSnapshot: collectRepoContext(cwd) };
+async function optimizeCodexPrompt(fetchImpl: typeof fetch, daemonUrl: string, prompt: string, cwd: string, env: Record<string, string | undefined> = process.env): Promise<CodexPromptResult> {
+  const runId = env.AGENT_SIDECAR_RUN_ID ?? env.AGENT_SIDECAR_SWEBENCH_RUN_ID ?? randomUUID();
+  const payload = { id: randomUUID(), runId, providerEventType: "UserPromptSubmit", prompt, cwd, repoRoot: cwd, branch: readGitBranch(cwd), sidecarSubmission: true, contextSnapshot: collectRepoContext(cwd) };
   const result = await postHook(fetchImpl, daemonUrl, "codex", payload, {}, cwd);
   if (result.exitCode !== 0) return { originalPrompt: prompt, result };
 

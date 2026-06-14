@@ -170,7 +170,7 @@ describe("@agent-sidecar/cli", () => {
     const result = await runCli(["codex", "--dry-run", "Prompt: Fix auth"], {
       fetch: fetchMock as never,
       cwd: "/tmp/not-a-real-repo",
-      env: { ...ISOLATED_ENV, AGENT_SIDECAR_REAL_CODEX: "/usr/local/bin/codex" }
+      env: { ...ISOLATED_ENV, AGENT_SIDECAR_REAL_CODEX: "/usr/local/bin/codex", AGENT_SIDECAR_SWEBENCH_RUN_ID: "swebench-sidecar-demo" }
     });
 
     expect(result.exitCode).toBe(0);
@@ -188,6 +188,7 @@ describe("@agent-sidecar/cli", () => {
     );
     expect(body).toMatchObject({
       providerEventType: "UserPromptSubmit",
+      runId: "swebench-sidecar-demo",
       prompt: "Fix auth",
       sidecarSubmission: true,
       contextSnapshot: {
