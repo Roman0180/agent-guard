@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
@@ -7,7 +7,7 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { getCliName, resolveDaemonUrl, runCli } from "./index.js";
+import { collectRepoContext, getCliName, resolveDaemonUrl, runCli } from "./index.js";
 
 const ISOLATED_ENV = { AGENT_SIDECAR_STATE_DIR: join(tmpdir(), "agent-sidecar-cli-test-no-state") };
 
@@ -79,6 +79,34 @@ describe("@agent-sidecar/cli", () => {
       expect(result.stdout).toContain(`agent-sidecar daemon would start on http://127.0.0.1:${port}`);
     } finally {
       await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("caches repo context snapshots in the configured state directory", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "agent-sidecar-cli-cache-"));
+    const repoDir = await mkdtemp(join(tmpdir(), "agent-sidecar-cli-repo-"));
+    try {
+      writeFileSync(join(repoDir, "package.json"), "{}");
+      const agentsPath = join(repoDir, "AGENTS.md");
+      writeFileSync(agentsPath, "alpha");
+      const originalStats = statSync(agentsPath);
+      const env = { AGENT_SIDECAR_STATE_DIR: stateDir };
+
+      const first = collectRepoContext(repoDir, env);
+      expect(first.agentsInstructions).toBe("alpha");
+      expect(existsSync(join(stateDir, "repo-context-cache.json"))).toBe(true);
+
+      writeFileSync(agentsPath, "bravo");
+      utimesSync(agentsPath, originalStats.atime, originalStats.mtime);
+
+      const cached = collectRepoContext(repoDir, env);
+      expect(cached.agentsInstructions).toBe("alpha");
+
+      const uncached = collectRepoContext(repoDir, { ...env, AGENT_SIDECAR_REPO_CONTEXT_CACHE: "off" });
+      expect(uncached.agentsInstructions).toBe("bravo");
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+      await rm(repoDir, { recursive: true, force: true });
     }
   });
 

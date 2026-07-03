@@ -331,6 +331,16 @@ describe("event normalization", () => {
     expect(event.summary).toBe("Fix the flaky test");
     expect(event.compactMetadata.userPrompt).toBe("Fix the flaky test");
   });
+
+  it("normalizes long prompt hooks into bounded compact fields", () => {
+    const prompt = "Fix the idle session refresh path. ".repeat(90);
+    const event = normalizeCodexHook({ session_id: "session-1", hook_event_name: "UserPromptSubmit", prompt, timestamp: now });
+
+    expect(prompt.length).toBeGreaterThan(2_000);
+    expect(event.eventType).toBe("prompt");
+    expect(event.summary).toHaveLength(2_000);
+    expect(String(event.compactMetadata.userPrompt)).toHaveLength(2_000);
+  });
 });
 
 describe("RunStateManager", () => {

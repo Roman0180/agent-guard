@@ -88,10 +88,13 @@ export class PromptOptimizer {
     }
 
     const maxLength = Math.min(input.maxPromptLength, this.maxPromptLength);
-    const optimizedPrompt = truncatePrompt(assisted.optimizedPrompt, maxLength);
+    let optimizedPrompt = truncatePrompt(assisted.optimizedPrompt, maxLength);
     const taskContract = assisted.taskContract ?? emptyTaskContract(input);
     const lessons = selectRelevantLessons(input).slice(0, 3);
     const originalPrompt = input.originalPrompt ?? input.original_prompt ?? input.normalizedEvent.summary;
+    if (shouldPreferCompactModelPrompt(originalPrompt, optimizedPrompt, taskContract)) {
+      optimizedPrompt = truncatePrompt(renderCompactTaskContractPrompt(taskContract, originalPrompt), maxLength);
+    }
     const estimatedOptimizedTokens = estimateTokens(optimizedPrompt);
 
     return {
@@ -143,7 +146,7 @@ async function requestLocalModelOptimization(
           {
             role: "system",
             content:
-              "Return only minified JSON. No markdown. No explanation. Schema: {\"shouldInject\":true,\"optimizedPrompt\":\"Task: ...\\n\\nLikely areas to inspect:\\n- ...\\n\\nImplementation approach:\\n- ...\\n\\nConstraints:\\n- ...\\n\\nAcceptance criteria:\\n- ...\\n\\nPR boundaries:\\n- ...\\n\\nTest expectations:\\n- ...\\n\\nValidation:\\n- ...\",\"rewriteReason\":\"...\",\"taskContract\":{\"task\":\"...\",\"scope\":[],\"constraints\":[],\"acceptance_criteria\":[],\"pr_boundaries\":[],\"test_expectations\":[],\"validation_requirements\":[],\"relevant_lessons\":[],\"risk_notes\":[]}}. Every user prompt is missing operational detail before it is sent to a coding agent. DeepSeek R1 must fill in that missing detail. The optimizedPrompt must be a multi-section task brief and must be substantially more detailed than the original prompt. Include likely files or areas to inspect, concrete implementation steps, constraints, acceptance criteria, PR boundaries, risks, test expectations, and validation commands. Preserve user intent, but do not simply restate the prompt. Never say the original prompt is already concise enough. Always return shouldInject true unless the prompt is unsafe or unrelated to coding."
+              "Return only minified JSON. No markdown. No explanation. Schema: {\"shouldInject\":true,\"optimizedPrompt\":\"Task: ...\\n\\nLikely areas to inspect:\\n- ...\\n\\nImplementation approach:\\n- ...\\n\\nConstraints:\\n- ...\\n\\nAcceptance criteria:\\n- ...\\n\\nPR boundaries:\\n- ...\\n\\nTest expectations:\\n- ...\\n\\nValidation:\\n- ...\",\"rewriteReason\":\"...\",\"taskContract\":{\"task\":\"...\",\"scope\":[],\"constraints\":[],\"acceptance_criteria\":[],\"pr_boundaries\":[],\"test_expectations\":[],\"validation_requirements\":[],\"relevant_lessons\":[],\"risk_notes\":[]}}. Every user prompt needs operational cleanup before it is sent to a coding agent. DeepSeek R1 must turn the prompt into a multi-section task brief. For vague prompts, add missing implementation detail. For long, repetitive, or unfocused prompts, distill and organize the request into a concise task contract that preserves intent while removing repetition. For repetitive or unfocused prompts, prefer compact bullet phrases and target fewer tokens than the original prompt. Include likely files or areas to inspect, concrete implementation steps, constraints, acceptance criteria, PR boundaries, risks, test expectations, and validation commands. Do not simply restate the prompt. Never say the original prompt is already concise enough. Always return shouldInject true unless the prompt is unsafe or unrelated to coding."
           },
           {
             role: "user",
@@ -224,7 +227,14 @@ function isExpandedPrompt(input: PromptOptimizationInput, optimizedPrompt: strin
   const optimized = clean(optimizedPrompt).toLowerCase();
   if (!original) return optimizedPrompt.length >= 80;
   if (optimized === original) return false;
-  return optimizedPrompt.length >= Math.max(120, original.length * 2) && /\b(validation|test|inspect|implementation|constraint|risk|files?|areas?)\b/i.test(optimizedPrompt);
+  const hasOperationalDetail = /\b(validation|test|inspect|implementation|constraint|risk|files?|areas?|acceptance|scope|boundar(?:y|ies))\b/i.test(optimizedPrompt);
+  if (!hasOperationalDetail) return false;
+
+  if (original.length >= 450) {
+    return optimizedPrompt.length >= 180;
+  }
+
+  return optimizedPrompt.length >= Math.max(120, original.length * 2);
 }
 
 function emptyTaskContract(input: PromptOptimizationInput): TaskContract {
@@ -254,6 +264,29 @@ function renderTaskContractPrompt(contract: TaskContract): string {
     ["Validation", listOrNone(contract.validation_requirements)],
     ["Relevant lessons", listOrNone(contract.relevant_lessons)]
   ]);
+}
+
+function renderCompactTaskContractPrompt(contract: TaskContract, originalPrompt: string): string {
+  const compact = [
+    `Task: ${truncateText(contract.task, 120)}`,
+    compactLine("Inspect", contract.scope, 3, 35),
+    compactLine("Plan", [...contract.risk_notes, ...contract.constraints], 2, 45),
+    compactLine("Constraints", contract.constraints, 2, 45),
+    compactLine("Validation", [...contract.test_expectations, ...contract.validation_requirements], 1, 60)
+  ].filter((line): line is string => Boolean(line)).join("\n");
+  const targetLength = Math.max(180, clean(originalPrompt).length - 40);
+  return compact.length <= targetLength ? compact : truncateText(compact, targetLength);
+}
+
+function compactLine(label: string, values: string[], limit: number, maxItemLength: number): string | undefined {
+  const items = values.map((value) => truncateText(clean(value), maxItemLength)).filter(Boolean).slice(0, limit);
+  return items.length ? `${label}: ${items.join("; ")}` : undefined;
+}
+
+function shouldPreferCompactModelPrompt(originalPrompt: string, optimizedPrompt: string, taskContract: TaskContract): boolean {
+  if (estimateTokens(optimizedPrompt) < estimateTokens(originalPrompt)) return false;
+  if (clean(originalPrompt).length < 450) return false;
+  return Boolean(taskContract.task || taskContract.scope.length || taskContract.validation_requirements.length);
 }
 
 function shouldInject(mode: PromptRewriteMode, input: PromptOptimizationInput, lessons: Lesson[]): boolean {
@@ -439,6 +472,11 @@ function toStringArray(value: unknown): string[] {
 
 function clean(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const compact = clean(value);
+  return compact.length <= maxLength ? compact : `${compact.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
 }
 
 function estimateTokens(value: string): number {

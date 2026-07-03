@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -17,6 +17,9 @@ const DEFAULT_DAEMON_URL = `http://${DEFAULT_DAEMON_HOST}:${DEFAULT_DAEMON_PORT}
 const DEFAULT_DASHBOARD_HOST = "127.0.0.1";
 const DEFAULT_DASHBOARD_PORT = 4738;
 const DEFAULT_STATE_DIR = join(homedir(), ".agent-sidecar");
+const DEFAULT_REPO_CONTEXT_CACHE_TTL_MS = 30_000;
+const MAX_REPO_CONTEXT_CACHE_ENTRIES = 50;
+const REPO_CONTEXT_CACHE_VERSION = 1;
 const MAX_PORT = 65_535;
 type HookProvider = "generic" | "codex" | "claude-code";
 type CodexPromptResult = {
@@ -27,6 +30,9 @@ type CodexPromptResult = {
 };
 
 type JsonRecord = Record<string, unknown>;
+type RepoContextFingerprint = { cacheKey: string; fingerprint: string; repoType: string; activeBranch?: string; relevantDiffs: string };
+type RepoContextCacheEntry = { cacheKey: string; fingerprint: string; updatedAt: number; snapshot: Record<string, unknown> };
+type RepoContextCacheFile = { version: number; entries: RepoContextCacheEntry[] };
 
 export function getCliName(): string { return "agent-sidecar"; }
 export function resolveDaemonUrl(env: Record<string, string | undefined> = process.env): string {
@@ -74,7 +80,7 @@ export async function runCli(argv: string[], io: CliIo = {}): Promise<CliResult>
   if (command === "task") {
     const prompt = parseTaskPrompt([subcommand ?? "", ...rest], io.stdin);
     if (!prompt) return fail(1, `missing task prompt\n${renderHelp()}`);
-    const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, prompt, cwd);
+    const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, prompt, cwd, env);
     if (optimization.result.exitCode !== 0) return optimization.result;
     return ok(`${JSON.stringify(optimization.response ?? { optimizedPromptForCodex: optimization.optimizedPrompt ?? prompt }, null, 2)}\n`);
   }
@@ -207,7 +213,7 @@ async function handleCodexPrompt(
     return runExternalCommand(spawnImpl, realCodex, invocation.codexArgs, env);
   }
 
-  const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, invocation.prompt, cwd);
+  const optimization = await optimizeCodexPrompt(fetchImpl, daemonUrl, invocation.prompt, cwd, env);
   if (optimization.result.exitCode !== 0) return optimization.result;
 
   const finalPrompt = optimization.optimizedPrompt ?? invocation.prompt;
@@ -489,7 +495,7 @@ async function postHook(
   cwd: string
 ): Promise<CliResult> {
   const endpointProvider = provider === "claude-code" ? "claude" : provider;
-  const hookPayload = enrichRealtimePromptPayload(provider, payload, cwd);
+  const hookPayload = enrichRealtimePromptPayload(provider, payload, cwd, env);
   try {
     const result = await postJson(fetchImpl, `${daemonUrl}/hooks/${endpointProvider}`, hookPayload, "hook request failed");
     if (result.exitCode !== 0 && result.stderr.includes("daemon unavailable at ")) {
@@ -500,7 +506,7 @@ async function postHook(
   catch (error) { const failMode = env.AGENT_SIDECAR_FAIL_MODE === "closed" ? "closed" : "open"; const fallback = { action: failMode === "closed" ? "block" : "allow", reason: `daemon_unavailable_fail_${failMode}`, message: `Agent Sidecar daemon unavailable at ${daemonUrl}: ${errorMessage(error)}` }; return { exitCode: failMode === "closed" ? 2 : 0, stdout: `${JSON.stringify(fallback)}\n`, stderr: failMode === "closed" ? `${fallback.message}\n` : "" }; }
 }
 
-function enrichRealtimePromptPayload(provider: HookProvider, payload: unknown, cwd: string): unknown {
+function enrichRealtimePromptPayload(provider: HookProvider, payload: unknown, cwd: string, env: Record<string, string | undefined>): unknown {
   if (!isRealtimePromptHook(provider, payload)) {
     return payload;
   }
@@ -512,7 +518,7 @@ function enrichRealtimePromptPayload(provider: HookProvider, payload: unknown, c
     repoRoot: stringField(body.repoRoot) ?? stringField(body.repo_root) ?? cwd,
     branch: stringField(body.branch) ?? readGitBranch(cwd),
     realtimePromptInterception: true,
-    contextSnapshot: Object.keys(asRecord(body.contextSnapshot)).length > 0 ? body.contextSnapshot : collectRepoContext(cwd)
+    contextSnapshot: Object.keys(asRecord(body.contextSnapshot)).length > 0 ? body.contextSnapshot : collectRepoContext(cwd, env)
   };
 }
 
@@ -577,9 +583,9 @@ async function postJsonWithStatus(fetchImpl: typeof fetch, url: string, payload:
 async function fetchJson(fetchImpl: typeof fetch, url: string, label: string): Promise<CliResult> { try { const response = await fetchImpl(url); const body = await response.text(); return response.ok ? ok(`${body}\n`) : fail(1, `${label}: ${response.status}\n${body}\n`); } catch (error) { return fail(1, `${label}: ${daemonUnavailableMessage(url, error)}`); } }
 async function getText(fetchImpl: typeof fetch, url: string, label: string): Promise<CliResult> { try { const response = await fetchImpl(url); const body = await response.text(); return response.ok ? ok(`${body}\n`) : fail(1, `${label}: ${response.status}\n${body}\n`); } catch (error) { return fail(1, daemonUnavailableMessage(url, error)); } }
 
-async function optimizeCodexPrompt(fetchImpl: typeof fetch, daemonUrl: string, prompt: string, cwd: string): Promise<CodexPromptResult> {
-  const payload = { id: randomUUID(), runId: randomUUID(), providerEventType: "UserPromptSubmit", prompt, cwd, repoRoot: cwd, branch: readGitBranch(cwd), sidecarSubmission: true, contextSnapshot: collectRepoContext(cwd) };
-  const result = await postHook(fetchImpl, daemonUrl, "codex", payload, {}, cwd);
+async function optimizeCodexPrompt(fetchImpl: typeof fetch, daemonUrl: string, prompt: string, cwd: string, env: Record<string, string | undefined>): Promise<CodexPromptResult> {
+  const payload = { id: randomUUID(), runId: randomUUID(), providerEventType: "UserPromptSubmit", prompt, cwd, repoRoot: cwd, branch: readGitBranch(cwd), sidecarSubmission: true, contextSnapshot: collectRepoContext(cwd, env) };
+  const result = await postHook(fetchImpl, daemonUrl, "codex", payload, env, cwd);
   if (result.exitCode !== 0) return { originalPrompt: prompt, result };
 
   try {
@@ -599,12 +605,132 @@ async function optimizeCodexPrompt(fetchImpl: typeof fetch, daemonUrl: string, p
   }
 }
 
-function collectRepoContext(cwd: string): Record<string, unknown> { return { repoType: detectRepoType(cwd), agentsInstructions: readOptionalFile(join(cwd, "AGENTS.md"), 2_000), previousPlans: readPreviousPlans(cwd), fileTree: readFileTree(cwd), activeBranch: readGitBranch(cwd), relevantDiffs: readGitDiff(cwd) }; }
+export function collectRepoContext(cwd: string, env: Record<string, string | undefined> = process.env): Record<string, unknown> {
+  const cacheTtlMs = repoContextCacheTtlMs(env);
+  if (repoContextCacheDisabled(env) || cacheTtlMs <= 0) return readRepoContext(cwd);
+
+  const fingerprint = buildRepoContextFingerprint(cwd);
+  const now = Date.now();
+  const cache = readRepoContextCache(env);
+  const cached = cache.entries.find((entry) =>
+    entry.cacheKey === fingerprint.cacheKey &&
+    entry.fingerprint === fingerprint.fingerprint &&
+    now - entry.updatedAt <= cacheTtlMs
+  );
+  if (cached) return cached.snapshot;
+
+  const snapshot = readRepoContext(cwd, fingerprint);
+  writeRepoContextCache(env, {
+    version: REPO_CONTEXT_CACHE_VERSION,
+    entries: [
+      { cacheKey: fingerprint.cacheKey, fingerprint: fingerprint.fingerprint, updatedAt: now, snapshot },
+      ...cache.entries.filter((entry) => entry.cacheKey !== fingerprint.cacheKey)
+    ].slice(0, MAX_REPO_CONTEXT_CACHE_ENTRIES)
+  });
+  return snapshot;
+}
+
+function readRepoContext(cwd: string, fingerprint?: RepoContextFingerprint): Record<string, unknown> {
+  return {
+    repoType: fingerprint?.repoType ?? detectRepoType(cwd),
+    agentsInstructions: readOptionalFile(join(cwd, "AGENTS.md"), 2_000),
+    previousPlans: readPreviousPlans(cwd),
+    fileTree: readFileTree(cwd),
+    activeBranch: fingerprint?.activeBranch ?? readGitBranch(cwd),
+    relevantDiffs: fingerprint?.relevantDiffs ?? readGitDiff(cwd)
+  };
+}
+
+function buildRepoContextFingerprint(cwd: string): RepoContextFingerprint {
+  const normalizedCwd = resolve(cwd);
+  const repoType = detectRepoType(cwd);
+  const activeBranch = readGitBranch(cwd);
+  const relevantDiffs = readGitDiff(cwd);
+  const gitDir = readGitDir(cwd);
+  const payload = {
+    cwd: normalizedCwd,
+    repoType,
+    activeBranch,
+    head: readGitHead(cwd),
+    relevantDiffs,
+    gitIndex: gitDir ? fileSignature(join(gitDir, "index")) : undefined,
+    watchedFiles: [
+      "AGENTS.md",
+      "docs/IMPLEMENTATION_PLAN.md",
+      "docs/MVP_PROMPTS.md",
+      "package.json",
+      "pyproject.toml",
+      "Cargo.toml",
+      "go.mod"
+    ].map((path) => fileSignature(join(cwd, path)))
+  };
+  return { cacheKey: stableHash(normalizedCwd), fingerprint: stableHash(payload), repoType, activeBranch, relevantDiffs };
+}
+
+function readRepoContextCache(env: Record<string, string | undefined>): RepoContextCacheFile {
+  try {
+    const parsed = asRecord(JSON.parse(readFileSync(repoContextCachePath(env), "utf8")));
+    if (parsed.version !== REPO_CONTEXT_CACHE_VERSION || !Array.isArray(parsed.entries)) {
+      return emptyRepoContextCache();
+    }
+    return {
+      version: REPO_CONTEXT_CACHE_VERSION,
+      entries: parsed.entries.map(parseRepoContextCacheEntry).filter((entry): entry is RepoContextCacheEntry => Boolean(entry))
+    };
+  } catch {
+    return emptyRepoContextCache();
+  }
+}
+
+function writeRepoContextCache(env: Record<string, string | undefined>, cache: RepoContextCacheFile): void {
+  const cachePath = repoContextCachePath(env);
+  const tempPath = `${cachePath}.${process.pid}.tmp`;
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(tempPath, JSON.stringify(cache));
+    renameSync(tempPath, cachePath);
+  } catch {
+    try { if (existsSync(tempPath)) unlinkSync(tempPath); } catch { }
+  }
+}
+
+function parseRepoContextCacheEntry(value: unknown): RepoContextCacheEntry | undefined {
+  const entry = asRecord(value);
+  if (typeof entry.cacheKey !== "string" || typeof entry.fingerprint !== "string" || typeof entry.updatedAt !== "number") {
+    return undefined;
+  }
+  const snapshot = asRecord(entry.snapshot);
+  if (Object.keys(snapshot).length === 0) return undefined;
+  return { cacheKey: entry.cacheKey, fingerprint: entry.fingerprint, updatedAt: entry.updatedAt, snapshot };
+}
+
+function emptyRepoContextCache(): RepoContextCacheFile { return { version: REPO_CONTEXT_CACHE_VERSION, entries: [] }; }
+function repoContextCachePath(env: Record<string, string | undefined>): string { return join(env.AGENT_SIDECAR_STATE_DIR ?? DEFAULT_STATE_DIR, "repo-context-cache.json"); }
+function repoContextCacheDisabled(env: Record<string, string | undefined>): boolean {
+  const value = env.AGENT_SIDECAR_REPO_CONTEXT_CACHE?.toLowerCase();
+  return value === "off" || value === "false" || value === "0" || value === "no";
+}
+function repoContextCacheTtlMs(env: Record<string, string | undefined>): number {
+  const parsed = Number.parseInt(env.AGENT_SIDECAR_REPO_CONTEXT_CACHE_TTL_MS ?? "", 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_REPO_CONTEXT_CACHE_TTL_MS;
+}
+function stableHash(value: unknown): string { return createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+function fileSignature(path: string): Record<string, unknown> {
+  try {
+    const stats = statSync(path);
+    return { path, exists: true, size: stats.size, mtimeMs: Math.trunc(stats.mtimeMs) };
+  } catch {
+    return { path, exists: false };
+  }
+}
 function detectRepoType(cwd: string): string { if (existsSync(join(cwd, "package.json"))) return "node"; if (existsSync(join(cwd, "pyproject.toml"))) return "python"; if (existsSync(join(cwd, "Cargo.toml"))) return "rust"; if (existsSync(join(cwd, "go.mod"))) return "go"; return "unknown"; }
 function readPreviousPlans(cwd: string): string[] { return ["docs/IMPLEMENTATION_PLAN.md", "docs/MVP_PROMPTS.md"].map((path) => { const content = readOptionalFile(join(cwd, path), 800); return content ? `${path}\n${content}` : undefined; }).filter((value): value is string => Boolean(value)); }
-function readFileTree(cwd: string): string[] { try { return execFileSync("git", ["ls-files"], { cwd, encoding: "utf8", timeout: 2_000 }).split("\n").filter(Boolean).slice(0, 100); } catch { return []; } }
-function readGitBranch(cwd: string): string | undefined { try { return execFileSync("git", ["branch", "--show-current"], { cwd, encoding: "utf8", timeout: 2_000 }).trim() || undefined; } catch { return undefined; } }
-function readGitDiff(cwd: string): string { try { return execFileSync("git", ["diff", "--stat"], { cwd, encoding: "utf8", timeout: 2_000 }).slice(0, 1_500); } catch { return ""; } }
+function readFileTree(cwd: string): string[] { try { return readGitStdout(cwd, ["ls-files"]).split("\n").filter(Boolean).slice(0, 100); } catch { return []; } }
+function readGitBranch(cwd: string): string | undefined { try { return readGitStdout(cwd, ["branch", "--show-current"]).trim() || undefined; } catch { return undefined; } }
+function readGitHead(cwd: string): string | undefined { try { return readGitStdout(cwd, ["rev-parse", "HEAD"]).trim() || undefined; } catch { return undefined; } }
+function readGitDir(cwd: string): string | undefined { try { const gitDir = readGitStdout(cwd, ["rev-parse", "--git-dir"]).trim(); return gitDir ? resolve(cwd, gitDir) : undefined; } catch { return undefined; } }
+function readGitDiff(cwd: string): string { try { return readGitStdout(cwd, ["diff", "--stat"]).slice(0, 1_500); } catch { return ""; } }
+function readGitStdout(cwd: string, args: string[]): string { return execFileSync("git", args, { cwd, encoding: "utf8", timeout: 2_000, stdio: ["ignore", "pipe", "ignore"] }); }
 function readOptionalFile(path: string, maxLength: number): string { try { return existsSync(path) ? readFileSync(path, "utf8").slice(0, maxLength) : ""; } catch { return ""; } }
 function renderHookInstall(provider: HookProvider): Record<string, unknown> {
   const command = provider === "codex" ? "agent-sidecar codex-shim install" : provider === "claude-code" ? "agent-sidecar hook --provider claude-code" : `agent-sidecar hook --provider ${provider}`;

@@ -479,6 +479,10 @@ function compactTerm(value: string): string {
   return value.toLowerCase().replace(/['"`]/g, "").replace(/[^a-z0-9_./*-]+/g, " ").trim();
 }
 
+function truncateText(value: string, maxLength = 2_000): string {
+  return value.length <= maxLength ? value : value.slice(0, maxLength);
+}
+
 export function classifyCommand(command: string): CommandType {
   const tokens = tokenizeCommand(command);
   const exe = basename(tokens[0] ?? "");
@@ -640,13 +644,14 @@ function normalizeAnyHook(raw: unknown, agent: AgentKind): NormalizedAgentEvent 
   const fileOperation = eventType === "file_edit" || ["edit", "write", "apply_patch", "notebookedit", "multiedit"].includes((toolName ?? "").toLowerCase());
   const validation = command && (commandType === "test" || commandType === "build")
     ? {
-        command,
+        command: truncateText(command),
         commandType,
         status: exitCode === undefined ? "unknown" as const : exitCode === 0 ? "passed" as const : "failed" as const,
-        summary: rawOutput?.slice(0, 2_000) ?? `${commandType} command ${exitCode === 0 ? "passed" : exitCode === undefined ? "ran" : "failed"}`,
+        summary: rawOutput ? truncateText(rawOutput) : `${commandType} command ${exitCode === 0 ? "passed" : exitCode === undefined ? "ran" : "failed"}`,
         completedAt: timestamp
       }
     : undefined;
+  const summary = truncateText(prompt ?? command ?? rawOutput ?? providerEventType ?? "hook event");
 
   return NormalizedAgentEvent.parse({
     id: firstString(body.id, body.eventId, body.event_id) ?? `${runId}:${timestamp}:${providerEventType ?? "event"}`,
@@ -657,7 +662,7 @@ function normalizeAnyHook(raw: unknown, agent: AgentKind): NormalizedAgentEvent 
     eventType: validation ? "validation" : eventType,
     timestamp,
     actor: eventType === "prompt" ? "user" : "tool",
-    summary: prompt ?? command ?? rawOutput?.slice(0, 500) ?? providerEventType ?? "hook event",
+    summary,
     command: normalizedCommand,
     fileEdit: fileOperation ? { paths, operation: "modify", filesChanged: paths.length || 1, protectedPathMatches: [] } : undefined,
     validation,
@@ -668,10 +673,10 @@ function normalizeAnyHook(raw: unknown, agent: AgentKind): NormalizedAgentEvent 
       toolName: toolName ?? null,
       toolInput: typeof toolInput === "string" ? toolInput.slice(0, 1_000) : toolInput ? JSON.stringify(toolInput).slice(0, 1_000) : null,
       touchedPaths: paths,
-      rawOutput: rawOutput?.slice(0, 2_000) ?? null,
+      rawOutput: rawOutput ? truncateText(rawOutput) : null,
       exitCode: exitCode ?? null,
-      userPrompt: prompt ?? null,
-      command: command ?? null,
+      userPrompt: prompt ? truncateText(prompt) : null,
+      command: command ? truncateText(command) : null,
       isValidationCommand: Boolean(validation),
       isPossiblyDestructive: commandType === "delete" || /\b(rm\s+-rf|git\s+push\s+--force|chmod\s+-R\s+777)\b/i.test(command ?? ""),
       isFileRead: ["read", "glob", "ls"].includes((toolName ?? "").toLowerCase()),

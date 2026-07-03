@@ -51,11 +51,9 @@ type Decision = {
 };
 
 type PromptOptimizationRecord = {
-  originalPrompt?: string;
   result: {
     id: string;
     mode: string;
-    optimizedPrompt: string;
     rewriteReason: string;
     estimatedTokenDelta: number;
     createdAt: string;
@@ -105,12 +103,12 @@ type DashboardReplay = {
   state?: RunState;
 };
 
-type DashboardView = "traces" | "decisions" | "policies" | "lessons" | "analytics";
+type DashboardView = "traces" | "decisions" | "policies" | "lessons";
 
 const daemonUrl = (process.env.NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL ?? "http://127.0.0.1:4319").replace(/\/$/, "");
 const fallbackModelCostPerToken = Number(process.env.NEXT_PUBLIC_AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD ?? "0.00001");
 
-const dashboardNav: DashboardView[] = ["traces", "decisions", "policies", "lessons", "analytics"];
+const dashboardNav: DashboardView[] = ["traces", "decisions", "policies", "lessons"];
 
 export default function LocalDashboardPage() {
   const [runs, setRuns] = useState<StoredRun[]>([]);
@@ -322,7 +320,6 @@ function DashboardContent({
           events={events}
           lessons={lessons}
           runs={visibleRuns}
-          savings={savings}
           selectedRunId={selectedRunId}
           setSelectedRunId={setSelectedRunId}
         />
@@ -337,7 +334,6 @@ function MainPanel({
   events,
   lessons,
   runs,
-  savings,
   selectedRunId,
   setSelectedRunId
 }: {
@@ -346,7 +342,6 @@ function MainPanel({
   events: StoredEvent[];
   lessons: string[];
   runs: StoredRun[];
-  savings: SavingsStats;
   selectedRunId?: string;
   setSelectedRunId: (runId: string) => void;
 }) {
@@ -380,20 +375,6 @@ function MainPanel({
     );
   }
 
-  if (activeView === "analytics") {
-    return (
-      <DashboardPanel title="Metric" companionTitle="Value">
-        <InfoRow title="baseline cost" subtitle={savings.sourceLabel} pill={formatUsd(savings.baselineCost)} />
-        <InfoRow title="actual cost" subtitle="sidecar observed usage and overhead" pill={formatUsd(savings.actualCost)} />
-        <InfoRow title="cost delta" subtitle="baseline minus actual" pill={formatUsd(savings.estimatedSavings)} />
-        <InfoRow title="baseline tokens" subtitle="input + output token count" pill={formatInteger(savings.baselineInputTokens + savings.baselineOutputTokens)} />
-        <InfoRow title="actual tokens" subtitle="input + output token count" pill={formatInteger(savings.actualInputTokens + savings.actualOutputTokens)} />
-        <InfoRow title="confidence" subtitle={savings.taskType} pill={formatPercent(savings.confidence)} />
-        <InfoRow title="model route" subtitle="observed or inferred route" pill={savings.modelRoute ?? "unknown"} />
-      </DashboardPanel>
-    );
-  }
-
   return (
     <section className="rounded-[28px] border border-white/10 bg-white/[0.018] p-6">
       <div className="flex flex-col gap-4 px-2 sm:flex-row sm:items-end sm:justify-between">
@@ -418,9 +399,9 @@ function MainPanel({
                 isSelected ? "border-[#22d3ee]/35 bg-[#07171c]" : "border-white/10 bg-[#08080d] hover:border-[#22d3ee]/35"
               }`}
             >
-              <div>
-                <p className="text-3xl font-semibold leading-tight">{run.taskSummary ?? run.id}</p>
-                <p className="mt-4 font-mono text-xl text-neutral-500">{run.repoRoot ?? run.provider}</p>
+              <div className="min-w-0">
+                <p className="break-words text-3xl font-semibold leading-tight">{displayRunTitle(run)}</p>
+                <p className="mt-4 break-all font-mono text-lg text-neutral-500 sm:text-xl">{run.repoRoot ?? run.provider}</p>
               </div>
               <div>
                 <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">Status</p>
@@ -440,7 +421,7 @@ function MainPanel({
           {events.slice(0, 3).map((event) => (
             <div key={event.id} className="rounded-[24px] border border-white/10 bg-[#08080d] p-6">
               <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">{event.eventType}</p>
-              <p className="mt-4 text-2xl font-semibold leading-tight text-neutral-200">{event.summary}</p>
+              <p className="mt-4 text-2xl font-semibold leading-tight text-neutral-200">{displayEventSummary(event)}</p>
               <p className="mt-4 font-mono text-lg text-neutral-500">{formatDate(event.timestamp)}</p>
             </div>
           ))}
@@ -597,6 +578,19 @@ function statusLabel(status: StoredRun["status"]): string {
   if (status === "active") return "watching";
   if (status === "completed") return "healthy";
   return status;
+}
+
+function displayRunTitle(run: StoredRun): string {
+  return run.id ? `Guarded run ${shortRunId(run.id)}` : "Guarded coding run";
+}
+
+function displayEventSummary(event: StoredEvent): string {
+  if (event.eventType === "prompt") return "Prompt submitted";
+  return event.summary;
+}
+
+function shortRunId(runId: string): string {
+  return runId.length > 12 ? runId.slice(0, 8) : runId;
 }
 
 function formatDate(value: string): string {

@@ -72,6 +72,16 @@ agent-sidecar session stop --session demo-session-001
 
 Prompt refinement starts with local DeepSeek attempts by default through an Ollama-compatible endpoint, then falls back to deterministic task-contract refinement if the model is unavailable or returns an unusable response. Steering follows the same local-model-first shape: deterministic detectors produce compact evidence, local DeepSeek can make the steering call, and the detector ranking remains the fallback.
 
+## VC Demo
+
+Use the one-line VC demo script. It starts the local DeepSeek path through Ollama, sends an unfocused Codex prompt through Agent Sidecar, verifies the optimized prompt uses fewer estimated tokens, ends the Codex path after optimization, records representative runtime signals, and opens the replay/dashboard evidence.
+
+```bash
+pnpm demo:vc
+```
+
+The script lives at `scripts/vc-demo.sh`. It skips the website and does not open an interactive Codex session. To run the file directly instead, use `./scripts/vc-demo.sh`.
+
 ## How It Works Today
 
 Agent Sidecar is currently a local companion process, not a deep terminal interceptor. The `agent-sidecar` command talks to a local Fastify daemon. The daemon persists runs, normalized events, decisions, run-state snapshots, prompt optimizations, policies, lessons, and feedback in SQLite.
@@ -90,6 +100,8 @@ Current Codex integration is terminal-shim first:
 - Manual demo commands such as `event command`, `event edit`, and `event validation` simulate agent activity without requiring Codex or Claude Code.
 
 Realtime prompt interception for terminal-launched Codex prompts is available through the shim. Bare interactive `codex` still launches the real Codex TUI unchanged; interception applies when a prompt is supplied as argv or stdin, such as `codex "fix auth refresh"`.
+
+Repo context scans are cached by the CLI at `~/.agent-sidecar/repo-context-cache.json`, or under `AGENT_SIDECAR_STATE_DIR` when that is set. The cache stores the lightweight snapshot sent with prompt hooks: repo type, `AGENTS.md` excerpt, plan snippets, file-tree excerpt, active branch, and diff stat. It is invalidated by branch or HEAD changes, diff-stat changes, git index changes, and watched instruction or repo marker file metadata. Set `AGENT_SIDECAR_REPO_CONTEXT_CACHE=off` to bypass it, or tune `AGENT_SIDECAR_REPO_CONTEXT_CACHE_TTL_MS` for shorter or longer reuse windows.
 
 ### Prompt Refinement
 

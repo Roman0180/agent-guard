@@ -344,6 +344,44 @@ describe("@agent-sidecar/daemon", () => {
     });
     expect(demoResponse.json().promptOptimizations[0].originalPrompt).toBeUndefined();
   });
+
+  it("accepts long Codex prompt hooks while storing bounded event fields", async () => {
+    const databasePath = await createTempDatabasePath();
+    const server = buildServer({ databasePath, logger: false, localPromptOptimizer });
+    const prompt = "Fix idle auth refresh without broad refactors. ".repeat(90);
+
+    const hookResponse = await server.inject({
+      method: "POST",
+      url: "/hooks/codex",
+      payload: {
+        id: "long-prompt-hook",
+        runId: "long-prompt-run",
+        providerEventType: "UserPromptSubmit",
+        prompt
+      }
+    });
+
+    const eventsResponse = await server.inject({
+      method: "GET",
+      url: "/api/runs/long-prompt-run/events"
+    });
+
+    await server.close();
+
+    expect(prompt.length).toBeGreaterThan(2_000);
+    expect(hookResponse.statusCode).toBe(201);
+    expect(hookResponse.json()).toMatchObject({
+      action: "inject_context",
+      prompt_optimization: {
+        deterministicOrModel: "model_assisted"
+      }
+    });
+    expect(eventsResponse.statusCode).toBe(200);
+    expect(eventsResponse.json()[0].summary).toBe("Prompt submitted");
+    expect(eventsResponse.json()[0].rawPayload.promptHash).toEqual(expect.any(String));
+    expect(eventsResponse.json()[0].rawPayload.prompt).toBeUndefined();
+  });
+
   it("ingests generic hooks and updates run state across prompt, tool, edit, and validation events", async () => {
     const databasePath = await createTempDatabasePath();
     const server = buildServer({ databasePath, logger: false });

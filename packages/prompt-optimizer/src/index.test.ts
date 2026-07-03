@@ -191,9 +191,59 @@ describe("PromptOptimizer", () => {
     expect(result?.optimizedPrompt).toContain("Use the local model only");
     expect(result?.rewriteReason).toBe("Optimized by local DeepSeek R1.");
     expect(JSON.stringify(requestBody)).not.toContain("deterministicDraft");
-    expect(JSON.stringify(requestBody)).toContain("Every user prompt is missing operational detail");
-    expect(JSON.stringify(requestBody)).toContain("must be substantially more detailed than the original prompt");
-    expect(JSON.stringify(requestBody)).toContain("do not simply restate the prompt");
+    expect(JSON.stringify(requestBody)).toContain("Every user prompt needs operational cleanup");
+    expect(JSON.stringify(requestBody)).toContain("For long, repetitive, or unfocused prompts, distill and organize");
+    expect(JSON.stringify(requestBody)).toContain("target fewer tokens than the original prompt");
+    expect(JSON.stringify(requestBody)).toContain("Do not simply restate the prompt");
+  });
+
+  it("accepts a shorter local model task contract distilled from an unfocused prompt", async () => {
+    const unfocusedPrompt = [
+      "Can you look at the login/session thing? People seem to get kicked out after the app sits idle, or maybe requests keep using an old token. I am not sure if this is middleware, session storage, token refresh, cookies, dashboard auth, tests, or some config.",
+      "Please just poke around and fix it, but keep it small, do not touch styling or package churn, do not refactor everything, and maybe add a test if there is an obvious place. Also run whatever validation makes sense and do not just rerun failing tests without reading the first error.",
+      "For the demo, show the plan first and wait before editing."
+    ].join(" ");
+
+    const result = await new PromptOptimizer({
+      now: () => now,
+      idFactory: () => "opt-local-unfocused",
+      localModel: {
+        enabled: true,
+        model: "deepseek-r1:7b",
+        fetch: async () =>
+          new Response(JSON.stringify({
+            message: {
+              content: JSON.stringify({
+                shouldInject: true,
+                optimizedPrompt: "Task:\nFix idle auth refresh/session behavior with a narrow patch.\n\nLikely areas:\n- session storage\n- token refresh helpers\n- auth middleware/tests\n\nPlan:\n- Locate where stale tokens or idle sessions are handled.\n- Preserve existing dashboard/session behavior.\n- Show the plan before editing.\n\nConstraints:\n- No styling, package churn, or broad refactors.\n\nAcceptance:\n- Users are not logged out or left on stale tokens after refresh.\n\nValidation:\n- Run the narrowest auth test or typecheck command.",
+                rewriteReason: "Distilled by local DeepSeek R1.",
+                taskContract: {
+                  task: "Fix idle auth refresh/session behavior with a narrow patch.",
+                  scope: ["session handling", "token refresh helpers", "auth tests"],
+                  constraints: ["No unrelated styling or package changes."],
+                  acceptance_criteria: ["Auth refresh preserves expected session behavior."],
+                  pr_boundaries: ["No speculative refactors."],
+                  test_expectations: ["Run focused auth validation."],
+                  validation_requirements: ["Run the narrowest auth-related test or typecheck command."],
+                  relevant_lessons: [],
+                  risk_notes: []
+                }
+              })
+            }
+          }))
+      }
+    }).optimizeWithLocalModel(input({
+      originalPrompt: unfocusedPrompt,
+      normalizedEvent: { ...input().normalizedEvent, summary: unfocusedPrompt }
+    }));
+
+    expect(result).toMatchObject({
+      deterministicOrModel: "model_assisted",
+      shouldInject: true,
+      rewriteReason: "Distilled by local DeepSeek R1."
+    });
+    expect(result?.optimizedPrompt.length).toBeLessThan(unfocusedPrompt.length);
+    expect(result?.optimizedPrompt).toContain("Validation:");
   });
 
 });
