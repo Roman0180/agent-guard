@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "UserPromptSubmit",
+  "session_id": "fixture-session",
+  "cwd": "/tmp/agent-sidecar-fixture",
+  "prompt": "fix auth refresh and run tests"
+}

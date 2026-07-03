@@ -1,0 +1,22 @@
+{
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "session.id", "value": { "stringValue": "fixture-session" } },
+          { "key": "repo.path", "value": { "stringValue": "/tmp/agent-sidecar-fixture" } },
+          { "key": "gen_ai.request.model", "value": { "stringValue": "claude-sonnet-4" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "metrics": [
+            { "name": "gen_ai.usage.input_tokens", "sum": { "dataPoints": [{ "asInt": "1820" }] } },
+            { "name": "gen_ai.usage.output_tokens", "sum": { "dataPoints": [{ "asInt": "640" }] } },
+            { "name": "cost_usd", "sum": { "dataPoints": [{ "asDouble": 0.041 }] } }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,14 +5,35 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-sidecar"
 version = "0.1.0"
-description = "pip wrapper for the Agent Sidecar Node CLI."
-requires-python = ">=3.10"
+description = "Local Claude Code runtime sidecar for traces, cost, and steering."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.27",
+  "litellm>=1.55",
+  "opentelemetry-proto>=1.28",
+  "pydantic>=2.9",
+  "typer>=0.12",
+  "uvicorn>=0.32",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "respx>=0.21",
+]
 
 [project.scripts]
-agent-sidecar = "agent_sidecar.cli:main"
+agent-sidecar = "agent_sidecar.cli.main:app"
 
 [tool.setuptools]
-package-dir = {"" = "python"}
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-where = ["python"]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"

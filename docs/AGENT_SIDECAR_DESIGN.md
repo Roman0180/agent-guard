@@ -1,2023 +1,730 @@
-# Agent Sidecar Design Document
+# Agent Sidecar Design & Implementation Document (v3)
 
-## 1. Executive Summary
+> **How to use this document (read this first, coding agent):**
+> Everything you need to start implementing from an empty repository is in this file.
+> - **Part A** contains decisions that are already made. Do not reopen them. Do not ask about them.
+> - **Part B** contains frozen contracts: schemas, interfaces, ports, file layouts. Implement them exactly as written.
+> - **Part C** specifies the two-model local ensemble (DeepSeek = reasoning, Kimi = coding) and the fine-tuning pipeline for specially trained weights.
+> - **Part D** contains the three implementation chunks. Work through them **in order**, milestone by milestone. Each milestone has a definition of done. Do not start a milestone until the previous one's definition of done is met.
+> - **Part E** contains cross-cutting testing rules, risks, and the demo matrix.
+> When a detail is genuinely unspecified, choose the simplest option consistent with the stated principles, record the choice in `docs/decisions.md`, and continue. Do not block.
 
-Agent Sidecar is a local runtime layer that runs beside coding agents such as Codex and Claude Code in a separate terminal. It is not a replacement for those tools. It is a lightweight control plane that helps engineers lower the cost per successful engineering task, avoid repeated failed loops, refine prompts before execution, capture enough trace data to debug runs, and receive timely steering recommendations while preserving velocity.
+---
 
-The first product proof is intentionally small: start a local sidecar, register or create a Codex/Claude Code companion session, record basic events, and inspect a local trace. From there, Agent Sidecar adds prompt refinement, cost-aware prompt cleanup, local loop detection, validation reminders, and run replay.
+# PART A — Product Definition and Fixed Decisions
 
-The core design principle is critical functionality before polish. Agent Sidecar should prove it can improve cost per successful task in real coding-agent workflows before investing in dashboards, branding, deep interception, advanced analytics, cloud sync, or enterprise policy features.
+## A1. What Agent Sidecar Is
 
-Agent Sidecar should be implemented across four main demo PRs:
+Agent Sidecar is a local runtime layer that runs beside **Claude Code** in a separate process. It is a lightweight control plane that lowers the cost per successful engineering task by:
 
-1. **Local Sidecar Runtime + Companion Session MVP**: prove the sidecar runs locally beside Codex or Claude Code and records a real or simulated session.
-2. **Prompt Refiner + Cost-Aware Prompt Optimization**: prove task cost can be improved before expensive agent execution.
-3. **Local Steering Ensemble, Loop Detection, and Validation Guardrails**: prove wasteful runtime behavior can be steered with local DeepSeek attempts, deterministic fallback, and cheap local evaluators instead of frequent frontier-model calls.
-4. **Run Replay, MVP Dashboard, and Demo-Ready Analytics**: make runs understandable, replayable, and useful for debugging.
+1. **Capturing Claude Code sessions automatically** via Claude Code's hooks system and native OpenTelemetry telemetry (no manual event registration in the happy path).
+2. **Refining prompts before expensive execution** using a small local model ensemble.
+3. **Detecting wasteful runtime behavior** (repeated failed tests, thrashing edits, missing validation, task drift) and emitting `continue | suggest | warn` steering with evidence.
+4. **Reporting honest cost figures**: measured (from Claude Code telemetry) > priced (tokens × vendored price map) > approximate (labeled).
+5. **Making runs replayable and exportable**: CLI replay, Markdown/JSON summaries, optional opt-in Langfuse export.
 
-An optional fifth PR can add polished `pip` packaging if it does not fit cleanly into the first four PRs.
+## A2. Fixed Decisions (do not reopen)
 
-## 2. Product Goals and Non-Goals
+| # | Decision | Value |
+| --- | --- | --- |
+| D1 | Target agent | **Claude Code only.** No Codex, Cursor, or generic-agent support. The adapter layer keeps normalization generic; only Claude Code adapters ship. |
+| D2 | Implementation language | **Python 3.11+** |
+| D3 | Web framework | **FastAPI + uvicorn** for the daemon (sidecar API + OTLP receiver in one process) |
+| D4 | Schema/validation | **pydantic v2** models for all events, sessions, configs, and model I/O contracts |
+| D5 | CLI framework | **typer** |
+| D6 | Package name / CLI name | `agent_sidecar` / `agent-sidecar` |
+| D7 | Test framework | **pytest**; CI-gating tests run fully offline (no Claude Code, no Ollama, no network) |
+| D8 | Model serving | **Ollama** at `http://localhost:11434` as primary; **llama-server (llama.cpp)** OpenAI-compatible endpoint as secondary for models Ollama cannot serve. Both reached through the LiteLLM SDK in-process. No LiteLLM proxy, no extra daemon. |
+| D9 | Ensemble roles | **DeepSeek = reasoning role. Kimi = coding role.** See Part C. |
+| D10 | Remote models | Disabled by default. Allowlist = local endpoints only. Enabling remote requires explicit config (`remote_fallback: true` + allowlist entry) and every remote call is receipted in the trace. |
+| D11 | Steering never blocks | Hook scripts always exit 0. Steering warns/suggests only. |
+| D12 | Source of truth | Append-only JSONL traces. SQLite index is derived and rebuildable. |
+| D13 | Ports | Sidecar API `127.0.0.1:7433`; OTLP receiver `127.0.0.1:4318`; Ollama `127.0.0.1:11434`; optional llama-server `127.0.0.1:8080`. All configurable, all loopback-only. |
+| D14 | Packaging | pip-installable wheel with console entry point (Chunk 3) |
+| D15 | Fine-tuning method | **QLoRA adapters** trained offline with **LLaMA-Factory** recipes checked into the repo; merged/exported to **GGUF**; registered into Ollama via Modelfile; promoted only after passing the promptfoo eval gate. Training is offline tooling, never a runtime dependency. |
 
-### Goals
+## A3. Goals
 
-- Lower cost per successful coding-agent task by improving prompts and catching wasteful run patterns early.
-- Prevent repeated failed loops such as rerunning the same failing test command without new evidence.
-- Improve prompt quality before engineers paste tasks into Codex or Claude Code.
-- Make coding-agent runs easier to debug through local traces, summaries, and replay.
-- Keep engineers moving faster with clear CLI workflows and concise recommendations.
-- Run locally beside existing tools rather than replacing Codex or Claude Code.
-- Prefer local DeepSeek and other small local models first, with deterministic rules as the fallback before any expensive remote frontier models.
-- Make task-cost evidence visible with estimates, quality gates, avoided-waste summaries, and prompt before/after comparisons.
-- Store raw traces locally by default and make exports explicit.
-- Keep the system extensible so future local models, wrappers, and integrations can be added without rewriting the core runtime.
+- Lower cost per successful Claude Code task, before and during execution.
+- Zero-touch session capture; manual event registration exists only as a degraded fallback.
+- Measured cost wherever Claude Code emits telemetry; every figure labeled `measured | priced | approximate`.
+- Small, cheap, **locally running** models only in the runtime path: DeepSeek-R1 distills for reasoning, Kimi (Linear-48B-A3B default) for coding, both optionally with project-tuned LoRA weights.
+- Deterministic fallback for every model-dependent behavior. Core correctness never depends on a model being up.
+- Local-first: traces stay on disk; all exports explicit and receipted.
 
-### Non-Goals for the First Four PRs
+## A4. Non-Goals
 
-- Building a polished SaaS product.
-- Replacing Codex, Claude Code, terminals, or IDEs.
-- Full terminal interception as a hard MVP dependency.
-- Enterprise data-loss-prevention workflows as the primary positioning.
-- Mandatory cloud sync.
-- Production-grade analytics, multi-user dashboards, billing, or org administration.
-- Automated blocking of agent actions unless a future integration makes it safe and explicit.
-- Frequent remote frontier-model calls for core runtime steering.
+- Supporting any agent other than Claude Code.
+- SaaS, multi-user, billing, org admin, cloud sync, web dashboard (CLI replay is the answer for v3).
+- PTY/terminal interception.
+- Running the LiteLLM proxy or bundling/hosting Langfuse.
+- Blocking Claude Code actions.
+- Training models in the runtime. The tuning pipeline is offline tooling with checked-in recipes.
+- Frequent remote frontier-model calls anywhere in the runtime.
 
-## 3. Target User Experience
+## A5. Open-Source Components Used
 
-### Primary Separate-Terminal Workflow
+| Tool | Role in the system | Runtime dependency? |
+| --- | --- | --- |
+| Claude Code hooks (pattern from `disler/claude-code-hooks-multi-agent-observability`) | Automatic event capture: prompts, tool calls, edits, tests, failures | Yes (hook executable ships with the package) |
+| Claude Code native OTEL telemetry + built-in OTLP/HTTP receiver (pattern from `ColeMurray/claude-code-otel`) | Measured tokens and cost | Yes (receiver in daemon) |
+| LiteLLM (SDK only) | ModelProvider implementation; unified calls to Ollama and llama-server; vendored price map for the cost engine | Yes (in-process library) |
+| Ollama / llama.cpp | Local serving of DeepSeek and Kimi (base + tuned) | Yes (external local service, user-installed) |
+| LLaMA-Factory | Offline QLoRA training of specially trained weights | No (dev tooling) |
+| promptfoo | CI evals of refiner/steering prompts; **promotion gate for fine-tuned weights** | No (dev/CI tooling) |
+| Langfuse | Optional opt-in trace export target | No (exporter plugin; user runs their own instance) |
 
-Terminal 1:
+---
 
-```bash
-agent-sidecar start
-```
+# PART B — Frozen Contracts
 
-Terminal 2:
+Implement these exactly. They are frozen at the end of Chunk 1 (schemas, API, layout), Chunk 2 (model/evaluator/cost contracts), Chunk 3 (exporter/summary contracts). Changing a frozen contract requires a written entry in `docs/decisions.md` explaining why, and updating every dependent test.
 
-```bash
-codex
-# or
-claude
-```
-
-The user starts Agent Sidecar in one terminal, starts Codex or Claude Code in another terminal, and explicitly creates or associates a sidecar session with the agent run. If direct observation is unavailable, Agent Sidecar still provides value through companion commands, prompt refinement, manual event registration, wrapper commands, local trace capture, and session summaries.
-
-### Initial MVP Interaction
-
-```bash
-agent-sidecar start
-agent-sidecar session start --agent codex --repo . --name demo-session-001
-agent-sidecar event command --session demo-session-001 --command "pnpm test"
-agent-sidecar status
-agent-sidecar session stop --session demo-session-001
-agent-sidecar trace show demo-session-001
-```
-
-Expected visible output:
-
-```text
-Agent Sidecar running locally
-Active session: demo-session-001
-Repo: /path/to/repo
-Agent: codex
-Events recorded: 5
-Estimated tokens: unavailable or estimated
-Trace stored at: .agent-sidecar/sessions/demo-session-001.jsonl
-```
-
-### Prompt Refinement Workflow
-
-```bash
-agent-sidecar refine "make the app better and fix the tests"
-```
-
-Expected visible output:
+## B1. Repository Layout
 
 ```text
-Prompt quality: Low
-Issues detected:
-- Task is vague
-- Scope is too broad
-- Validation expectations are missing
-- No files or components identified
-
-Refined prompt:
-You are working in this repository. Inspect the failing tests first, identify the smallest code change needed, avoid unrelated refactors, and update only the files required to restore test correctness. After implementation, run the relevant test target and summarize the exact change made.
-
-Estimated task-cost impact:
-- Original likely causes exploratory waste
-- Refined prompt reduces ambiguity and narrows implementation scope
+agent-sidecar/
+├── pyproject.toml                  # package metadata, console entry point
+├── README.md
+├── docs/
+│   ├── decisions.md                # running log of implementation choices
+│   ├── fixtures.md                 # how fixtures were captured, Claude Code version tags
+│   └── tuning.md                   # how to train/promote specially trained weights
+├── src/agent_sidecar/
+│   ├── __init__.py                 # __version__
+│   ├── cli/                        # typer app; one module per command group
+│   │   ├── main.py                 # entry point: agent-sidecar
+│   │   ├── daemon_cmds.py          # start, status
+│   │   ├── hooks_cmds.py           # hooks install|uninstall|status
+│   │   ├── telemetry_cmds.py       # telemetry print-env
+│   │   ├── session_cmds.py         # session list|show|stop, trace show, event (fallback)
+│   │   ├── intel_cmds.py           # refine, steer, cost show          (Chunk 2)
+│   │   ├── replay_cmds.py          # replay, summary export, index      (Chunk 3)
+│   │   ├── export_cmds.py          # export langfuse                    (Chunk 3)
+│   │   ├── models_cmds.py          # models list|pull|promote|rollback  (Chunk 2)
+│   │   └── dev_cmds.py             # dev replay-fixture, dev export-dataset
+│   ├── daemon/
+│   │   ├── app.py                  # FastAPI app factory; mounts api + otlp routers
+│   │   ├── api.py                  # sidecar HTTP API routes
+│   │   ├── otlp.py                 # OTLP/HTTP receiver routes (/v1/metrics, /v1/logs)
+│   │   └── runner.py               # process management, pidfile, uvicorn boot
+│   ├── schema/
+│   │   ├── events.py               # SidecarEvent + payload models (B3)
+│   │   ├── session.py              # SessionRecord (B4)
+│   │   ├── config.py               # SidecarConfig (B7)
+│   │   ├── model_io.py             # RefineResult, SteerResult, EvaluatorFinding (B5/B6)
+│   │   └── summary.py              # RunSummary (Chunk 3)
+│   ├── adapters/
+│   │   ├── claude_code/
+│   │   │   ├── hooks_adapter.py    # hook JSON -> SidecarEvent(s), derivation rules
+│   │   │   ├── hook_script.py      # the installed hook executable (stdlib-only)
+│   │   │   ├── installer.py        # .claude/settings.json merge/unmerge
+│   │   │   └── otlp_adapter.py     # OTLP payloads -> SidecarEvent(s), correlation
+│   │   └── manual.py               # CLI event fallback -> SidecarEvent
+│   ├── store/
+│   │   ├── jsonl.py                # append-only trace writer/reader
+│   │   ├── sessions.py             # SessionManager (auto-create, lifecycle)
+│   │   └── index.py                # SQLite index (Chunk 3)
+│   ├── models/                     # the ensemble (Part C)
+│   │   ├── provider.py             # ModelProvider protocol + LiteLLM implementation
+│   │   ├── router.py               # role -> model resolution (reasoning|coding)
+│   │   ├── registry.py             # model registry: base + tuned weights, checksums, eval scores
+│   │   ├── prompts/                # versioned prompt templates for each role/task
+│   │   │   ├── refine_reasoning.txt
+│   │   │   ├── refine_coding.txt
+│   │   │   └── steer_reasoning.txt
+│   │   └── validation.py           # strict-JSON validators, restatement/evidence checks
+│   ├── intel/
+│   │   ├── refiner.py              # Prompt Refiner (ensemble-first, deterministic fallback)
+│   │   ├── refiner_fallback.py     # deterministic scorer + refiner
+│   │   ├── cost.py                 # three-tier Cost Engine
+│   │   ├── detectors/              # one module per deterministic detector
+│   │   │   ├── repeated_command.py
+│   │   │   ├── failed_test_loop.py
+│   │   │   ├── repeated_edit.py
+│   │   │   ├── missing_validation.py
+│   │   │   └── task_drift.py
+│   │   ├── normalize.py            # command normalization
+│   │   ├── rules.py                # repo guardrail rule engine
+│   │   ├── ranker.py               # deterministic recommendation ranker (fallback decider)
+│   │   └── steering.py             # orchestration: detectors -> ensemble -> decision
+│   ├── export/
+│   │   ├── base.py                 # Exporter protocol + ExportReceipt
+│   │   ├── markdown.py             # summary -> md
+│   │   ├── jsonexp.py              # summary -> json
+│   │   └── langfuse_exp.py         # Langfuse exporter (Chunk 3)
+│   └── replay/
+│       ├── reader.py               # ordered timeline from JSONL
+│       └── render.py               # CLI timeline rendering
+├── tuning/                         # OFFLINE tooling — never imported by src/
+│   ├── recipes/
+│   │   ├── deepseek_reasoning_qlora.yaml     # LLaMA-Factory config
+│   │   └── kimi_coding_qlora.yaml            # LLaMA-Factory config
+│   ├── export_gguf.sh              # merge adapter + convert to GGUF (llama.cpp scripts)
+│   ├── modelfiles/
+│   │   ├── sidecar-deepseek-reasoning.Modelfile
+│   │   └── sidecar-kimi-coding.Modelfile
+│   └── README.md                   # step-by-step train->export->register->promote
+├── evals/
+│   ├── refiner.promptfoo.yaml
+│   ├── steering.promptfoo.yaml
+│   ├── promotion.promptfoo.yaml    # tuned-vs-base gate
+│   └── fixtures/
+│       ├── hooks/                  # captured hook payloads per event type (JSON)
+│       ├── otlp/                   # captured OTLP metric/log payloads (protobuf + JSON)
+│       ├── traces/                 # canonical session JSONL files (e.g. auth-refresh-loop.jsonl)
+│       └── datasets/               # labeled refinement/steering pairs for tuning + calibration
+└── tests/
+    ├── unit/                       # mirrors src/ structure
+    ├── integration/
+    └── golden/                     # golden files: refine output, steering output, summaries
 ```
 
-### Runtime Steering Workflow
-
-During an active session, Agent Sidecar receives or observes repeated events and emits concise steering output:
-
-```text
-Steering decision: WARN
-Confidence: 0.84
-
-Evaluators fired:
-- repeated_command_detector
-- failed_test_loop_detector
-- missing_validation_detector
-
-Recommended next step:
-Inspect the failing stack trace and update the specific dependency registration before rerunning the full test suite.
-
-Estimated avoided task cost:
-- 2-3 repeated commands
-- likely redundant test rerun
-- potential unnecessary agent spend
-```
-
-## 4. Critical User Flows
-
-### Flow A: Start Sidecar Beside a Coding Agent
-
-1. User runs `agent-sidecar start` in a terminal.
-2. Sidecar starts a local runtime process and prints status.
-3. User opens another terminal and starts `codex` or `claude`.
-4. User creates or associates a session with `agent-sidecar session start --agent codex --repo .`.
-5. Sidecar writes `session_started` to a local JSONL trace.
-6. User can run `agent-sidecar status` to see active and recent sessions.
-
-### Flow B: Refine Prompt Before Costly Execution
-
-1. User runs `agent-sidecar refine "raw task"`.
-2. Prompt Refiner first asks the configured local DeepSeek model for a structured task contract and steering brief, then falls back to deterministic prompt quality checks if the model is unavailable or returns an unusable response.
-3. Cost estimator computes rough original/refined token counts as cost evidence.
-4. Sidecar prints a structured prompt that can be copied into Codex or Claude Code.
-5. Sidecar records `prompt_submitted` and `prompt_refined` events linked to the active or most recent session.
-
-### Flow C: Register or Observe Agent Events
-
-1. Events arrive from manual CLI commands, a wrapper, command observation, log ingestion, or future integrations.
-2. Event ingestion normalizes them into a shared event schema.
-3. Session Manager appends events to the trace store.
-4. Runtime evaluators update session state and cost estimates.
-5. Sidecar status and summaries reflect the latest session state.
-
-### Flow D: Detect Loop or Missing Validation
-
-1. Session contains repeated commands, repeated failed tests, repeated file edits, or no validation after changes.
-2. Local Steering Ensemble runs deterministic detectors to produce compact evidence.
-3. The configured local DeepSeek model attempts the final steering decision from that evidence.
-4. If the model is unavailable or invalid, the deterministic ranking combines findings into `continue`, `warn`, or `suggest`.
-5. Sidecar prints a concise recommendation and records a `steering_recommendation` event.
-
-### Flow E: Replay and Export Run Summary
-
-1. User runs `agent-sidecar replay demo-session-001` or opens the MVP dashboard.
-2. Sidecar reads local JSONL traces and optional SQLite indexes.
-3. User sees timeline events, prompt refinements, warnings, validation reminders, and cost rollups.
-4. User exports Markdown or JSON summary with `agent-sidecar summary export demo-session-001 --format markdown`.
-
-## 5. System Architecture
-
-### High-Level Flow
-
-```mermaid
-flowchart TD
-  A[User prompt / agent session] --> B[Agent Sidecar CLI or companion runtime]
-  B --> C[Event normalization + session state]
-  C --> D[Prompt Refiner / cost estimator / rule engine / loop detector]
-  D --> E[Local Steering Ensemble]
-  E --> E1[loop detector]
-  E --> E2[validation checker]
-  E --> E3[task-drift detector]
-  E --> E4[prompt-quality scorer]
-  E --> E5[cost-risk estimator]
-  E --> E6[recommendation ranker]
-  E --> F[Steering decision]
-  F --> G[warn / suggest / continue]
-  G --> H[Trace store + replay/dashboard]
-```
-
-### Component-Level Architecture
-
-```text
-+--------------------------------------------------------------------------------+
-|                                Agent Sidecar                                   |
-+--------------------------------------------------------------------------------+
-| CLI Layer                                                                      |
-| - start                                                                        |
-| - status                                                                       |
-| - session start/stop/list                                                      |
-| - refine                                                                       |
-| - event command/edit/test/failure                                              |
-| - replay / summary export                                                      |
-+-------------------------------------+------------------------------------------+
-                                      |
-                                      v
-+--------------------------------------------------------------------------------+
-| Local Runtime / Daemon                                                         |
-| - local HTTP or IPC API                                                        |
-| - runtime status                                                               |
-| - watches active sessions                                                      |
-| - emits terminal companion output                                              |
-+-------------------------------------+------------------------------------------+
-                                      |
-                                      v
-+--------------------------------------------------------------------------------+
-| Session Manager + Event Ingestion                                              |
-| - creates session IDs                                                          |
-| - associates repo + agent                                                       |
-| - normalizes manual, wrapper, log, shell, detector events                       |
-| - maintains in-memory active session state                                     |
-+-------------------------------------+------------------------------------------+
-                                      |
-                                      v
-+--------------------------------------------------------------------------------+
-| Analysis Components                                                            |
-| - Prompt Refiner                                                               |
-| - Cost / Token Estimator                                                       |
-| - Rule Engine                                                                  |
-| - Loop Detector                                                                |
-| - Validation Reminder                                                          |
-| - Task Drift Detector                                                          |
-+-------------------------------------+------------------------------------------+
-                                      |
-                                      v
-+--------------------------------------------------------------------------------+
-| Local Steering Ensemble                                                        |
-| - local DeepSeek attempts + deterministic fallback                             |
-| - embedding similarity                                                         |
-| - lightweight classifiers                                                      |
-| - small local LLM evaluators where configured                                  |
-| - recommendation ranker                                                        |
-+-------------------------------------+------------------------------------------+
-                                      |
-                                      v
-+--------------------------------------------------------------------------------+
-| Steering Decision Engine                                                       |
-| - continue / warn / suggest                                                    |
-| - confidence scoring                                                           |
-| - evaluator evidence                                                           |
-| - concise terminal messages                                                    |
-+-------------------------------------+------------------------------------------+
-                                      |
-                                      v
-+--------------------------------------------------------------------------------+
-| Local Persistence + Visibility                                                 |
-| - JSONL trace files                                                            |
-| - optional SQLite index                                                        |
-| - config files                                                                 |
-| - Markdown / JSON exports                                                      |
-| - MVP dashboard or replay CLI                                                  |
-+--------------------------------------------------------------------------------+
-```
-
-### Runtime Boundaries
-
-- The CLI is the primary user interface for PRs 1-3.
-- The daemon/runtime owns active sessions and writes traces.
-- The dashboard/API layer is optional until PR 4.
-- Local trace storage is the source of truth.
-- Deeper Codex/Claude Code interception is a future integration, not a prerequisite for MVP value.
-
-## 6. Component Design
-
-### CLI Layer
-
-Responsibilities:
-
-- Provide explicit commands for all MVP flows.
-- Keep workflows understandable and scriptable.
-- Print concise status and recommendations.
-- Avoid hidden behavior that users cannot debug.
-
-Initial commands:
-
-```bash
-agent-sidecar start
-agent-sidecar status
-agent-sidecar session start --agent codex --repo . --name demo-session-001
-agent-sidecar session stop --session demo-session-001
-agent-sidecar session list
-agent-sidecar event command --session demo-session-001 --command "pnpm test"
-agent-sidecar event edit --session demo-session-001 --file packages/core/src/index.ts
-agent-sidecar event test --session demo-session-001 --command "pnpm test" --status failed
-agent-sidecar refine "raw prompt"
-agent-sidecar replay demo-session-001
-agent-sidecar summary export demo-session-001 --format markdown
-```
-
-### Local Runtime / Daemon
-
-Responsibilities:
-
-- Run locally and advertise readiness.
-- Maintain active runtime state.
-- Expose a local API for CLI commands and future dashboard reads.
-- Stream or print terminal companion recommendations.
-- Avoid requiring remote services for core MVP behavior.
-
-MVP API shape:
-
-```text
-GET  /health
-GET  /status
-POST /sessions
-GET  /sessions
-GET  /sessions/:id
-POST /sessions/:id/events
-POST /sessions/:id/stop
-POST /refine
-GET  /sessions/:id/replay
-POST /sessions/:id/export
-```
-
-The API can be HTTP on `127.0.0.1` or a local IPC mechanism. HTTP is easier to demo and dashboard-friendly.
-
-### Session Manager
-
-Responsibilities:
-
-- Create stable session IDs.
-- Associate sessions with repo path, agent type, start/stop timestamps, and configuration snapshot.
-- Track event counts and lightweight token/cost metadata.
-- Support partial observation without failing the run.
-- Link prompt refinements to active or recent sessions.
-
-Session lifecycle:
-
-```text
-created -> active -> stopped -> summarized/exported
-```
-
-### Event Ingestion Layer
-
-Responsibilities:
-
-- Normalize events from manual CLI, companion mode, wrappers, logs, shell history, and detector outputs.
-- Validate event schema.
-- Attach metadata such as repo path, agent, source, and confidence.
-- Append to JSONL traces.
-- Notify analysis components when relevant events arrive.
-
-Sources:
-
-- `cli`: direct user command.
-- `companion`: sidecar terminal interaction.
-- `wrapper`: future `agent-sidecar codex` or `agent-sidecar claude` wrapper.
-- `manual`: explicit event registration.
-- `detector`: generated by local evaluators.
-
-### Prompt Refiner
-
-Responsibilities:
-
-- Score prompt quality.
-- Detect vague scope, missing validation, missing constraints, lack of file/component hints, and overbroad intent.
-- Produce a structured coding-agent prompt.
-- Estimate original/refined token footprint as cost evidence and flag likely unsuccessful exploration.
-- Record prompt lineage.
-
-Prompt Refiner output should include:
-
-- Quality score: `low`, `medium`, `high`.
-- Issues detected.
-- Refined prompt.
-- Suggested acceptance criteria.
-- Testing expectations.
-- What not to change.
-- Estimated task-cost impact and quality gate requirements.
-
-MVP implementation should start local-model-first:
-
-- Call a local Ollama-compatible DeepSeek model for the initial rewrite.
-- Require structured JSON with an optimized prompt and task contract.
-- Reject empty responses, invalid JSON, and short restatements.
-- Fall back to keyword and structure heuristics, prompt length checks, and missing-section detection.
-
-### Task Cost / Token Estimator
-
-Responsibilities:
-
-- Provide rough token estimates as one cost input without depending on agent vendor APIs.
-- Compare prompt before/after refinement as cost evidence.
-- Track estimated command/test rerun cost.
-- Summarize task-cost impact in session summaries.
-
-MVP estimator:
-
-- Approximate tokens as `ceil(characters / 4)`.
-- Assign configurable cost proxies to repeated commands, broad searches, repeated failed test runs, and prompt ambiguity.
-- Mark estimates clearly as approximate.
-
-Future estimator:
-
-- Agent-specific tokenizers.
-- Model-specific pricing tables.
-- Optional import from vendor usage logs.
-
-### Rule Engine
-
-Responsibilities:
-
-- Evaluate deterministic repo and session rules.
-- Enforce reminders without blocking by default.
-- Support repository configuration.
-- Feed findings into the Local Steering Ensemble.
-
-Examples:
-
-- Warn if full test suite is repeated multiple times after the same failure.
-- Warn if files outside configured scope are edited.
-- Remind user to run validation after file edits.
-- Warn if generated files or lockfiles are touched without an associated command.
-
-### Local Steering Ensemble
-
-Responsibilities:
-
-- Run multiple cheap local evaluators.
-- Combine evaluator findings into recommendations.
-- Explain which evaluators fired and why.
-- Avoid frequent expensive remote calls.
-- Allow future evaluator/model swaps without changing session/event infrastructure.
-
-Detailed design appears in Section 10.
-
-### Steering Decision Engine
-
-Responsibilities:
-
-- Convert evaluator findings into `continue`, `warn`, or `suggest`.
-- Rank recommendations by likely waste avoided and confidence.
-- Avoid noisy output.
-- Record steering decisions in trace.
-
-Decision levels:
-
-```text
-CONTINUE: no action needed; optionally update cost estimate.
-SUGGEST: low/medium urgency improvement recommendation.
-WARN: likely wasteful loop, missing validation, task drift, or risky behavior.
-```
-
-MVP should not auto-block. It should warn and suggest.
-
-### Trace Store
-
-Responsibilities:
-
-- Store raw events as JSONL.
-- Make traces inspectable with common tools.
-- Support replay and export.
-- Optionally maintain SQLite indexes for faster session listing and dashboard queries.
-
-Storage layout:
+## B2. Local Data Layout (per repo using the sidecar)
 
 ```text
 .agent-sidecar/
   config.json
   sessions/
-    demo-session-001.jsonl
-    demo-session-001.summary.md
-  index.sqlite        # optional after PR 1
+    cc-<id>.jsonl
+    cc-<id>.summary.md
+  index.sqlite                # Chunk 3, derived
+  cost-map/litellm_prices.json
+  models/registry.json        # local model registry state (B8)
 ```
 
-### Dashboard / API Layer
+## B3. Event Schema (pydantic, frozen after Chunk 1)
 
-Responsibilities:
+```python
+class EventSource(str, Enum):
+    hook = "hook"; otlp = "otlp"; cli = "cli"; manual = "manual"; detector = "detector"
 
-- Read local traces and summaries.
-- Show timeline, prompt before/after, steering events, evaluator firings, and cost estimates.
-- Provide a demo-ready view in PR 4.
+class SidecarEvent(BaseModel):
+    event_id: str                # uuid4
+    session_id: str              # "cc-" + Claude Code session id
+    timestamp: datetime          # UTC
+    event_type: str              # one of the registered types below
+    source: EventSource
+    payload: dict                # type-specific payload model, validated per event_type
+    metadata: EventMeta
 
-MVP dashboard should be local-only and simple. A CLI replay view is acceptable if it demonstrates the debugging story clearly; a web UI can be added if it does not distract from core functionality.
+class EventMeta(BaseModel):
+    repo_path: str
+    agent: Literal["claude-code"] = "claude-code"
+    confidence: float = 1.0
+    schema_version: int = 3
+    adapter_version: str | None = None
+```
 
-### Configuration System
+Registered `event_type` values and primary source:
 
-Responsibilities:
+| event_type | source | notes |
+| --- | --- | --- |
+| `session_started` / `session_stopped` | hook | SessionStart / SessionEnd |
+| `prompt_submitted` | hook | UserPromptSubmit |
+| `prompt_refined` | detector | written by the refiner |
+| `agent_tool_observed` | hook | Pre/PostToolUse pair collapsed; payload: tool_name, input summary, exit, duration_ms |
+| `agent_tool_failed` | hook | PostToolUseFailure |
+| `turn_completed` | hook | Stop |
+| `file_edit_observed` | hook (derived) | from Edit/Write/MultiEdit tool events |
+| `test_run_observed` / `test_failure_observed` | hook (derived) | Bash matching configured test patterns; failure_signature from output tail |
+| `cost_estimate_updated` | otlp or detector | payload uses OTEL GenAI names: `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, plus `cost_usd`, `precision` |
+| `loop_detected` / `validation_missing` / `task_drift_detected` | detector | evidence_event_ids required |
+| `steering_recommendation` | detector | decision, recommendation, evaluators_fired, evidence_event_ids, confidence, estimated_avoided_waste{cost_usd, precision} |
+| `model_call_completed` | detector | every ensemble call: role, model_id, latency_ms, valid_json, fallback_used |
+| `summary_exported` | detector | destination, counts, truncation, duration_ms |
 
-- Store repo settings, default agent, trace path, local model settings, evaluator thresholds, and optional provider config.
-- Be human-readable.
-- Support project-local config first.
+Unknown incoming fields from hooks/OTLP are preserved under `payload.raw_hook` / `payload.raw_otel`, never dropped.
 
-Example:
+## B4. SessionRecord (frozen after Chunk 1)
+
+```python
+class Precision(str, Enum):
+    measured = "measured"; priced = "priced"; approximate = "approximate"
+
+class SessionRecord(BaseModel):
+    session_id: str
+    agent: Literal["claude-code"] = "claude-code"
+    repo_path: str
+    status: Literal["active", "stopped"]
+    started_at: datetime
+    stopped_at: datetime | None
+    trace_path: str
+    event_count: int
+    observation: dict            # {"hooks": bool, "otlp": bool, "manual": bool}
+    tokens: TokenUsage | None    # input/output/cache_read + precision
+    cost_usd: Money | None       # value + precision
+    model: str | None            # gen_ai.request.model from telemetry
+    config_snapshot: dict
+```
+
+## B5. ModelProvider and Ensemble Contracts (frozen after Chunk 2)
+
+```python
+class ModelRole(str, Enum):
+    reasoning = "reasoning"      # DeepSeek: judgments, steering decisions, quality scoring
+    coding = "coding"            # Kimi: code-aware prompt drafting, failure analysis, next-step suggestions
+
+class ModelProvider(Protocol):
+    def complete_json(self, role: ModelRole, task: str, prompt: str,
+                      schema: type[BaseModel], timeout_ms: int | None = None
+                      ) -> BaseModel | None:
+        """Resolve role->model via the router, call it via LiteLLM, demand strict JSON,
+        validate against `schema`. Return None on ANY failure (unreachable, timeout,
+        invalid JSON, schema violation, allowlist violation). Emit model_call_completed."""
+
+    def health(self) -> dict:    # per-role: reachable, model_id, tuned|base, registry entry
+```
+
+Task-level output schemas:
+
+```python
+class RefineDraft(BaseModel):            # produced by the CODING model (Kimi)
+    refined_prompt: str
+    acceptance_criteria: list[str]
+    testing_expectations: str
+    do_not_change: list[str]
+    files_or_components: list[str]
+
+class RefineJudgment(BaseModel):         # produced by the REASONING model (DeepSeek)
+    quality: Literal["low", "medium", "high"]
+    issues: list[str]
+    approved: bool                        # is the coding model's draft materially better?
+    revision_notes: str | None
+
+class RefineResult(BaseModel):           # assembled by the refiner
+    quality: str
+    issues: list[str]
+    refined_prompt: str
+    acceptance_criteria: list[str]
+    testing_expectations: str
+    do_not_change: list[str]
+    source: Literal["ensemble", "coding-only", "deterministic"]
+
+class SteerResult(BaseModel):            # produced by the REASONING model (DeepSeek)
+    decision: Literal["continue", "suggest", "warn"]
+    recommendation: str
+    evidence_event_ids: list[str]         # MUST be subset of detector-provided ids
+    confidence: float
+
+class NextStepDraft(BaseModel):          # optional, produced by the CODING model (Kimi)
+    next_step: str                        # concrete, code-aware suggestion
+    rationale: str
+```
+
+## B6. EvaluatorFinding and Cost contracts (frozen after Chunk 2)
+
+```python
+class EvaluatorFinding(BaseModel):
+    evaluator_id: str
+    severity: Literal["info", "suggest", "warn"]
+    confidence: float
+    evidence_event_ids: list[str]
+    summary: str
+    recommendation: str | None = None
+    estimated_waste: WasteEstimate | None = None
+
+class WasteEstimate(BaseModel):
+    repeated_actions: int | None = None
+    cost_usd: float | None = None
+    precision: Precision
+
+class CostEstimate(BaseModel):
+    value: float
+    precision: Precision          # mandatory everywhere a number appears
+```
+
+## B7. Configuration (default `.agent-sidecar/config.json`)
 
 ```json
 {
-  "version": 1,
-  "default_agent": "codex",
+  "version": 3,
   "trace_dir": ".agent-sidecar/sessions",
-  "steering": {
-    "mode": "local",
-    "remote_fallback": false,
-    "loop_threshold": 0.82,
-    "validation_required_after_edits": true
+  "daemon": { "api_port": 7433, "otlp_port": 4318 },
+  "hooks": {
+    "payload_max_bytes": 32768,
+    "test_command_patterns": ["pnpm test", "npm test", "pytest", "cargo test", "go test"]
   },
   "models": {
-    "embedding_provider": "local",
-    "embedding_model": "all-MiniLM-L6-v2",
-    "prompt_refiner_model": "optional-local-llm",
-    "frontier_fallback": "disabled"
+    "roles": {
+      "reasoning": { "model": "sidecar-deepseek-reasoning", "fallback_base": "deepseek-r1:8b" },
+      "coding":    { "model": "sidecar-kimi-coding",        "fallback_base": "kimi-linear-48b-a3b" }
+    },
+    "endpoints": {
+      "ollama":       { "api_base": "http://localhost:11434", "litellm_prefix": "ollama_chat/" },
+      "llama_server": { "api_base": "http://localhost:8080/v1", "litellm_prefix": "openai/" }
+    },
+    "allowlist": ["ollama_chat/*", "openai/*@http://localhost:8080/v1"],
+    "remote_fallback": false,
+    "timeout_ms": 12000,
+    "hardware_tier": "auto"
+  },
+  "cost": { "price_map": ".agent-sidecar/cost-map/litellm_prices.json" },
+  "steering": {
+    "loop_threshold": 0.82,
+    "validation_required_after_edits": true,
+    "max_warnings_per_turn": 1,
+    "coding_next_step": true
   },
   "rules": {
     "warn_on_repeated_failed_tests": true,
     "warn_on_out_of_scope_edits": true
-  }
-}
-```
-
-### Integration Strategy for Codex and Claude Code
-
-The MVP strategy is companion-first:
-
-- Do not require fragile terminal interception.
-- Support manual session creation and event registration.
-- Support prompt refinement before copying into Codex or Claude Code.
-- Add wrapper commands where feasible.
-- Add log or shell-history ingestion where feasible.
-- Treat partial observation as normal and still produce useful summaries.
-
-### Testing Strategy Component
-
-Testing must be deterministic:
-
-- Unit-test pure evaluators.
-- Use fixture traces for replay.
-- Use golden Markdown summaries.
-- Avoid network-dependent tests in core PRs.
-- Make optional local model tests opt-in.
-
-## 7. Data Model and Event Schema
-
-### Core Event Schema
-
-Every event should conform to this schema:
-
-```json
-{
-  "event_id": "uuid",
-  "session_id": "string",
-  "timestamp": "iso-8601",
-  "event_type": "string",
-  "source": "cli | companion | wrapper | manual | detector",
-  "payload": {},
-  "metadata": {
-    "repo_path": "string",
-    "agent": "codex | claude | unknown",
-    "confidence": 0.0
-  }
-}
-```
-
-### Required Event Types
-
-- `session_started`
-- `session_stopped`
-- `prompt_submitted`
-- `prompt_refined`
-- `agent_command_observed`
-- `file_edit_observed`
-- `test_run_observed`
-- `test_failure_observed`
-- `loop_detected`
-- `validation_missing`
-- `task_drift_detected`
-- `steering_recommendation`
-- `cost_estimate_updated`
-- `summary_exported`
-
-### Session Record
-
-```json
-{
-  "session_id": "demo-session-001",
-  "name": "demo-session-001",
-  "agent": "codex",
-  "repo_path": "/path/to/repo",
-  "status": "active",
-  "started_at": "2026-06-04T10:00:00Z",
-  "stopped_at": null,
-  "trace_path": ".agent-sidecar/sessions/demo-session-001.jsonl",
-  "event_count": 5,
-  "estimated_tokens": null,
-  "estimated_cost_usd": null,
-  "config_snapshot": {}
-}
-```
-
-### Event Payload Examples
-
-#### `session_started`
-
-```json
-{
-  "event_type": "session_started",
-  "payload": {
-    "session_name": "demo-session-001",
-    "cwd": "/path/to/repo"
-  }
-}
-```
-
-#### `prompt_submitted`
-
-```json
-{
-  "event_type": "prompt_submitted",
-  "payload": {
-    "prompt_text": "make the app better and fix the tests",
-    "estimated_tokens": 9
-  }
-}
-```
-
-#### `prompt_refined`
-
-```json
-{
-  "event_type": "prompt_refined",
-  "payload": {
-    "quality": "low",
-    "issues": ["vague_task", "missing_validation", "scope_too_broad"],
-    "original_estimated_tokens": 9,
-    "refined_estimated_tokens": 55,
-    "refined_prompt": "Inspect the failing tests first...",
-    "savings_explanation": "Reduced ambiguity and likely exploratory waste."
-  }
-}
-```
-
-#### `agent_command_observed`
-
-```json
-{
-  "event_type": "agent_command_observed",
-  "payload": {
-    "command": "pnpm test",
-    "cwd": "/path/to/repo",
-    "exit_code": 1,
-    "duration_ms": 32000
-  }
-}
-```
-
-#### `test_failure_observed`
-
-```json
-{
-  "event_type": "test_failure_observed",
-  "payload": {
-    "command": "pnpm test",
-    "failure_signature": "AuthRefreshProvider should refresh expired token",
-    "test_target": "packages/auth",
-    "stack_trace_excerpt": "AssertionError: expected 401 to equal 200"
-  }
-}
-```
-
-#### `loop_detected`
-
-```json
-{
-  "event_type": "loop_detected",
-  "source": "detector",
-  "payload": {
-    "loop_type": "repeated_failed_test",
-    "evidence_event_ids": ["evt-1", "evt-2", "evt-3"],
-    "summary": "Same failing test command repeated 3 times without new evidence.",
-    "estimated_redundant_actions": 2
   },
-  "metadata": {
-    "confidence": 0.84
+  "exporters": {
+    "langfuse": { "enabled": false, "base_url": null, "auto_export": false }
   }
 }
 ```
 
-#### `steering_recommendation`
+Allowlist semantics: `openai/*` entries are only valid when pinned to a loopback `api_base` (the `@http://localhost...` suffix); the provider rejects any `openai/*` call whose api_base is not loopback unless `remote_fallback` is true. This keeps the llama-server path local-only by construction.
+
+## B8. Model Registry (`.agent-sidecar/models/registry.json`)
 
 ```json
 {
-  "event_type": "steering_recommendation",
-  "source": "detector",
-  "payload": {
-    "decision": "warn",
-    "recommendation": "Inspect the failing stack trace before rerunning the full test suite.",
-    "evaluators_fired": [
-      "repeated_command_detector",
-      "failed_test_loop_detector",
-      "missing_validation_detector"
-    ],
-    "estimated_avoided_waste": {
-      "repeated_commands": 2,
-      "token_estimate": "approximate"
+  "version": 1,
+  "entries": [
+    {
+      "name": "sidecar-deepseek-reasoning",
+      "role": "reasoning",
+      "kind": "tuned",
+      "base": "deepseek-r1:8b",
+      "serving": "ollama",
+      "adapter_sha256": "…",
+      "trained_at": "iso-8601",
+      "recipe": "tuning/recipes/deepseek_reasoning_qlora.yaml",
+      "eval": { "suite": "evals/promotion.promptfoo.yaml", "score": 0.91, "base_score": 0.84, "passed": true },
+      "status": "active"
+    },
+    {
+      "name": "sidecar-kimi-coding",
+      "role": "coding",
+      "kind": "tuned",
+      "base": "kimi-linear-48b-a3b",
+      "serving": "llama_server",
+      "gguf_sha256": "…",
+      "eval": { "suite": "evals/promotion.promptfoo.yaml", "score": 0.88, "base_score": 0.83, "passed": true },
+      "status": "active"
     }
-  },
-  "metadata": {
-    "confidence": 0.84
-  }
-}
-```
-
-### Local Storage Expectations
-
-- JSONL traces are the raw event source of truth.
-- Optional SQLite can index sessions, timestamps, event types, and summary metadata.
-- Config is stored in a project-local `.agent-sidecar/config.json` or user-level config when needed.
-- Markdown and JSON summaries are exportable artifacts.
-- Raw traces must remain inspectable without the dashboard.
-
-## 8. Local-First Boundary Model
-
-Agent Sidecar is local-first by default because local operation supports fast engineering workflows, debuggability, and cost-efficient steering.
-
-Boundary rules:
-
-- Raw traces are stored locally by default.
-- Repo-sensitive details are not sent to remote services by default.
-- Local DeepSeek attempts and deterministic rules power the core steering MVP.
-- Remote/frontier models are optional fallbacks, not required dependencies.
-- Users can inspect trace files, config, and exported summaries.
-- Dashboard and replay read local traces first.
-- Any cloud or remote call must be explicit, configurable, and visible in run metadata.
-- If a remote fallback is added later, the event should record what summary was sent, which provider was used, and why the fallback was triggered.
-
-This boundary model supports the product goal of improving coding-agent economics. It is not the main positioning. The main value is engineering effectiveness: better prompts, fewer loops, lower cost per successful task, and easier debugging.
-
-## 9. Codex / Claude Code Companion Strategy
-
-### Strategy 1: Separate-Terminal Companion Mode
-
-This is the required MVP path.
-
-1. User starts `agent-sidecar start`.
-2. User starts `codex` or `claude` in another terminal.
-3. User registers the session:
-
-```bash
-agent-sidecar session start --agent codex --repo .
-```
-
-4. Sidecar shows session status and stores events.
-5. User manually registers commands, test runs, or failures when observation is partial.
-
-Advantages:
-
-- Reliable across tools.
-- Does not depend on private terminal internals.
-- Easy to demo in PR 1.
-- Useful before deeper integrations exist.
-
-Tradeoff:
-
-- Some events are manual until wrappers/log ingestion improve observation.
-
-### Strategy 2: Manual Session Registration
-
-Manual registration is the fallback that must always work:
-
-```bash
-agent-sidecar session start --agent claude --repo /path/to/repo --name auth-fix
-```
-
-The session links all future prompt refinement and event commands to a trace.
-
-### Strategy 3: Prompt Refinement Before Pasting
-
-Users can refine prompts before committing spend:
-
-```bash
-agent-sidecar refine "fix auth and tests"
-```
-
-The CLI prints a copyable prompt. If an active session exists, the prompt refinement is linked to that session. If no session exists, the refinement is stored as standalone history and can be attached later.
-
-### Strategy 4: Wrapper Commands Where Feasible
-
-Future wrappers can reduce manual event registration:
-
-```bash
-agent-sidecar codex
-agent-sidecar claude
-agent-sidecar run --session demo -- pnpm test
-```
-
-Wrappers can record command start/stop, exit codes, and failure snippets. They should not be required for PR 1.
-
-### Strategy 5: Log/Event Ingestion Where Feasible
-
-If Codex or Claude Code exposes logs, hooks, or transcript files, Agent Sidecar can ingest them through adapters. Adapters should emit the same normalized event schema.
-
-### Strategy 6: Shell History or Command Observation Where Feasible
-
-Shell-history ingestion can be useful but should be opt-in because shell history is noisy and incomplete. It should never be the only source of truth.
-
-### Strategy 7: Future Deeper Integrations
-
-Future work may include terminal multiplexing, PTY wrappers, IDE integrations, and agent-specific hooks. These should be built only after companion mode proves value.
-
-### Partial Observation Behavior
-
-When observation is partial:
-
-- The session remains valid.
-- Events include `source` and confidence metadata.
-- Summaries clearly state what was observed vs inferred.
-- Steering recommendations cite event evidence.
-- Missing data should degrade gracefully, not fail the session.
-
-## 10. Local Steering Ensemble Design
-
-### Purpose
-
-The Local Steering Ensemble detects wasteful coding-agent behavior during active sessions using local DeepSeek attempts, deterministic checks, embeddings, and lightweight classifiers. It should not depend on frequent remote frontier-model calls.
-
-### Ensemble Shape
-
-```text
-Local Steering Ensemble
-├── Command similarity detector
-├── Failed-test repetition detector
-├── Repeated edit detector
-├── Missing validation detector
-├── Prompt/task drift detector
-├── Local DeepSeek steering evaluator
-├── Prompt-quality scorer
-├── Cost-risk estimator
-├── Rule-based repo guardrail checker
-└── Recommendation ranker
-```
-
-### Evaluator Contract
-
-Each evaluator should implement a common interface:
-
-```ts
-type EvaluatorFinding = {
-  evaluatorId: string;
-  severity: "info" | "suggest" | "warn";
-  confidence: number;
-  evidenceEventIds: string[];
-  summary: string;
-  recommendation?: string;
-  estimatedWaste?: {
-    repeatedActions?: number;
-    estimatedTokens?: number;
-    notes?: string;
-  };
-};
-
-type SteeringEvaluator = {
-  id: string;
-  evaluate(input: {
-    session: SessionRecord;
-    recentEvents: SidecarEvent[];
-    config: SidecarConfig;
-  }): Promise<EvaluatorFinding[]>;
-};
-```
-
-Language can vary by implementation, but the interface should remain conceptually stable.
-
-### Command Similarity Detector
-
-Responsibilities:
-
-- Detect repeated or near-identical commands.
-- Use exact matching first.
-- Use normalized command matching second.
-- Use embeddings only when available.
-
-Normalization examples:
-
-- Strip repeated whitespace.
-- Normalize absolute repo paths.
-- Remove timestamps and temp filenames.
-- Group test commands by target.
-
-MVP trigger:
-
-- Same command repeated 3 times in a session, or
-- Same failed command repeated 2 times without intervening edit or diagnostic event.
-
-### Failed-Test Repetition Detector
-
-Responsibilities:
-
-- Detect repeated failed tests with the same failure signature.
-- Warn when the same test reruns without a changed strategy.
-- Recommend inspecting the stack trace or narrowing test target.
-
-MVP trigger:
-
-- Same `test_failure_observed.failure_signature` appears twice with no relevant file edit or diagnostic event between failures.
-
-### Repeated Edit Detector
-
-Responsibilities:
-
-- Detect repeated edits to the same file without validation or new evidence.
-- Warn about thrashing behavior.
-
-MVP trigger:
-
-- Same file edited 3 times after the same failure signature and no successful validation.
-
-### Missing Validation Detector
-
-Responsibilities:
-
-- Remind users when edits are not followed by tests, typechecks, lint, or build commands.
-- Avoid blocking.
-
-MVP trigger:
-
-- File edit observed and no validation command within the next N events or before session stop.
-
-### Prompt / Task Drift Detector
-
-Responsibilities:
-
-- Compare current commands and file edits to original/refined prompt intent.
-- Warn when agent activity appears outside stated scope.
-
-MVP implementation:
-
-- Deterministic file-scope matching when prompt includes files/components.
-- Keyword similarity between prompt and event payloads.
-- Optional embeddings if configured.
-
-### Prompt-Quality Scorer
-
-Responsibilities:
-
-- Score prompt before execution.
-- Feed quality risks into cost-risk estimator.
-- Encourage adding objective, scope, constraints, validation, and non-goals.
-
-### Cost-Risk Estimator
-
-Responsibilities:
-
-- Estimate likelihood of wasteful trajectory.
-- Combine repeated command count, failed test loops, missing validation, prompt ambiguity, and overbroad edits.
-
-Example output:
-
-```json
-{
-  "risk": "high",
-  "confidence": 0.78,
-  "drivers": ["repeated_failed_test", "missing_validation"],
-  "estimated_redundant_actions": 3
-}
-```
-
-### Rule-Based Repo Guardrail Checker
-
-Responsibilities:
-
-- Apply deterministic repo rules from config.
-- Warn about out-of-scope changes.
-- Remind about validation commands.
-- Record evidence for summaries.
-
-### Recommendation Ranker
-
-Responsibilities:
-
-- Combine findings into one concise recommendation.
-- Prefer local DeepSeek steering when it returns valid, grounded JSON.
-- Fall back to high-confidence deterministic findings.
-- Avoid flooding terminal output.
-- Explain which evaluators fired and why.
-
-Ranking inputs:
-
-- Severity.
-- Confidence.
-- Estimated waste avoided.
-- Recency.
-- Number of evaluators agreeing.
-- Whether recommendation is actionable.
-
-### Local Model Provider Abstraction
-
-Agent Sidecar should allow local model providers to be swapped:
-
-```text
-ModelProvider
-├── embed(texts) -> vectors
-├── classify(input, labels) -> probabilities
-└── suggest(input) -> short recommendation
-```
-
-MVP should ship with local DeepSeek attempts enabled by default when an Ollama-compatible endpoint is reachable, plus deterministic fallback when local inference is unavailable. Future providers may include local embedding models, Ollama-hosted small LLMs, ONNX classifiers, or other near-local inference systems.
-
-### Frontier Fallback Policy
-
-Frontier models may be used later for optional fallback, evaluator calibration, or offline analysis. They must not be required for core PR 3 runtime steering.
-
-Fallback should require:
-
-- Explicit config enablement.
-- Confidence threshold.
-- High-value decision reason.
-- Trace metadata showing fallback use.
-- Compact summaries rather than raw traces by default.
-
-## 11. MVP Roadmap
-
-The roadmap is ordered by critical functionality:
-
-1. **PR 1** proves the sidecar can exist as a local companion runtime and trace coding-agent sessions.
-2. **PR 2** proves the sidecar can improve prompts before expensive execution.
-3. **PR 3** proves the sidecar can detect runtime waste and produce local steering recommendations.
-4. **PR 4** proves the sidecar can explain what happened through replay, summaries, and a minimal dashboard or CLI view.
-5. **Optional PR 5** makes the project easy to install with `pip` if packaging is not already solved.
-
-Avoid pulling PR 4 concerns into PR 1. Avoid multi-model complexity before the local DeepSeek attempt plus deterministic fallback produces useful evidence. Avoid dashboard polish until there is meaningful trace data to display.
-
-## 12. PR 1: Local Sidecar Runtime + Companion Session MVP
-
-### Goal
-
-Prove Agent Sidecar can run locally in a separate terminal beside Codex or Claude Code and record a basic coding-agent session.
-
-### User-Visible Capability
-
-- Start a local sidecar runtime.
-- Create, list, inspect, and stop sessions.
-- Register a repo and agent type.
-- Record basic events.
-- Inspect a local trace file.
-- See session status with timestamps, repo path, agent, event count, and estimated token metadata when available.
-
-### Backend / System Changes
-
-- Add local runtime/daemon process.
-- Add session manager.
-- Add event ingestion and schema validation.
-- Add JSONL trace writer and reader.
-- Add config loader with project-local `.agent-sidecar/config.json`.
-- Add basic status model.
-
-### CLI / API Changes
-
-Required CLI:
-
-```bash
-agent-sidecar start
-agent-sidecar status
-agent-sidecar session start --agent codex --repo . --name demo-session-001
-agent-sidecar session list
-agent-sidecar session stop --session demo-session-001
-agent-sidecar event command --session demo-session-001 --command "pnpm test"
-agent-sidecar trace show demo-session-001
-```
-
-Required local API:
-
-```text
-GET  /health
-GET  /status
-POST /sessions
-GET  /sessions
-POST /sessions/:id/events
-POST /sessions/:id/stop
-GET  /sessions/:id/trace
-```
-
-### Data Model Changes
-
-- Introduce `SessionRecord`.
-- Introduce base `SidecarEvent` schema.
-- Support at least:
-  - `session_started`
-  - `session_stopped`
-  - `agent_command_observed`
-  - `cost_estimate_updated`
-
-### Tests
-
-- Unit tests for config loading.
-- Unit tests for event schema validation.
-- Unit tests for session lifecycle transitions.
-- Unit tests for JSONL append/read.
-- CLI tests for `start`, `status`, `session start`, `session stop`, and event registration.
-- Integration test for session lifecycle and trace creation.
-
-### Acceptance Criteria
-
-- `agent-sidecar start` prints that the runtime is local and ready.
-- User can start Codex or Claude Code separately without sidecar owning that process.
-- User can create a session associated with `codex`, `claude`, or `unknown`.
-- Sidecar records at least 5 events in JSONL during the demo.
-- `agent-sidecar status` shows active session ID, repo, agent, event count, and trace path.
-- Session can be stopped and trace can be inspected.
-
-### Acceptance Demo Script
-
-Setup:
-
-```bash
-pnpm install
-pnpm build
-```
-
-Terminal 1:
-
-```bash
-agent-sidecar start
-```
-
-Terminal 2:
-
-```bash
-codex
-# or claude
-```
-
-Terminal 3 or separate shell:
-
-```bash
-agent-sidecar session start --agent codex --repo . --name demo-session-001
-agent-sidecar event command --session demo-session-001 --command "pnpm test"
-agent-sidecar event command --session demo-session-001 --command "rg auth packages"
-agent-sidecar event command --session demo-session-001 --command "pnpm test -- --runInBand"
-agent-sidecar status
-agent-sidecar session stop --session demo-session-001
-agent-sidecar trace show demo-session-001
-```
-
-Expected visible output:
-
-```text
-Agent Sidecar running locally
-Active session: demo-session-001
-Repo: /path/to/repo
-Agent: codex
-Events recorded: 5
-Estimated tokens: unavailable or estimated
-Trace stored at: .agent-sidecar/sessions/demo-session-001.jsonl
-```
-
-Reviewer should verify:
-
-- Trace file exists.
-- Trace contains valid JSONL events.
-- Session timestamps are present.
-- Sidecar does not require remote services.
-- Codex/Claude Code can run in a separate terminal.
-
-Success looks like:
-
-- A real local trace is created and readable.
-
-Failure looks like:
-
-- Runtime cannot start.
-- Session cannot be created.
-- Trace file is missing or invalid.
-- Workflow requires full interception or remote model calls.
-
-### What Should Not Be Included Yet
-
-- Polished dashboard.
-- Complex analytics.
-- Full interception.
-- Expensive model-based steering.
-- Advanced packaging.
-- Local Steering Ensemble beyond placeholder interfaces.
-
-### Risks
-
-- Manual event registration may feel basic.
-- Daemon lifecycle could be overbuilt.
-- CLI/API split may add complexity.
-
-### Follow-Up Work
-
-- Add prompt refinement in PR 2.
-- Add real steering evaluators in PR 3.
-- Add replay/dashboard in PR 4.
-
-## 13. PR 2: Prompt Refiner + Cost-Aware Prompt Optimization
-
-### Goal
-
-Prove Agent Sidecar can improve cost per successful task before the coding agent commits more spend by trying local DeepSeek prompt refinement before deterministic fallback.
-
-### User-Visible Capability
-
-- User can run `agent-sidecar refine "raw prompt"`.
-- Sidecar prints prompt quality, detected issues, refined prompt, and estimated task-cost impact.
-- Refined prompt can be copied into Codex or Claude Code.
-- Prompt refinement links to the active or most recent session.
-
-### Backend / System Changes
-
-- Add Prompt Refiner module.
-- Add local DeepSeek prompt optimizer configured for an Ollama-compatible endpoint.
-- Add deterministic prompt-quality scorer as the fallback.
-- Add prompt cleanup/compression logic.
-- Add Cost / Token Estimator.
-- Add prompt lineage storage.
-- Add local model provider interface; do not require the model for correctness because deterministic fallback must remain available.
-
-### CLI / API Changes
-
-Required CLI:
-
-```bash
-agent-sidecar refine "make the app better and fix the tests"
-agent-sidecar refine --session demo-session-001 "raw task prompt here"
-```
-
-Required API:
-
-```text
-POST /refine
-GET  /sessions/:id/prompts
-```
-
-### Data Model Changes
-
-Add events:
-
-- `prompt_submitted`
-- `prompt_refined`
-- `cost_estimate_updated`
-
-Prompt refinement payload must include:
-
-- Original prompt.
-- Refined prompt.
-- Quality score.
-- Issues detected.
-- Estimated original tokens.
-- Estimated refined tokens.
-- Task-cost impact explanation.
-- Linked session ID if available.
-
-### Tests
-
-- Unit tests for prompt-quality scoring.
-- Unit tests for vague prompt detection.
-- Unit tests for missing validation detection.
-- Unit tests for prompt cleanup/compression.
-- Unit tests for token estimation.
-- CLI tests for `refine` output.
-- Integration tests linking refinement events to active session traces.
-
-### Acceptance Criteria
-
-- Vague prompt produces `Prompt quality: Low`.
-- Output lists concrete issues.
-- Refined prompt includes objective, scope boundaries, constraints, validation expectations, and output expectations.
-- Token estimates are shown as approximate.
-- Prompt refinement events are written to the session trace.
-- No remote frontier model is required; local DeepSeek is attempted first and deterministic fallback covers unavailable local inference.
-
-### Acceptance Demo Script
-
-Setup:
-
-```bash
-pnpm build
-agent-sidecar start
-agent-sidecar session start --agent codex --repo . --name prompt-demo-001
-```
-
-Run:
-
-```bash
-agent-sidecar refine --session prompt-demo-001 "make the app better and fix the tests"
-agent-sidecar trace show prompt-demo-001
-```
-
-Expected visible output:
-
-```text
-Prompt quality: Low
-Issues detected:
-- Task is vague
-- Scope is too broad
-- Validation expectations are missing
-- No files or components identified
-
-Refined prompt:
-You are working in this repository. Inspect the failing tests first, identify the smallest code change needed, avoid unrelated refactors, and update only the files required to restore test correctness. After implementation, run the relevant test target and summarize the exact change made.
-
-Estimated task-cost impact:
-- Original likely causes exploratory waste
-- Refined prompt reduces ambiguity and narrows implementation scope
-```
-
-Reviewer should verify:
-
-- Prompt is materially more actionable.
-- Trace contains `prompt_submitted` and `prompt_refined`.
-- Local DeepSeek is used when available; no remote model is required.
-- Output can be copied into Codex or Claude Code.
-
-Success looks like:
-
-- The prompt becomes specific enough for a coding agent to execute with less exploration.
-
-Failure looks like:
-
-- Refined prompt simply restates the original.
-- No validation expectations are added.
-- Output depends on an unavailable remote model.
-
-### What Should Not Be Included Yet
-
-- Runtime loop detection.
-- Dashboard.
-- Replay UI.
-- Complex multi-model ensemble beyond the first local DeepSeek attempt and deterministic fallback.
-- Automated prompt submission into Codex or Claude Code.
-
-### Risks
-
-- Local DeepSeek prompt refinement can be unavailable or return invalid JSON.
-- Deterministic fallback can be too generic.
-- Task-cost impact is approximate until validated against a successful outcome.
-- Over-refinement may create false specificity.
-
-### Follow-Up Work
-
-- Feed prompt-quality findings into runtime cost-risk scoring in PR 3.
-- Show prompt history and before/after in PR 4.
-
-## 14. PR 3: Local Steering Ensemble, Loop Detection, and Validation Guardrails
-
-### Goal
-
-Prove Agent Sidecar can reduce wasted agent loops during an active session using local DeepSeek steering attempts, deterministic rules, and smaller local evaluators rather than expensive remote frontier models.
-
-### User-Visible Capability
-
-- Sidecar detects repeated commands, repeated failed tests, repeated edits, missing validation, and possible task drift.
-- Sidecar prints `continue`, `suggest`, or `warn` decisions.
-- Recommendations explain which evaluators fired and why.
-- Run summary includes estimated waste avoided.
-
-### Backend / System Changes
-
-- Add Local Steering Ensemble abstraction.
-- Add evaluator registry.
-- Add command similarity detector.
-- Add failed-test repetition detector.
-- Add repeated edit detector.
-- Add missing validation detector.
-- Add prompt/task drift detector.
-- Add local DeepSeek steering evaluator that consumes compact detector evidence.
-- Add cost-risk estimator.
-- Add rule-based repo guardrail checker.
-- Add recommendation ranker.
-- Add confidence scoring.
-- Add local model provider configuration with deterministic fallback.
-- Keep remote fallback disabled by default.
-
-### CLI / API Changes
-
-Required CLI additions:
-
-```bash
-agent-sidecar event test --session demo --command "pnpm test" --status failed --failure-signature "AuthRefresh failure"
-agent-sidecar event edit --session demo --file packages/auth/src/refresh.ts
-agent-sidecar steer --session demo
-```
-
-The runtime may also run steering automatically after relevant events:
-
-```text
-Steering decision: WARN
-Confidence: 0.84
-```
-
-Required API:
-
-```text
-POST /sessions/:id/steer
-GET  /sessions/:id/recommendations
-```
-
-### Data Model Changes
-
-Add events:
-
-- `file_edit_observed`
-- `test_run_observed`
-- `test_failure_observed`
-- `loop_detected`
-- `validation_missing`
-- `task_drift_detected`
-- `steering_recommendation`
-
-Add evaluator finding model:
-
-```json
-{
-  "evaluator_id": "failed_test_loop_detector",
-  "severity": "warn",
-  "confidence": 0.84,
-  "evidence_event_ids": ["evt-1", "evt-2"],
-  "summary": "Same failing test repeated without new evidence.",
-  "recommendation": "Inspect stack trace before rerunning full test suite."
-}
-```
-
-### Tests
-
-- Unit tests for exact repeated command detection.
-- Unit tests for normalized command similarity.
-- Unit tests for repeated failed-test detection.
-- Unit tests for repeated edit detection.
-- Unit tests for missing validation detection.
-- Unit tests for task-drift heuristics.
-- Unit tests for local DeepSeek steering response parsing and deterministic fallback.
-- Unit tests for cost-risk scoring.
-- Unit tests for recommendation ranking.
-- Integration tests feeding fixture event streams and asserting steering output.
-- Tests proving remote fallback is disabled by default.
-
-### Acceptance Criteria
-
-- Repeating the same failed test command triggers a loop warning.
-- Repeated edits without validation trigger a validation reminder.
-- The steering decision includes confidence and evaluator names.
-- The recommendation is concise and actionable.
-- The run summary includes estimated avoided waste.
-- Core steering tries local DeepSeek when available and works without remote frontier model calls.
-
-### Acceptance Demo Script
-
-Setup:
-
-```bash
-pnpm build
-agent-sidecar start
-agent-sidecar session start --agent codex --repo . --name steering-demo-001
-```
-
-Run:
-
-```bash
-agent-sidecar event test --session steering-demo-001 --command "pnpm test" --status failed --failure-signature "AuthRefresh failure"
-agent-sidecar event test --session steering-demo-001 --command "pnpm test" --status failed --failure-signature "AuthRefresh failure"
-agent-sidecar event edit --session steering-demo-001 --file packages/auth/src/refresh.ts
-agent-sidecar event edit --session steering-demo-001 --file packages/auth/src/refresh.ts
-agent-sidecar event edit --session steering-demo-001 --file packages/auth/src/refresh.ts
-agent-sidecar steer --session steering-demo-001
-```
-
-Expected visible output:
-
-```text
-Agent Sidecar detected a likely loop:
-- Similar failing test command repeated 3 times
-- Same file edited repeatedly without new evidence
-- No new validation strategy attempted
-
-Recommended next step:
-Inspect the failing stack trace and update the specific dependency registration before rerunning the full test suite.
-
-Steering decision: WARN
-Confidence: 0.84
-
-Evaluators fired:
-- repeated_command_detector
-- failed_test_loop_detector
-- missing_validation_detector
-
-Estimated avoided waste:
-- 2-3 repeated commands
-- likely redundant test rerun
-- potential unnecessary agent spend
-```
-
-Reviewer should verify:
-
-- Warning is generated from local DeepSeek steering when available, with deterministic/local evaluator fallback.
-- Trace contains detector events and steering recommendation.
-- Output includes evaluator evidence.
-- Remote fallback is not required or used.
-
-Success looks like:
-
-- The sidecar catches a plausible waste loop and recommends a better next step.
-
-Failure looks like:
-
-- No loop is detected.
-- Output is generic or unactionable.
-- Steering requires an expensive remote model.
-
-### What Should Not Be Included Yet
-
-- Polished replay dashboard.
-- Full analytics UI.
-- Automated blocking unless explicitly safe.
-- Remote frontier model dependency as the default path.
-
-### Risks
-
-- Heuristics may produce false positives.
-- Too many warnings can slow engineers down.
-- Embedding setup may be environment-dependent.
-- Task drift is hard with partial observation.
-
-### Follow-Up Work
-
-- Add evaluator tuning from fixture traces.
-- Add dashboard/replay visibility in PR 4.
-- Add optional local embeddings after the DeepSeek/detector fallback path is stable.
-
-## 15. PR 4: Run Replay, MVP Dashboard, and Demo-Ready Analytics
-
-### Goal
-
-Make Agent Sidecar demonstrable and useful for debugging agent runs.
-
-### User-Visible Capability
-
-- View timeline/replay for a previous run.
-- See prompt refinement history.
-- See loop detections, validation reminders, steering recommendations, and cost estimates.
-- Export Markdown or JSON run summaries.
-- Optionally open a local dashboard.
-- Search/list sessions.
-
-### Backend / System Changes
-
-- Add replay reader over JSONL traces.
-- Add summary generator.
-- Add optional SQLite session/event index if needed for dashboard speed.
-- Add dashboard API endpoints.
-- Add local web UI or robust CLI replay view.
-- Add summary export writer.
-
-### CLI / API Changes
-
-Required CLI:
-
-```bash
-agent-sidecar session list
-agent-sidecar replay demo-session-001
-agent-sidecar summary export demo-session-001 --format markdown
-agent-sidecar website
-agent-sidecar dashboard
-```
-
-Required API:
-
-```text
-GET  /sessions
-GET  /sessions/:id/replay
-GET  /sessions/:id/summary
-POST /sessions/:id/export
-```
-
-### Data Model Changes
-
-Add events:
-
-- `summary_exported`
-
-Add summary model:
-
-```json
-{
-  "session_id": "demo-session-001",
-  "agent": "codex",
-  "repo_path": "/path/to/repo",
-  "prompt_refinement": {
-    "original_quality": "low",
-    "issues": ["vague_task", "missing_validation"]
-  },
-  "steering_events": [
-    "Detected repeated failing test command",
-    "Recommended inspecting stack trace before rerun"
-  ],
-  "estimated_waste_avoided": {
-    "redundant_test_runs": 2,
-    "repeated_search_loops": 1
-  },
-  "recommended_follow_up": [
-    "Add targeted validation earlier in future prompts."
   ]
 }
 ```
 
-### Tests
+Router resolution order per role: registry entry with `status: active` and `eval.passed: true` → configured `fallback_base` → deterministic fallback (no model). `agent-sidecar models list` prints this table; `models promote` / `models rollback` flip `status` (promote refuses unless `eval.passed` is true).
 
-- Unit tests for replay ordering.
-- Unit tests for summary generation.
-- Golden-file tests for Markdown summary output.
-- Integration tests for dashboard/replay API.
-- CLI tests for session listing and export.
-- Fixture-based tests with PR 1-3 event streams.
+## B9. HTTP API (frozen after Chunk 1; Chunk 2/3 additions marked)
 
-### Acceptance Criteria
-
-- User can view previous sessions.
-- User can replay a session timeline.
-- User can see prompt before/after and quality issues.
-- User can see evaluator firings and steering recommendations.
-- User can see estimated token/cost/waste rollups.
-- User can export a Markdown summary.
-- Dashboard or CLI replay reads local traces without cloud dependency.
-
-### Acceptance Demo Script
-
-Setup:
-
-```bash
-pnpm build
-agent-sidecar start
+```text
+GET  /health
+GET  /status
+GET  /sessions                    GET  /sessions/:id
+POST /sessions                    POST /sessions/:id/stop
+POST /sessions/:id/events         GET  /sessions/:id/trace
+POST /v1/metrics   (otlp port)    POST /v1/logs   (otlp port)
+--- Chunk 2 ---
+POST /refine                      POST /sessions/:id/steer
+GET  /sessions/:id/recommendations  GET /sessions/:id/cost
+GET  /models
+--- Chunk 3 ---
+GET  /sessions/:id/replay         GET  /sessions/:id/summary
+POST /sessions/:id/export
 ```
 
-Create demo data using prior PR flows:
+## B10. CLI Surface (complete)
 
 ```bash
-agent-sidecar session start --agent codex --repo . --name demo-session-001
-agent-sidecar refine --session demo-session-001 "make the app better and fix the tests"
-agent-sidecar event test --session demo-session-001 --command "pnpm test" --status failed --failure-signature "AuthRefresh failure"
-agent-sidecar event test --session demo-session-001 --command "pnpm test" --status failed --failure-signature "AuthRefresh failure"
-agent-sidecar event edit --session demo-session-001 --file packages/auth/src/refresh.ts
-agent-sidecar steer --session demo-session-001
-agent-sidecar session stop --session demo-session-001
-```
-
-Replay and export:
-
-```bash
-agent-sidecar replay demo-session-001
-agent-sidecar summary export demo-session-001 --format markdown
-agent-sidecar website
-agent-sidecar dashboard
-```
-
-Expected summary output:
-
-```markdown
-# Agent Sidecar Run Summary
-
-Session: demo-session-001
-Agent: codex
-Repo: /path/to/repo
-
-## Prompt Refinement
-Original prompt was vague and missing validation criteria.
-Refined prompt added scope, constraints, and test expectations.
-
-## Steering Events
-- Detected repeated failing test command
-- Detected repeated edits to the same file
-- Recommended inspecting stack trace before rerunning test suite
-
-## Estimated Task-Cost Impact
-- 2 redundant test runs
-- 1 repeated search loop
-- Reduced prompt ambiguity before execution
-
-## Recommended Follow-Up
-Add targeted validation earlier in future prompts.
-```
-
-Reviewer should verify:
-
-- Replay timeline matches trace order.
-- Prompt history is visible.
-- Steering evaluator names are visible.
-- Summary is exportable and useful for debugging.
-- Dashboard/replay is local-only.
-
-Success looks like:
-
-- Reviewer can answer, “What happened during this agent run and how did it affect cost per successful task?”
-
-Failure looks like:
-
-- Replay omits important events.
-- Summary is too generic.
-- Dashboard requires cloud services.
-
-### What Should Not Be Included Yet
-
-- Heavy production analytics.
-- Multi-user SaaS backend.
-- Enterprise policy management.
-- Mandatory cloud sync.
-- Complex charts that do not support the demo story.
-
-### Risks
-
-- Dashboard polish can distract from core functionality.
-- Summary quality depends on event quality.
-- SQLite index may be unnecessary complexity for MVP.
-
-### Follow-Up Work
-
-- Add better filtering/search.
-- Add richer cost model.
-- Add improved wrapper integrations.
-
-## 16. Optional PR 5: pip Installation and Packaging
-
-### Goal
-
-Make Agent Sidecar installable and runnable with `pip` if packaging does not fit cleanly into the first four PRs.
-
-### User-Visible Capability
-
-```bash
-pip install agent-sidecar
-agent-sidecar --version
-agent-sidecar start
-agent-sidecar refine "Implement this feature with tests"
-```
-
-### Backend / System Changes
-
-- Introduce Python package structure if the project is implemented in Python.
-- Add packaging metadata.
-- Ensure CLI entry point works after install.
-- Keep local trace/config paths stable.
-
-If the project remains TypeScript-first, this PR should either be skipped or reframed as packaging for the selected runtime. Do not force Python packaging if it conflicts with the implementation stack.
-
-### CLI / API Changes
-
-- Add `agent-sidecar --version`.
-- Ensure installed CLI supports `start`, `status`, `session`, `refine`, and `replay`.
-
-### Data Model Changes
-
-- No required schema changes.
-- Add package version to runtime metadata and summaries.
-
-### Tests
-
-- Package build smoke test.
-- Local install smoke test.
-- CLI version smoke test.
-- Start/refine/session smoke tests after install.
-
-### Acceptance Criteria
-
-- Package installs in a clean environment.
-- `agent-sidecar --version` prints version.
-- `agent-sidecar start` runs.
-- `agent-sidecar refine` works.
-- Installed CLI can create and inspect a demo session.
-
-### Acceptance Demo Script
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install agent-sidecar
-agent-sidecar --version
-agent-sidecar start
-agent-sidecar refine "Implement this feature with tests"
-agent-sidecar session start --agent codex --repo . --name pip-demo-001
+agent-sidecar start [--api-port] [--otlp-port]        # Chunk 1
 agent-sidecar status
+agent-sidecar hooks install|uninstall|status
+agent-sidecar telemetry print-env
+agent-sidecar session list|show|stop
+agent-sidecar trace show <id>
+agent-sidecar event command|edit|test ...             # manual fallback
+agent-sidecar refine [--session <id>] "prompt"        # Chunk 2
+agent-sidecar steer --session <id>
+agent-sidecar cost show --session <id>
+agent-sidecar models list|pull|promote|rollback
+agent-sidecar dev replay-fixture <path> --session <id>
+agent-sidecar dev export-dataset [--kind refine|steer] # tuning data from traces
+agent-sidecar replay <id>                             # Chunk 3
+agent-sidecar summary export <id> --format markdown|json
+agent-sidecar export langfuse <id>
+agent-sidecar index rebuild
+agent-sidecar --version
 ```
 
-Reviewer should verify:
+---
 
-- Installed CLI works outside source checkout assumptions.
-- Version metadata is visible.
-- Existing PR 1-4 demos still work.
+# PART C — The Local Model Ensemble (DeepSeek + Kimi, specially trained weights)
 
-### What Should Not Be Included Yet
+## C1. Roles and Division of Labor
 
-- Cloud-hosted package workflows unless required.
-- Cross-platform installers beyond pip.
-- Telemetry.
+Two small, cheap, locally running models with distinct jobs, both reached through the same `ModelProvider.complete_json(role, ...)` seam:
 
-### Risks
+| Role | Model family | Used for | Why this family |
+| --- | --- | --- | --- |
+| **reasoning** | DeepSeek-R1 distill (default `deepseek-r1:8b`, minimum `deepseek-r1:7b`) | Steering decisions over detector evidence; prompt-quality judgment; approving/rejecting the coding model's refinement draft; cost-risk rationale; drift assessment | R1 distills are purpose-built small reasoning models, trivially served by Ollama, cheap on 8-16GB machines |
+| **coding** | Kimi (default **Kimi-Linear-48B-A3B-Instruct**; high tier **Kimi-Dev-72B**) | Drafting the refined prompt for code tasks (files, scope, acceptance criteria, test expectations); interpreting failure signatures; drafting the concrete "recommended next step" attached to warnings | Kimi-Linear is an MoE with only ~3B **active** parameters — cheap per token despite 48B total; Kimi-Dev-72B is Moonshot's coding-specialized model for machines that can hold it |
 
-- Packaging may distract from runtime value.
-- Current implementation stack may not be Python.
-- Name availability may be unresolved.
+**Hardware tiers** (router selects via `hardware_tier: auto` by probing available RAM/VRAM at daemon start; user can pin):
 
-### Follow-Up Work
+| Tier | reasoning | coding | Approx. memory for coding model |
+| --- | --- | --- | --- |
+| `small` (≤16GB) | deepseek-r1:7b | **none** — coding role degrades: reasoning model handles both, or deterministic fallback | — |
+| `medium` (24-32GB) | deepseek-r1:8b | Kimi-Linear-48B-A3B @ Q2_K–Q3 | ~16-20GB |
+| `large` (48GB+) | deepseek-r1:8b or :14b | Kimi-Linear-48B-A3B @ Q4_K_M | ~28GB |
+| `max` (96GB+) | deepseek-r1:14b | Kimi-Dev-72B @ Q4 | ~45GB+ |
 
-- Publish package after name and distribution strategy are confirmed.
-- Add CI package build.
+**Honest constraint, encoded in the design:** there is no 7B-class Kimi. Kimi-Linear-48B-A3B is the smallest sensible Kimi and its GGUF support currently lives in llama.cpp branches rather than guaranteed Ollama mainline. Therefore the coding role supports **two serving backends** (D8): Ollama when the model is in the Ollama library or importable via Modelfile, and `llama-server` (OpenAI-compatible, loopback) otherwise. The provider/router treats both identically through LiteLLM (`ollama_chat/<name>` vs `openai/<name>` pinned to the loopback api_base). If neither backend can serve a Kimi on the user's hardware, the router reports the coding role as unavailable and every coding-role caller uses its deterministic path — the system stays fully functional.
 
-## 17. Testing Strategy
+## C2. Ensemble Call Patterns
 
-Testing should favor deterministic, repeatable tests with fixture traces and no required network calls.
+**Prompt refinement (`refine`):**
 
-### Unit Tests
+1. **coding (Kimi)** → `RefineDraft`: rewrite the raw prompt into a structured coding-agent prompt with files/components, acceptance criteria, testing expectations, do-not-change list. Prompt template: `models/prompts/refine_coding.txt`.
+2. **reasoning (DeepSeek)** → `RefineJudgment`: score original quality, enumerate issues, approve or annotate the draft. Template: `refine_reasoning.txt`.
+3. Assemble `RefineResult`. `source` field records the path taken:
+   - both succeeded → `ensemble`
+   - only Kimi succeeded → `coding-only` (judgment from deterministic scorer)
+   - only DeepSeek succeeded → DeepSeek judges the deterministic draft
+   - neither → `deterministic` (Chunk 2's fallback scorer+refiner)
+4. Cost engine prices original vs refined token counts; refiner emits `prompt_submitted` + `prompt_refined` + `model_call_completed` events.
 
-- CLI command parsing and output formatting.
-- Config loading and defaults.
-- Event schema validation.
-- Session lifecycle transitions.
-- JSONL trace write/read.
-- Prompt-quality scoring.
-- Prompt refinement sections and constraints.
-- Token/cost estimation.
-- Command normalization.
-- Local steering evaluators.
-- Loop detection.
-- Validation reminder detection.
-- Task-drift heuristics.
-- Recommendation ranking.
-- Summary generation.
+**Runtime steering (`steer` / auto-steer):**
 
-### Integration Tests
+1. Deterministic detectors produce `EvaluatorFinding[]` (never skipped — they are the evidence source and the fallback).
+2. **reasoning (DeepSeek)** → `SteerResult` over compact findings + minimal session summary. Evidence-subset validation: any `evidence_event_ids` not supplied by detectors ⇒ response rejected ⇒ deterministic ranker decides.
+3. If decision is `suggest`/`warn` and `steering.coding_next_step` is true and the coding role is available: **coding (Kimi)** → `NextStepDraft` given the failure signature + recent file edits, replacing the generic recommendation with a concrete, code-aware next step. Failure here silently keeps the reasoning/deterministic recommendation.
+4. Decision engine applies noise controls and emits `steering_recommendation`.
 
-- Session lifecycle creates valid trace.
-- Prompt refinement links to active session.
-- Fixture event stream triggers loop warning.
-- Fixture event stream triggers missing validation reminder.
-- Replay reads events in timestamp order.
-- Summary export writes Markdown and JSON.
-- Dashboard/API reads local traces.
+**Budget rule:** at most one reasoning call and one coding call per steering invocation; at most one of each per `refine`. No chains, no retries beyond a single reformat retry on invalid JSON.
 
-### Golden-File Tests
+## C3. Specially Trained Weights: the Tuning Pipeline
 
-- Prompt refinement output for representative vague prompts.
-- Steering warning output for repeated failure loops.
-- Markdown run summary.
-- JSON export shape.
+The runtime uses **tuned weights when they exist and have passed the eval gate**, base weights otherwise. The pipeline that produces tuned weights lives in `tuning/` and runs offline. It is a Chunk 2 deliverable as *tooling + recipes + gate*, not as a training run.
 
-### Demo Smoke Tests
+**Step 1 — Dataset export (runtime command, ships in Chunk 2).**
+`agent-sidecar dev export-dataset --kind refine` walks local traces and emits SFT pairs to `evals/fixtures/datasets/refine.jsonl`:
 
-Each PR should include a script or documented command sequence that exercises the demo path. The smoke tests should be runnable locally without Codex or Claude Code by simulating events manually.
+```json
+{"messages": [
+  {"role": "system", "content": "<refine_coding.txt template>"},
+  {"role": "user", "content": "<original prompt + repo context block>"},
+  {"role": "assistant", "content": "<RefineDraft JSON that was accepted/used>"}
+]}
+```
 
-### Local Model Tests
+`--kind steer` does the same for `(findings → accepted SteerResult)` pairs. Only sessions where the refinement was actually used (subsequent `prompt_submitted` matches the refined prompt) or the warning was followed by behavior change are labeled positive; the exporter marks provenance so users can curate. The checked-in seed datasets in `evals/fixtures/datasets/` make the pipeline runnable before anyone has real traces.
 
-- Optional and skipped by default.
-- Should not fail CI if a local model provider is unavailable.
-- Deterministic evaluator tests must cover core behavior without model inference.
+**Step 2 — QLoRA training (offline, checked-in recipes).**
+`tuning/recipes/deepseek_reasoning_qlora.yaml` and `kimi_coding_qlora.yaml` are complete LLaMA-Factory configs: base model HF id, dataset path, LoRA rank/alpha/dropout, 4-bit quantized training, epochs, output dir. `tuning/README.md` gives the exact commands:
 
-### Packaging Smoke Test for Optional PR 5
+```bash
+pip install llamafactory
+llamafactory-cli train tuning/recipes/deepseek_reasoning_qlora.yaml
+```
 
-- Build package.
-- Install in clean environment.
-- Run `agent-sidecar --version`.
-- Run `agent-sidecar start`.
-- Run `agent-sidecar refine`.
-- Create and inspect a demo session.
+**Step 3 — Export to servable weights.**
+`tuning/export_gguf.sh` merges the LoRA adapter into the base, converts to GGUF via llama.cpp's conversion scripts, and quantizes (Q4_K_M default). For the DeepSeek/Ollama path there are two options and the script supports both: (a) merged GGUF registered via `FROM ./model.gguf` Modelfile, or (b) base model + GGUF LoRA via the Modelfile `ADAPTER` directive. Kimi path always produces a merged GGUF for `llama-server` (or Ollama import if supported).
 
-## 18. Acceptance Demo Matrix
+```bash
+ollama create sidecar-deepseek-reasoning -f tuning/modelfiles/sidecar-deepseek-reasoning.Modelfile
+```
 
-| PR | Demo Focus | Setup Commands | Demo Commands | Expected Visible Output | Reviewer Verifies |
-| --- | --- | --- | --- | --- | --- |
-| PR 1 | Local sidecar runtime beside Codex/Claude Code | `pnpm install`, `pnpm build` | `agent-sidecar start`, `agent-sidecar session start --agent codex --repo . --name demo-session-001`, event commands, `agent-sidecar status`, `agent-sidecar trace show demo-session-001` | `Agent Sidecar running locally`, active session details, trace path | Runtime starts locally, session trace exists, events are valid JSONL |
-| PR 2 | Prompt refinement before expensive execution | `pnpm build`, start runtime/session | `agent-sidecar refine --session prompt-demo-001 "make the app better and fix the tests"` | Prompt quality, issues detected, refined prompt, estimated task-cost impact | Local DeepSeek is attempted when available, fallback is deterministic, no remote model required |
-| PR 3 | Local steering and loop detection | `pnpm build`, start runtime/session | repeated `event test`, repeated `event edit`, `agent-sidecar steer --session steering-demo-001` | `Steering decision: WARN`, confidence, evaluators fired, avoided waste | Local DeepSeek or deterministic/local fallback detects loop and recommends next action |
-| PR 4 | Replay, summary, MVP dashboard | `pnpm build`, create demo trace using prior flows | `agent-sidecar replay demo-session-001`, `agent-sidecar summary export demo-session-001 --format markdown`, `agent-sidecar website`, `agent-sidecar dashboard` | run timeline, prompt history, steering events, Markdown summary | Reviewer can debug what happened and why waste was avoided |
-| PR 5 | Optional installability | create virtualenv | `pip install agent-sidecar`, `agent-sidecar --version`, `agent-sidecar start`, `agent-sidecar refine "Implement this feature with tests"` | installed CLI works | Package can be installed and core commands run |
+**Step 4 — Eval gate (promotion).**
+`evals/promotion.promptfoo.yaml` runs the tuned model and its base side-by-side on the held-out refinement/steering suites (strict-JSON validity, schema completeness, restatement rejection, evidence-subset correctness, rubric quality). `agent-sidecar models promote sidecar-kimi-coding` runs the suite, writes scores into the registry (B8), and only sets `status: active` if `tuned_score > base_score` and JSON-validity ≥ base. `models rollback` reverts to base instantly. The router (B8 resolution order) makes promotion/rollback a pure registry flip — zero code changes.
 
-## 19. Risks and Tradeoffs
+**Boundary rules:**
+- Nothing in `src/` imports anything from `tuning/`.
+- Training never touches the daemon; the daemon only ever loads whatever the registry says is active.
+- CI never trains and never requires a model: registry logic, dataset exporter, Modelfile generation, and promotion bookkeeping are all tested with stub eval results and fixture datasets.
 
-### Companion Mode vs Deep Interception
+---
 
-- **Tradeoff**: Companion mode is reliable but less automatic.
-- **Decision**: Start with companion mode because it proves value without fragile integration risk.
-- **Mitigation**: Add wrappers and log ingestion after PR 1.
+# PART D — Implementation Plan: Three Chunks
 
-### Local Models vs Deterministic Fallback
+Work strictly in order. Every milestone lists its files (from B1), its tests, and its definition of done (DoD). CI must be green (offline) at the end of every milestone.
 
-- **Tradeoff**: Local DeepSeek can add semantic judgment but may be unavailable or produce invalid JSON.
-- **Decision**: Try local DeepSeek first for prompt refinement and steering, then fall back to deterministic heuristics.
-- **Mitigation**: Validate structured model responses strictly and keep fixture-backed deterministic fallback coverage.
+## D0. Bootstrap (do this before Chunk 1)
 
-### Warning Noise
+1. `pyproject.toml` with package metadata, `agent-sidecar` console entry, deps: fastapi, uvicorn, pydantic>=2, typer, litellm, httpx; dev deps: pytest, pytest-asyncio, respx.
+2. `src/agent_sidecar/__init__.py` with `__version__`.
+3. Empty module tree per B1; `pytest -q` runs (zero tests is fine); `agent-sidecar --version` prints.
+4. `docs/decisions.md` created with the bootstrap entry.
 
-- **Risk**: Too many warnings can slow engineers down.
-- **Mitigation**: Rank recommendations, suppress duplicate warnings, and require evidence for `WARN`.
+**DoD:** clean venv → `pip install -e .[dev]` → `agent-sidecar --version` works → `pytest` exits 0.
 
-### Approximate Cost Estimates
+---
 
-- **Risk**: Token/cost estimates may be imprecise.
-- **Mitigation**: Label estimates as approximate and focus on relative waste avoided.
+## Chunk 1 — Core Runtime + Automatic Claude Code Observation
 
-### Partial Observation
+**Proves:** the sidecar runs locally and captures a complete, automatic trace of a real Claude Code session via hooks + OTLP, with zero manual event registration.
 
-- **Risk**: Manual or incomplete events can reduce recommendation accuracy.
-- **Mitigation**: Store event source/confidence and degrade gracefully.
+### Milestones (in order)
 
-### Dashboard Scope Creep
+**1.1 Schemas + store.** `schema/events.py`, `schema/session.py`, `schema/config.py`, `store/jsonl.py`, `store/sessions.py`.
+Tests: schema validation (valid/invalid payloads per event type), JSONL append/read/round-trip, session lifecycle, config load/defaults/creation.
+DoD: fixture events round-trip losslessly; unknown payload fields preserved.
 
-- **Risk**: UI polish can delay core functionality.
-- **Mitigation**: Require PR 4 dashboard/replay to answer one question: “What happened during this run?”
+**1.2 Daemon skeleton.** `daemon/app.py`, `daemon/api.py`, `daemon/runner.py`. All B9 Chunk-1 routes; sessions auto-create when `POST /sessions/:id/events` references an unknown id; loopback binding only; pidfile + `start`/`status` CLI (`cli/daemon_cmds.py`).
+Tests: httpx TestClient route tests; auto-creation; stop semantics.
+DoD: `agent-sidecar start` then `status` shows a live daemon; all routes pass tests.
 
-### Local Model Availability
+**1.3 Hook executable + installer.** `adapters/claude_code/hook_script.py` (stdlib-only: read hook JSON from stdin, POST to `/sessions/<cc-session-id>/events`, hard 200ms budget, **always exit 0**, silent when daemon down), `installer.py` (merge/unmerge `.claude/settings.json` for SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop; backup before write; idempotent), `cli/hooks_cmds.py`.
+Tests: merge idempotency incl. pre-existing third-party hooks; uninstall restores; exit-0 + latency budget with daemon down (timed subprocess test).
+DoD: install → uninstall on a fixture settings.json is byte-identical; script never exits nonzero.
 
-- **Risk**: Local model setup varies across machines.
-- **Mitigation**: Core PR 2 and PR 3 flows attempt local inference first but remain functional through deterministic fallback.
+**1.4 Hooks adapter + derivation rules.** `adapters/claude_code/hooks_adapter.py`: raw hook payload (untrusted: size-cap, validate, truncate) → `SidecarEvent`(s); derive `file_edit_observed` from Edit/Write/MultiEdit; derive `test_run_observed`/`test_failure_observed` (+failure signature from output tail) from Bash matching `hooks.test_command_patterns`.
+Tests: one fixture per hook type in `evals/fixtures/hooks/`; every derivation rule positive + negative.
+DoD: replaying the full fixture hook sequence via HTTP produces the canonical trace golden file.
 
-### Packaging Stack Mismatch
+**1.5 OTLP receiver + adapter.** `daemon/otlp.py` (accept OTLP/HTTP protobuf **and** JSON on `/v1/metrics`, `/v1/logs`), `otlp_adapter.py` (GenAI-convention mapping → `cost_estimate_updated` with `precision: measured`; session correlation by session-id attribute, fallback time+cwd window; unmatched telemetry → `telemetry-orphans` session; dedup vs hook events), `cli/telemetry_cmds.py` (`print-env` emitting `CLAUDE_CODE_ENABLE_TELEMETRY=1` + OTLP exporter vars pointed at the receiver).
+Tests: protobuf and JSON fixtures in `evals/fixtures/otlp/`; correlation; orphans; dedup.
+DoD: fixture OTLP payloads attach measured tokens/cost to the right session; `status` shows `otlp ✓`.
 
-- **Risk**: Optional pip packaging may not match the project’s implementation language.
-- **Mitigation**: Treat PR 5 as optional and avoid delaying PRs 1-4.
+**1.6 Manual fallback + CLI polish.** `adapters/manual.py`, `cli/session_cmds.py` (`session list|show|stop`, `trace show`, `event ...`), `cli/dev_cmds.py` (`dev replay-fixture` posting a fixture JSONL through the real HTTP path).
+Tests: CLI behaviors; replay-fixture reproduces canonical trace.
+DoD: Chunk 1 acceptance demo passes.
 
-## 20. Open Questions
+### Chunk 1 Acceptance Demo
 
-1. What implementation stack should Agent Sidecar use long-term: TypeScript, Python, or a hybrid?
-2. Should PR 1 use local HTTP, IPC, or direct CLI file writes for daemon communication?
-3. Should session IDs be user-provided, generated, or both?
-4. Which Codex and Claude Code logs or hooks are stable enough to ingest later?
-5. Which local embedding/model provider should follow the default DeepSeek implementation?
-6. What default thresholds minimize warning noise while catching real loops?
-7. Which DeepSeek model size should be the recommended default for local prompt refinement and steering?
-8. Is a web dashboard necessary in PR 4, or is CLI replay plus Markdown export enough for the first demo?
-9. How should estimated cost be represented when the actual model and token usage are unknown?
-10. Should project-local `.agent-sidecar` be committed, ignored, or partially ignored by default?
-11. What is the minimum useful wrapper for `codex` or `claude` without creating brittle process-control behavior?
-12. If pip packaging is required, should the project move to Python or provide a thin Python launcher for another runtime?
+```bash
+# T1
+agent-sidecar start
+# T2, in a repo
+agent-sidecar hooks install
+eval "$(agent-sidecar telemetry print-env)"
+claude     # real small task: run tests, fix one failure
+# T3
+agent-sidecar status && agent-sidecar trace show <id>
+```
 
-## 21. Final Implementation Checklist for Coding Agent
+**Accept when:** trace contains `session_started`, ≥1 `prompt_submitted`, ≥5 `agent_tool_observed`, ≥1 measured `cost_estimate_updated`, with **zero** manual events; killing the sidecar mid-session leaves Claude Code unaffected; `hooks uninstall` restores settings.json; the same outcome reproduces in CI from fixtures alone.
 
-### PR 1 Checklist: Local Sidecar Runtime + Companion Session MVP
+---
 
-- [ ] Add or finalize CLI entry point for `agent-sidecar`.
-- [ ] Implement `agent-sidecar start` with local runtime readiness output.
-- [ ] Implement config loader and default `.agent-sidecar/config.json` creation.
-- [ ] Implement `SessionRecord` model.
-- [ ] Implement base `SidecarEvent` schema validation.
-- [ ] Implement JSONL trace writer and reader.
-- [ ] Implement `session start`, `session list`, `session stop`.
-- [ ] Implement `event command` manual registration.
-- [ ] Implement `status` output with active session, repo, agent, event count, estimated token metadata, and trace path.
-- [ ] Implement `trace show`.
-- [ ] Add unit tests for config, schema, session lifecycle, and trace storage.
-- [ ] Add integration test for creating/stopping a session and inspecting trace.
-- [ ] Document acceptance demo.
-- [ ] Do not add dashboard polish or model steering yet.
+## Chunk 2 — Intelligence Layer: Ensemble, Refinement, Cost, Steering, Tuning Toolchain
 
-### PR 2 Checklist: Prompt Refiner + Cost-Aware Prompt Optimization
+**Proves:** the DeepSeek+Kimi ensemble improves task cost before execution (refinement) and during execution (steering), grounded in measured/priced cost, with deterministic fallback everywhere and a working path to specially trained weights.
 
-- [ ] Implement Prompt Refiner module.
-- [ ] Implement local DeepSeek prompt refinement attempt with strict JSON validation.
-- [ ] Implement deterministic prompt-quality scorer and task-contract fallback.
-- [ ] Detect vague task, broad scope, missing validation, missing constraints, and missing files/components.
-- [ ] Implement prompt cleanup/compression and structured prompt generation.
-- [ ] Implement rough token estimator.
-- [ ] Implement `agent-sidecar refine` CLI.
-- [ ] Link prompt refinement to active or specified session.
-- [ ] Record `prompt_submitted`, `prompt_refined`, and `cost_estimate_updated` events.
-- [ ] Add unit tests for local-model parsing, deterministic fallback, prompt scoring, refinement, and token estimation.
-- [ ] Add integration test for refinement events in trace.
-- [ ] Document acceptance demo.
-- [ ] Do not add runtime loop detection or dashboard yet.
+### Milestones (in order)
 
-### PR 3 Checklist: Local Steering Ensemble, Loop Detection, and Validation Guardrails
+**2.1 Provider + router + registry.** `models/provider.py` (LiteLLM SDK impl of B5: strict-JSON demand, single reformat retry, pydantic validation, `None` on any failure, `model_call_completed` events), `models/router.py` (role→model per B8 resolution order + hardware-tier probe), `models/registry.py`, `cli/models_cmds.py` (`models list|pull`; `promote|rollback` bookkeeping with stubbed eval in tests).
+Tests: allowlist enforcement incl. loopback-pinning for `openai/*` (B7); `remote_fallback:false` + remote string ⇒ config error; timeout/garbage ⇒ `None`; router degradation when coding role unavailable; registry resolution order; **socket-level negative test proving zero network egress with default config and both endpoints down**.
+DoD: `models list` shows role table with tuned/base/unavailable status; all negative guarantees test-enforced.
 
-- [ ] Implement evaluator interface and registry.
-- [ ] Implement command normalization.
-- [ ] Implement repeated command detector.
-- [ ] Implement failed-test repetition detector.
-- [ ] Implement repeated edit detector.
-- [ ] Implement missing validation detector.
-- [ ] Implement prompt/task drift heuristic detector.
-- [ ] Implement local DeepSeek steering evaluator over compact detector evidence.
-- [ ] Implement cost-risk estimator.
-- [ ] Implement rule-based repo guardrail checker.
-- [ ] Implement recommendation ranker.
-- [ ] Implement Steering Decision Engine with `continue`, `suggest`, and `warn`.
-- [ ] Implement `agent-sidecar steer --session`.
-- [ ] Auto-run steering after relevant event ingestion if feasible.
-- [ ] Record `loop_detected`, `validation_missing`, `task_drift_detected`, and `steering_recommendation` events.
-- [ ] Add tests for all evaluators, local-model steering parsing, fallback, and ranking behavior.
-- [ ] Add integration fixture that triggers expected `WARN` output.
-- [ ] Prove remote frontier fallback is disabled by default.
-- [ ] Document acceptance demo.
-- [ ] Do not add automated blocking or remote model dependency.
+**2.2 Cost engine.** `intel/cost.py`: three tiers (measured from Chunk 1 OTLP > priced via vendored `litellm_prices.json` — snapshot + refresh script + attribution — > approximate `ceil(chars/4)`), mandatory `Precision` on every number, `cost show` CLI + `/sessions/:id/cost`.
+Tests: tier precedence; unknown-model fallthrough; snapshot-date surfacing.
+DoD: fixture sessions report the correct tier and label end-to-end.
 
-### PR 4 Checklist: Run Replay, MVP Dashboard, and Demo-Ready Analytics
+**2.3 Deterministic refiner fallback.** `intel/refiner_fallback.py`: issue detection (vague / broad / no-validation / no-files), template-based structured rewrite.
+Tests: golden files over the fixture vague-prompt set.
+DoD: `refine` works fully with **no models running**, `source: deterministic`.
 
-- [ ] Implement replay reader over local JSONL traces.
-- [ ] Implement `agent-sidecar replay`.
-- [ ] Implement summary generator.
-- [ ] Implement Markdown and JSON summary export.
-- [ ] Implement `agent-sidecar summary export`.
-- [ ] Implement `session list` filtering/search if not already adequate.
-- [ ] Add minimal local dashboard or robust CLI replay view.
-- [ ] Show prompt refinement before/after.
-- [ ] Show steering events and evaluators fired.
-- [ ] Show estimated token/cost/waste rollups.
-- [ ] Add golden-file tests for summaries.
-- [ ] Add integration tests for replay/export.
-- [ ] Document acceptance demo.
-- [ ] Do not add heavy analytics, SaaS backend, or cloud sync.
+**2.4 Ensemble refiner.** `intel/refiner.py` implementing C2 (Kimi draft → DeepSeek judgment → assembly, all degradation paths), `models/prompts/*.txt` (versioned; template hash recorded in `model_call_completed`), `models/validation.py` (restatement rejection via length+similarity), lineage events, `cli/intel_cmds.py::refine`, `POST /refine`.
+Tests: mocked-provider tests for **all four** source paths (`ensemble`, `coding-only`, DeepSeek-judges-deterministic, `deterministic`); restatement rejection; lineage lands in the right session.
+DoD: `refine` output states its `source`; golden files per path.
 
-### Optional PR 5 Checklist: pip Installation and Packaging
+**2.5 Detectors + normalization + rules.** `intel/normalize.py`; five detectors per B1 with thresholds from config — triggers: same normalized command 3× (or same failed command 2× with no intervening edit/diagnostic); same failure_signature 2× with no relevant edit between; same file edited 3× after same failure without successful validation; edit with no test/lint/build within N events or before stop; edits outside prompt-declared scope / keyword mismatch. `intel/rules.py`.
+Tests: every detector positive + negative against `evals/fixtures/traces/` (including the canonical `auth-refresh-loop.jsonl`); labeled fixtures for calibration.
+DoD: fixture replay yields exactly the expected findings, no extras.
 
-- [ ] Confirm implementation stack and packaging strategy.
-- [ ] Add package metadata.
-- [ ] Add console script entry point.
-- [ ] Add `agent-sidecar --version`.
-- [ ] Add install docs.
-- [ ] Add package build smoke test.
-- [ ] Add clean-environment install smoke test.
-- [ ] Verify `start`, `refine`, and session commands after install.
-- [ ] Do not delay PRs 1-4 for packaging polish.
+**2.6 Steering orchestration.** `intel/steering.py` per C2 (detectors → DeepSeek `SteerResult` with evidence-subset validation → optional Kimi `NextStepDraft` → `intel/ranker.py` deterministic fallback → decision engine with dedupe + `max_warnings_per_turn` + WARN evidence threshold), auto-steer on relevant event ingestion, `steer` CLI + API, priced waste via 2.2.
+Tests: evidence-subset rejection; noise controls; all fallback paths; golden terminal output for the canonical WARN.
+DoD: `dev replay-fixture auth-refresh-loop.jsonl` + `steer` prints the golden WARN with evaluators, evidence ids, and `≈ $X (priced)`.
+
+**2.7 Tuning toolchain + eval gate.** `dev export-dataset` (C3 step 1, provenance-marked), seed datasets, `tuning/recipes/*.yaml`, `tuning/export_gguf.sh`, `tuning/modelfiles/*`, `tuning/README.md`, `evals/refiner.promptfoo.yaml` + `steering.promptfoo.yaml` + `promotion.promptfoo.yaml`, real `models promote|rollback` wiring (runs promotion suite when a model is reachable; stub-injectable for CI), calibration script for detector thresholds over labeled fixtures.
+Tests: dataset exporter golden output from fixture traces; Modelfile generation; promotion refuses without passing eval; rollback restores base; registry state machine.
+DoD: `docs/tuning.md` walk-through is executable top-to-bottom on a machine with a GPU; CI covers all bookkeeping with stubs.
+
+### Chunk 2 Acceptance Demo
+
+```bash
+ollama pull deepseek-r1:8b            # + Kimi per hardware tier (see C1) or skip to show degradation
+agent-sidecar start
+agent-sidecar models list
+agent-sidecar refine "make the app better and fix the tests"
+agent-sidecar dev replay-fixture evals/fixtures/traces/auth-refresh-loop.jsonl --session demo
+agent-sidecar steer --session demo
+agent-sidecar cost show --session demo
+```
+
+**Accept when:** `refine` produces a materially better prompt and labels its source (`ensemble` with both models; correct degraded label otherwise); the fixture triggers the golden WARN with a Kimi-drafted concrete next step when the coding role is up; every number is precision-labeled; CI is green with no models and no network; remote egress is provably impossible under default config.
+
+---
+
+## Chunk 3 — Replay, Summaries, Langfuse Export, Index, Packaging
+
+**Proves:** runs are understandable, shareable, and the tool installs cleanly.
+
+### Milestones (in order)
+
+**3.1 Replay.** `replay/reader.py` (timestamp order, stable tiebreak), `replay/render.py`, `cli/replay_cmds.py::replay`, `GET /sessions/:id/replay`. Timeline shows prompts (before/after refinement), tool calls, failures, detector firings, steering decisions, per-model calls, cost rollup with precision labels.
+Tests: ordering; golden terminal output for the canonical session.
+
+**3.2 Summaries.** `schema/summary.py` (RunSummary incl. tokens/cost + precision, refinement issues, steering events, `estimated_waste_avoided{cost_usd, precision}`, ensemble usage stats, follow-ups), `export/markdown.py`, `export/jsonexp.py`, `summary export` CLI + API.
+Tests: golden Markdown/JSON across measured/priced/approximate fixture sessions.
+DoD: the Markdown answers "what happened and how did it affect cost per successful task" on one screen.
+
+**3.3 Langfuse exporter.** `export/base.py` (Exporter protocol + ExportReceipt), `export/langfuse_exp.py` (session→trace; prompts/refinements→generations; tool events→spans; steering→events; measured usage/cost; payload truncation; receipt written as `summary_exported`), `export langfuse` CLI, explicit-enablement config.
+Tests: mapping asserted against a **stubbed** Langfuse API (respx); truncation; receipts; failure never corrupts local state. Live-instance check is a documented manual demo step, not CI.
+
+**3.4 SQLite index.** `store/index.py`, `session list` filters (`--repo`, `--since`, `--has-warning`), `index rebuild`.
+Tests: index-vs-direct-JSONL equivalence; rebuild from scratch identical.
+
+**3.5 Packaging + regression.** Wheel build; clean-venv install smoke (`--version`, `start`, `hooks status`, `refine` deterministic path, `dev replay-fixture`, `replay`, `summary export`); scripted re-run of Chunk 1 and Chunk 2 acceptance demos.
+DoD: all three demos pass from an installed wheel in a clean environment.
+
+### Chunk 3 Acceptance Demo
+
+```bash
+python -m venv .venv && . .venv/bin/activate && pip install dist/agent_sidecar-*.whl
+agent-sidecar --version && agent-sidecar start
+agent-sidecar dev replay-fixture evals/fixtures/traces/auth-refresh-loop.jsonl --session final
+agent-sidecar steer --session final
+agent-sidecar replay final
+agent-sidecar summary export final --format markdown
+agent-sidecar session list --has-warning
+agent-sidecar export langfuse final     # optional, user-run Langfuse configured
+```
+
+---
+
+# PART E — Cross-Cutting Rules, Risks, Demo Matrix
+
+## E1. Testing Rules (apply to every milestone)
+
+- **CI is offline.** No Claude Code, no Ollama, no llama-server, no network. Model behavior in CI = mocked provider returning fixture JSON (valid and invalid variants).
+- **Negative guarantees are tests:** hook script exit-0 within 200ms; zero network egress under default config; remote fallback disabled by default; `promote` refuses without a passing eval; index rebuild equivalence.
+- **Golden files** for: refine output per source path, steering WARN, replay timeline, Markdown/JSON summaries, dataset export.
+- **Fixtures are versioned.** `docs/fixtures.md` records the Claude Code version each hook/OTLP fixture was captured against and the re-capture procedure.
+- **promptfoo suites are opt-in and never CI-gating** — they run when a local model is reachable (`refiner`, `steering`) and on demand for promotion.
+- **Regression rule:** each chunk's acceptance demo is scripted where possible and re-run before later chunks merge.
+
+## E2. Risks and Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| No truly small Kimi exists; Kimi-Linear GGUF support may require llama.cpp branches / llama-server rather than Ollama | Dual serving backend behind one provider seam (D8); hardware tiers with explicit `small`-tier degradation; router reports role unavailability; deterministic fallback keeps the system whole |
+| Small-model JSON reliability (both families) | Strict pydantic validation, one reformat retry, evidence-subset checks, deterministic fallback as correctness baseline, promotion gate scores JSON validity explicitly |
+| Fine-tunes regress quality | Eval-gated promotion (tuned must beat base), instant `rollback`, registry keeps base entries forever |
+| Claude Code hook/telemetry drift across versions | Version-tagged fixtures, raw-field preservation (`raw_hook`/`raw_otel`), adapter_version in metadata, documented re-capture |
+| Warning noise erodes trust | WARN evidence threshold, per-turn cap, dedupe, threshold calibration script over labeled fixtures |
+| Cost dishonesty | Mandatory precision labels enforced by the type system (`CostEstimate`); measured tier always preferred |
+| Tuning pipeline scope creep into runtime | Hard boundary: `src/` never imports `tuning/`; CI never trains; registry flip is the only runtime-visible effect |
+
+## E3. Acceptance Demo Matrix
+
+| Chunk | Demo focus | Key commands | Accept when |
+| --- | --- | --- | --- |
+| 1 | Zero-touch capture of a real Claude Code session | `start`, `hooks install`, `telemetry print-env`, run `claude`, `status`, `trace show` | Full automatic trace with measured cost; Claude Code never blocked; uninstall restores; fixtures reproduce it in CI |
+| 2 | Ensemble refinement + steering with honest cost | `models list`, `refine`, `dev replay-fixture`, `steer`, `cost show` | Kimi-drafted / DeepSeek-judged refinement with labeled source; golden WARN with evidence + priced waste + code-aware next step; CI green offline; no egress by default |
+| 3 | Replay, summary, export, install | `pip install` wheel, `replay`, `summary export`, `session list --has-warning`, `export langfuse` | One-screen honest summary; receipted explicit export; installed CLI passes all three demos |
+
+## E4. Remaining Open Questions (record answers in docs/decisions.md as they resolve)
+
+1. Exact OTLP session-correlation attributes emitted by the targeted Claude Code version — confirm during fixture capture (Milestone 1.5).
+2. Whether the targeted Ollama version can import Kimi-Linear-48B-A3B GGUFs directly, or the llama-server backend is required — confirm during Milestone 2.1; the dual-backend design absorbs either answer.
+3. Default detector thresholds after running the calibration script over the labeled fixture set (Milestone 2.7).
+4. LoRA hyperparameters per role after the first real training runs — recipes ship with conservative defaults (r=16, alpha=32, 4-bit, 2-3 epochs); tune from there.
+5. Whether `.agent-sidecar/` is gitignored with a committed config template, or fully ignored (default: gitignore all except a `config.example.json`).

@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "fixture-session",
+  "cwd": "/tmp/agent-sidecar-fixture",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "pnpm test"
+  },
+  "duration_ms": 1200,
+  "exit_code": 1,
+  "stdout": "FAIL auth refresh\nAssertionError: expected 401 to equal 200"
+}

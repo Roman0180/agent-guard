@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PostToolUse",
+  "session_id": "fixture-session",
+  "cwd": "/tmp/agent-sidecar-fixture",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "packages/auth/src/refresh.ts"
+  },
+  "duration_ms": 20,
+  "exit_code": 0
+}
