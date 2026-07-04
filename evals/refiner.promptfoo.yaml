@@ -1,1 +1,9 @@
-# Chunk 2 placeholder.
+description: Agent Sidecar refiner strict-JSON smoke suite
+prompts:
+  - file://../src/agent_sidecar/models/prompts/refine_coding.txt
+providers: []
+tests:
+  - vars:
+      prompt: "fix auth refresh and run tests"
+    assert:
+      - type: contains-json

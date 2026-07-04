@@ -501,7 +501,7 @@ function createDemoReplay(
         id: "prompt-optimization",
         label: "Prompt optimization",
         status: promptOptimizations.length > 0 ? "complete" : "pending",
-        summary: "Vague prompts can be expanded by local DeepSeek attempts or deterministic task-contract fallback."
+        summary: "Vague prompts are expanded with deterministic task-contract rules by default."
       },
       {
         id: "run-state",

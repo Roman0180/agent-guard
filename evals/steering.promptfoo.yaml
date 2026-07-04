@@ -1,1 +1,9 @@
-# Chunk 2 placeholder.
+description: Agent Sidecar steering strict-JSON smoke suite
+prompts:
+  - file://../src/agent_sidecar/models/prompts/steer_reasoning.txt
+providers: []
+tests:
+  - vars:
+      evidence: "same failed test repeated twice"
+    assert:
+      - type: contains-json

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agent_sidecar.schema.config import SidecarConfig, load_config, trace_dir
 from agent_sidecar.schema.events import EventMeta, EventSource, SidecarEvent, ensure_session_id, utc_now
-from agent_sidecar.schema.session import Money, Precision, SessionRecord, TokenUsage
+from agent_sidecar.schema.session import CostBudget, Money, Precision, SessionRecord, TokenUsage
 from agent_sidecar.store.jsonl import append_event, read_events, read_raw_lines
 
 
@@ -91,6 +91,9 @@ class SessionManager:
     def trace_lines(self, session_id: str) -> list[str]:
         return read_raw_lines(self.trace_path(session_id))
 
+    def events(self, session_id: str) -> list[SidecarEvent]:
+        return read_events(self.trace_path(session_id))
+
     def _auto_record(self, event: SidecarEvent) -> SessionRecord:
         return SessionRecord(
             session_id=event.session_id,
@@ -131,6 +134,7 @@ class SessionManager:
         stopped_at: datetime | None = event.timestamp if event.event_type == "session_stopped" else record.stopped_at
         tokens = record.tokens
         cost = record.cost_usd
+        budget = record.budget
         model = record.model
         if event.event_type == "cost_estimate_updated":
             precision = Precision(event.payload.get("precision", Precision.approximate.value))
@@ -142,6 +146,16 @@ class SessionManager:
             )
             cost = Money(value=float(event.payload.get("cost_usd", cost.value if cost else 0) or 0), precision=precision)
             model = str(event.payload.get("gen_ai.request.model") or model or "")
+        if event.event_type == "budget_configured":
+            precision = Precision(event.payload.get("precision", Precision.approximate.value))
+            budget = CostBudget(
+                baseline_session_id=event.payload.get("baseline_session_id"),
+                baseline_cost_usd=Money(value=float(event.payload.get("baseline_cost_usd") or 0.0), precision=precision),
+                limit_usd=Money(value=float(event.payload.get("budget_usd") or 0.0), precision=precision),
+                target_savings_pct=float(event.payload.get("target_savings_pct") or 0.0),
+                warning_threshold_pct=float(event.payload.get("warning_threshold_pct") or 80.0),
+                enforcement=str(event.payload.get("enforcement") or "block"),
+            )
         return record.model_copy(update={
             "status": status,
             "stopped_at": stopped_at,
@@ -149,5 +163,6 @@ class SessionManager:
             "observation": observation,
             "tokens": tokens,
             "cost_usd": cost,
+            "budget": budget,
             "model": model or None,
         })

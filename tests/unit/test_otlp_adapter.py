@@ -47,3 +47,17 @@ def test_otlp_protobuf_maps_cost_metrics() -> None:
     assert event.metadata.repo_path == "/tmp/proto-repo"
     assert event.payload["gen_ai.usage.input_tokens"] == 42
     assert event.payload["gen_ai.usage.output_tokens"] == 17
+
+
+def test_otlp_without_session_goes_to_orphans() -> None:
+    [event] = events_from_otlp_json({
+        "resourceMetrics": [
+            {
+                "resource": {"attributes": [{"key": "repo.path", "value": {"stringValue": "/tmp/repo"}}]},
+                "scopeMetrics": [{"metrics": [{"name": "gen_ai.usage.input_tokens", "sum": {"dataPoints": [{"asInt": 12}]}}]}],
+            }
+        ]
+    })
+
+    assert event.session_id == "cc-telemetry-orphans"
+    assert event.payload["precision"] == "measured"

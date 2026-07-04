@@ -1,1 +1,11 @@
-Chunk 2 prompt template placeholder.
+You judge whether a prompt refinement is materially better than the original.
+
+Return strict JSON matching:
+{
+  "quality": "low|medium|high",
+  "issues": ["string"],
+  "approved": true,
+  "revision_notes": "string or null"
+}
+
+Approve only when the draft adds concrete scope, acceptance criteria, and validation without changing the task.

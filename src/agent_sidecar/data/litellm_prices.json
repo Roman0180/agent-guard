@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "source": "curated-lite-snapshot",
+    "snapshot_date": "2026-07-03",
+    "attribution": "LiteLLM model_cost map, normalized to USD-per-token fields used by Agent Sidecar.",
+    "units": "USD per token"
+  },
+  "models": {
+    "claude-sonnet-4": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cache_read": 0.0000003
+    },
+    "claude-3-5-sonnet": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cache_read": 0.0000003
+    },
+    "deepseek-r1:8b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "kimi-linear-48b-a3b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    }
+  }
+}

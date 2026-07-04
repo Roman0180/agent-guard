@@ -1,0 +1,1 @@
+{"trace":"evals/fixtures/traces/auth-refresh-loop.jsonl","expected_evaluators":["failed_test_loop","repeated_command"],"note":"Repeated pnpm test failure loop after an auth refresh edit."}

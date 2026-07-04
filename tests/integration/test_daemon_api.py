@@ -30,9 +30,17 @@ def test_hook_sequence_posts_to_api_and_writes_trace(tmp_path: Path, monkeypatch
         status = client.get("/status").json()
 
     assert trace.status_code == 200
-    assert "prompt_submitted" in trace.text
-    assert "file_edit_observed" in trace.text
-    assert "test_failure_observed" in trace.text
+    event_types = [json.loads(line)["event_type"] for line in trace.text.splitlines()]
+    assert event_types == [
+        "session_started",
+        "prompt_submitted",
+        "agent_tool_observed",
+        "file_edit_observed",
+        "agent_tool_observed",
+        "test_run_observed",
+        "test_failure_observed",
+        "turn_completed",
+    ]
     assert status["active_session"]["observation"]["hooks"] is True
 
 
@@ -64,3 +72,73 @@ def test_manual_session_create_and_stop(tmp_path: Path, monkeypatch) -> None:
     assert created.status_code == 200
     assert stopped.status_code == 200
     assert stopped.json()["status"] == "stopped"
+
+
+def test_chunk2_routes_refine_steer_cost_and_models(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    get_manager.cache_clear()
+    app = create_app()
+    trace_lines = Path("evals/fixtures/traces/auth-refresh-loop.jsonl").read_text(encoding="utf-8").splitlines()
+
+    with TestClient(app) as client:
+        for line in trace_lines:
+            response = client.post("/sessions/auth-refresh-loop/events", json=json.loads(line))
+            assert response.status_code == 200
+
+        refine = client.post("/refine", json={"session_id": "auth-refresh-loop", "prompt": "make the app better"})
+        refine_no_prompt = client.post("/refine", json={"session_id": "auth-refresh-loop", "prompt": "fix auth refresh", "record_prompt_submitted": False})
+        steer = client.post("/sessions/auth-refresh-loop/steer")
+        cost = client.get("/sessions/auth-refresh-loop/cost")
+        models = client.get("/models")
+        recommendations = client.get("/sessions/auth-refresh-loop/recommendations")
+
+    assert refine.status_code == 200
+    assert refine.json()["source"] == "deterministic"
+    assert refine_no_prompt.status_code == 200
+    assert steer.status_code == 200
+    assert steer.json()["result"]["decision"] == "warn"
+    assert cost.status_code == 200
+    assert cost.json()["cost_usd"]["precision"] == "measured"
+    assert cost.json()["price_map"]["attribution"]
+    assert models.status_code == 200
+    assert {row["role"] for row in models.json()["roles"]} == {"reasoning", "coding"}
+    assert recommendations.status_code == 200
+    assert recommendations.json()
+
+
+def test_budget_routes_configure_and_block_when_measured_cost_exceeds_limit(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    get_manager.cache_clear()
+    app = create_app()
+
+    def cost_event(cost: float) -> dict:
+        return {
+            "event_type": "cost_estimate_updated",
+            "source": "otlp",
+            "payload": {
+                "precision": "measured",
+                "cost_usd": cost,
+                "gen_ai.request.model": "claude-sonnet-4",
+                "gen_ai.usage.input_tokens": 100,
+                "gen_ai.usage.output_tokens": 20,
+                "gen_ai.usage.cache_read_tokens": 0,
+            },
+            "metadata": {"repo_path": str(tmp_path)},
+        }
+
+    with TestClient(app) as client:
+        baseline_cost = client.post("/sessions/baseline/events", json=cost_event(0.02))
+        configured = client.post("/sessions/sidecar/budget", json={"baseline_session_id": "cc-baseline", "target_savings_pct": 10})
+        initial_check = client.post("/sessions/sidecar/budget/check")
+        sidecar_cost = client.post("/sessions/sidecar/events", json=cost_event(0.019))
+        over_budget = client.post("/sessions/sidecar/budget/check")
+        trace = client.get("/sessions/sidecar/trace")
+
+    assert baseline_cost.status_code == 200
+    assert configured.status_code == 200
+    assert configured.json()["budget_usd"] == 0.018
+    assert initial_check.json()["action"] == "allow"
+    assert sidecar_cost.status_code == 200
+    assert over_budget.status_code == 200
+    assert over_budget.json()["action"] == "block"
+    assert "budget_guard_triggered" in trace.text

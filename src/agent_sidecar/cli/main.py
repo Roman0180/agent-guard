@@ -3,7 +3,7 @@ from __future__ import annotations
 import typer
 
 from agent_sidecar import __version__
-from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, session_cmds, telemetry_cmds
+from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, models_cmds, session_cmds, telemetry_cmds
 
 
 app = typer.Typer(no_args_is_help=True, invoke_without_command=True)
@@ -13,6 +13,8 @@ session_app = typer.Typer(no_args_is_help=True)
 trace_app = typer.Typer(no_args_is_help=True)
 event_app = typer.Typer(no_args_is_help=True)
 dev_app = typer.Typer(no_args_is_help=True)
+cost_app = typer.Typer(no_args_is_help=True)
+models_app = typer.Typer(no_args_is_help=True)
 
 
 @app.callback()
@@ -46,5 +48,22 @@ event_app.command("edit")(session_cmds.event_edit)
 event_app.command("test")(session_cmds.event_test)
 app.add_typer(event_app, name="event")
 
+app.command("refine")(intel_cmds.refine)
+app.command("steer")(intel_cmds.steer)
+
+cost_app.command("show")(intel_cmds.cost_show)
+cost_app.command("compare")(intel_cmds.cost_compare)
+cost_app.command("budget")(intel_cmds.cost_budget)
+cost_app.command("refresh-map")(intel_cmds.cost_refresh_map)
+app.add_typer(cost_app, name="cost")
+
+models_app.command("list")(models_cmds.list_models)
+models_app.command("pull")(models_cmds.pull)
+models_app.command("promote")(models_cmds.promote)
+models_app.command("rollback")(models_cmds.rollback)
+app.add_typer(models_app, name="models")
+
 dev_app.command("replay-fixture")(dev_cmds.replay_fixture)
+dev_app.command("export-dataset")(dev_cmds.export_dataset)
+dev_app.command("calibrate-detectors")(dev_cmds.calibrate_detectors)
 app.add_typer(dev_app, name="dev")

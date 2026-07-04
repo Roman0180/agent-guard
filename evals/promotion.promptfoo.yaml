@@ -1,1 +1,9 @@
-# Chunk 2 placeholder.
+description: Agent Sidecar tuned-weight promotion gate placeholder
+prompts:
+  - "{{prompt}}"
+providers: []
+tests:
+  - vars:
+      prompt: "Return strict JSON for the requested schema."
+    assert:
+      - type: contains-json

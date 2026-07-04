@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -45,6 +46,12 @@ class CostConfig(BaseModel):
     price_map: str = ".agent-sidecar/cost-map/litellm_prices.json"
 
 
+class BudgetConfig(BaseModel):
+    target_savings_pct: float = Field(default=10.0, ge=0.0, le=100.0)
+    warning_threshold_pct: float = Field(default=80.0, ge=0.0, le=100.0)
+    enforcement: Literal["off", "warn", "block"] = "block"
+
+
 class SteeringConfig(BaseModel):
     loop_threshold: float = 0.82
     validation_required_after_edits: bool = True
@@ -76,6 +83,7 @@ class SidecarConfig(BaseModel):
     hooks: HooksConfig = Field(default_factory=HooksConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     cost: CostConfig = Field(default_factory=CostConfig)
+    budget: BudgetConfig = Field(default_factory=BudgetConfig)
     steering: SteeringConfig = Field(default_factory=SteeringConfig)
     rules: RulesConfig = Field(default_factory=RulesConfig)
     exporters: ExportersConfig = Field(default_factory=ExportersConfig)

@@ -37,7 +37,7 @@ def install_hooks(repo_path: Path, *, api_url: str | None = None) -> dict[str, A
     for event in HOOK_EVENTS:
         entries = hooks.setdefault(event, [])
         if not any(is_sidecar_entry(entry) for entry in entries):
-            entries.append({"matcher": "*", "hooks": [{"type": "command", "command": command}]})
+            entries.append({"matcher": "*", "hooks": [hook_handler(event, command)]})
             changed = True
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     return {"path": str(path), "installed": True, "changed": changed, "events": HOOK_EVENTS}
@@ -79,6 +79,13 @@ def hook_command(api_url: str | None = None) -> str:
     if api_url:
         env += f"AGENT_SIDECAR_API_URL={shlex.quote(api_url)} "
     return env + f"{shlex.quote(sys.executable)} -m agent_sidecar.adapters.claude_code.hook_script"
+
+
+def hook_handler(event: str, command: str) -> dict[str, Any]:
+    handler: dict[str, Any] = {"type": "command", "command": command}
+    if event == "UserPromptSubmit":
+        handler["timeout"] = 30
+    return handler
 
 
 def is_sidecar_entry(entry: Any) -> bool:

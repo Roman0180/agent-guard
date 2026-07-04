@@ -7,25 +7,28 @@ import httpx
 import typer
 
 from agent_sidecar.adapters import manual
-from agent_sidecar.daemon.runner import daemon_api_url
+from agent_sidecar.cli.client import request, resolve_session_id
 
 
 def list_sessions() -> None:
-    for session in _request("GET", "/sessions").json():
+    for session in request("GET", "/sessions").json():
         typer.echo(f"{session['session_id']}\t{session['status']}\t{session['repo_path']}")
 
 
-def show(session_id: str) -> None:
-    typer.echo(json.dumps(_request("GET", f"/sessions/{session_id}").json(), indent=2))
+def show(session_id: str | None = typer.Argument(None)) -> None:
+    session_id = resolve_session_id(session_id)
+    typer.echo(json.dumps(request("GET", f"/sessions/{session_id}").json(), indent=2))
 
 
-def stop(session_id: str) -> None:
-    session = _request("POST", f"/sessions/{session_id}/stop").json()
+def stop(session_id: str | None = typer.Argument(None)) -> None:
+    session_id = resolve_session_id(session_id)
+    session = request("POST", f"/sessions/{session_id}/stop").json()
     typer.echo(f"Stopped {session['session_id']}")
 
 
-def trace_show(session_id: str) -> None:
-    response = _request("GET", f"/sessions/{session_id}/trace")
+def trace_show(session_id: str | None = typer.Argument(None)) -> None:
+    session_id = resolve_session_id(session_id)
+    response = request("GET", f"/sessions/{session_id}/trace")
     typer.echo(response.text, nl=False)
 
 
@@ -48,15 +51,4 @@ def event_test(session_id: str = typer.Option(..., "--session"), command: str = 
 
 
 def _post_event(session_id: str, payload: dict) -> httpx.Response:
-    return _request("POST", f"/sessions/{session_id}/events", json_payload=payload)
-
-
-def _request(method: str, path: str, json_payload: dict | None = None) -> httpx.Response:
-    url = daemon_api_url(Path.cwd())
-    try:
-        response = httpx.request(method, f"{url}{path}", json=json_payload, timeout=5)
-        response.raise_for_status()
-        return response
-    except httpx.HTTPError as error:
-        typer.echo(f"Agent Sidecar daemon unavailable or rejected request at {url}{path}: {error}", err=True)
-        raise typer.Exit(1) from error
+    return request("POST", f"/sessions/{session_id}/events", json_payload=payload)

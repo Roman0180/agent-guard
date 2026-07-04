@@ -43,7 +43,7 @@ class RefineResult(BaseModel):
     acceptance_criteria: list[str]
     testing_expectations: str
     do_not_change: list[str]
-    source: Literal["ensemble", "coding-only", "deterministic"]
+    source: Literal["ensemble", "reasoning-only", "reasoning-then-coding", "coding-only", "deterministic", "deterministic-then-coding"]
 
 
 class SteerResult(BaseModel):

@@ -1,1 +1,11 @@
-Chunk 2 prompt template placeholder.
+You decide whether an agent should continue, receive a suggestion, or receive a warning.
+
+Return strict JSON matching:
+{
+  "decision": "continue|suggest|warn",
+  "recommendation": "string",
+  "evidence_event_ids": ["string"],
+  "confidence": 0.0
+}
+
+Use only evidence_event_ids supplied by deterministic detectors.

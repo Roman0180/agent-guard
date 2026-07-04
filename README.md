@@ -70,7 +70,7 @@ agent-sidecar dashboard
 agent-sidecar session stop --session demo-session-001
 ```
 
-Prompt refinement starts with local DeepSeek attempts by default through an Ollama-compatible endpoint, then falls back to deterministic task-contract refinement if the model is unavailable or returns an unusable response. Steering follows the same local-model-first shape: deterministic detectors produce compact evidence, local DeepSeek can make the steering call, and the detector ranking remains the fallback.
+Prompt refinement uses deterministic task-contract rules by default. Kimi can still be required for the coding/implementation focus after that deterministic refinement, while DeepSeek prompt refinement remains an explicit opt-in path. Steering follows the local-model-first shape: deterministic detectors produce compact evidence, local DeepSeek can make the steering call, and the detector ranking remains the fallback.
 
 ## How It Works Today
 
@@ -95,10 +95,10 @@ Realtime prompt interception for terminal-launched Codex prompts is available th
 
 Prompt refinement has two paths:
 
-- Local DeepSeek first: if enabled and reachable, the daemon calls an Ollama-compatible local chat endpoint at `AGENT_SIDECAR_LOCAL_MODEL_URL` with model `AGENT_SIDECAR_LOCAL_MODEL` and asks for JSON containing an optimized prompt and task contract.
-- Deterministic fallback: if the local model is unavailable, returns invalid JSON, or only restates the original prompt, vague prompts such as `fix`, `make`, `improve`, or troubleshooting prompts such as `not working` are rewritten into a task contract with task, context, scope, constraints, acceptance criteria, PR boundaries, test expectations, validation requirements, relevant lessons, and risk notes.
+- Deterministic default: vague prompts such as `fix`, `make`, `improve`, or troubleshooting prompts such as `not working` are rewritten into a task contract with task, context, scope, constraints, acceptance criteria, PR boundaries, test expectations, validation requirements, relevant lessons, and risk notes.
+- Explicit model paths: Kimi can add a coding/implementation focus after deterministic refinement, and DeepSeek prompt refinement can still be required for experiments through the existing model-refinement flags.
 
-By default, the daemon tries `http://127.0.0.1:11434` with model `deepseek-r1:7b`. Set `AGENT_SIDECAR_LOCAL_PROMPT_OPTIMIZER=off` to skip local-model attempts and use deterministic refinement only.
+For the TypeScript daemon prompt optimizer, local DeepSeek is off by default. Set `AGENT_SIDECAR_LOCAL_PROMPT_OPTIMIZER=1` to opt in to the Ollama-compatible local optimizer at `AGENT_SIDECAR_LOCAL_MODEL_URL` with model `AGENT_SIDECAR_LOCAL_MODEL`.
 
 Relevant approved lessons are selected by keyword matching against the prompt, latest error, recent command signatures, and changed or inspected files. Prompt optimizations are stored with the run and can be replayed or exported.
 
@@ -109,9 +109,10 @@ Agent Sidecar lowers the cost per successful task by reducing waste before and d
 The main savings methods are:
 
 - Prompt interception before Codex starts: terminal prompts such as `codex "fix auth refresh"` pass through Agent Sidecar first. The sidecar expands vague requests into compact task contracts with scope, constraints, acceptance criteria, and validation expectations. This reduces expensive back-and-forth caused by underspecified prompts.
-- Local-model-first refinement: the daemon tries a local DeepSeek-compatible optimizer before falling back to deterministic refinement. Local refinement can improve task framing without spending frontier-model budget on the prompt-improvement step itself.
+- Deterministic prompt refinement: the daemon expands vague requests without spending model calls on prompt improvement. Optional Kimi coding focus can still be used for implementation-specific guidance.
 - Context selection instead of context stuffing: the optimizer attaches lightweight repo context, recent plan snippets, approved lessons, file-tree hints, and relevant diffs instead of blindly pushing broad source context into the coding agent.
 - Avoided dead ends: detectors watch for repeated commands, repeated failed validations, repeated edits, missing validation, and task drift. Steering decisions can warn or suggest the next step before the agent spends more calls exploring the same path.
+- Baseline-derived budget guard: paired runs can attach a cost ceiling to the Sidecar session, derived from the measured baseline cost and a target savings percentage. Claude hooks add that budget to the prompt context, check spend throughout the run, and can block additional work when measured cost reaches the ceiling.
 - Cheaper steering loops: deterministic detectors produce compact evidence, and the optional local model judges that evidence. The expensive coding model does not need to reason from the full raw trace just to decide whether the run is looping or drifting.
 - Validation-gated accounting: savings are not treated as real just because a prompt got shorter or a route got cheaper. Agent Sidecar records the baseline, actual cost, prompt hashes, model route, task type, confidence, and validation evidence so the dashboard can focus on cost per successful task.
 - Future model-route enforcement: current steering records route evidence and recommendations. The next routing step is to use those decisions to send narrow edits, summarization, and simple investigation work to cheaper or local models while reserving frontier calls for tasks that need them.
@@ -152,6 +153,15 @@ Recommended evaluation loop:
    - the optimized run does not remove required behavior from the baseline run
    - a reviewer or evaluator marks the optimized output as same-quality or better
 6. Count cost improvement only if the equivalence gate passes. If quality regresses, record the optimization as unsafe and do not include its cost or token delta in successful-task metrics.
+
+For strict paired runs, configure a budget before the optimized run:
+
+```bash
+agent-sidecar cost budget --session cc-sidecar --baseline cc-baseline --target-savings-pct 10 --enforcement block
+agent-sidecar cost compare --baseline cc-baseline --sidecar cc-sidecar --require-savings
+```
+
+This does not make stochastic agents intrinsically cheaper. It makes the product invariant explicit: the run is blocked or marked failed unless the Sidecar path stays below the baseline budget and later passes the quality gate.
 
 For stronger measurement, run each prompt pair multiple times because coding agents are stochastic. Treat the optimized prompt as successful when it is non-inferior on quality and better on cost across a meaningful sample, for example:
 

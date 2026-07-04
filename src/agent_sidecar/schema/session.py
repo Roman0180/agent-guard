@@ -25,6 +25,15 @@ class Money(BaseModel):
     precision: Precision
 
 
+class CostBudget(BaseModel):
+    baseline_session_id: str | None = None
+    baseline_cost_usd: Money
+    limit_usd: Money
+    target_savings_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    warning_threshold_pct: float = Field(default=80.0, ge=0.0, le=100.0)
+    enforcement: Literal["off", "warn", "block"] = "block"
+
+
 class SessionRecord(BaseModel):
     session_id: str
     agent: Literal["claude-code"] = "claude-code"
@@ -37,5 +46,6 @@ class SessionRecord(BaseModel):
     observation: dict[str, bool]
     tokens: TokenUsage | None = None
     cost_usd: Money | None = None
+    budget: CostBudget | None = None
     model: str | None = None
     config_snapshot: dict
