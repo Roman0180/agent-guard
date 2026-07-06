@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from agent_sidecar.daemon.app import create_app, get_manager
+from agent_sidecar.schema.model_io import KimiWrapperResult, ModelRole
 
 
 def test_hook_sequence_posts_to_api_and_writes_trace(tmp_path: Path, monkeypatch) -> None:
@@ -104,6 +105,41 @@ def test_chunk2_routes_refine_steer_cost_and_models(tmp_path: Path, monkeypatch)
     assert {row["role"] for row in models.json()["roles"]} == {"reasoning", "coding"}
     assert recommendations.status_code == 200
     assert recommendations.json()
+
+
+def test_wrap_route_runs_kimi_wrapper_and_records_trace(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    get_manager.cache_clear()
+
+    class FakeProvider:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def complete_json(self, role, _task, _prompt, schema, timeout_ms=None):
+            if role == ModelRole.coding and schema is KimiWrapperResult:
+                return KimiWrapperResult(
+                    display_response="Kimi wrapper display response.",
+                    implementation_summary="Kimi handled the refined prompt.",
+                    files_changed=[],
+                    validation_performed="Not run in offline test.",
+                    needs_claude_execution=True,
+                )
+            return None
+
+        def health(self) -> dict:
+            return {}
+
+    monkeypatch.setattr("agent_sidecar.daemon.api.LiteLLMModelProvider", FakeProvider)
+    app = create_app()
+
+    with TestClient(app) as client:
+        response = client.post("/wrap", json={"session_id": "wrapper-demo", "prompt": "fix auth refresh"})
+        trace = client.get("/sessions/wrapper-demo/trace")
+
+    assert response.status_code == 200
+    assert response.json()["display_response"] == "Kimi wrapper display response."
+    assert response.json()["refinement_source"] == "deterministic"
+    assert "kimi_wrapper_completed" in trace.text
 
 
 def test_budget_routes_configure_and_block_when_measured_cost_exceeds_limit(tmp_path: Path, monkeypatch) -> None:

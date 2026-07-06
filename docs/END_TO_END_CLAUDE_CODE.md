@@ -66,6 +66,18 @@ For a single intercepted run without baseline comparison:
 ./scripts/e2e_claude_code.sh --single
 ```
 
+For the Kimi-wrapper prompt flow, start the daemon and hooks normally, then enable the wrapper before launching Claude Code:
+
+```bash
+agent-sidecar start
+agent-sidecar hooks install
+eval "$(agent-sidecar telemetry print-env)"
+export AGENT_SIDECAR_KIMI_WRAPPER=1
+claude
+```
+
+In this mode, a `UserPromptSubmit` hook calls `/wrap`: deterministic prompt rules run first, DeepSeek refines only when the deterministic rules do not flag the prompt, Kimi produces the display response, and the hook blocks Claude execution by default so Claude Code displays the Kimi result without spending another model call. Set `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` to inject the Kimi result as additional Claude context instead.
+
 For the older paste-it-yourself flow:
 
 ```bash

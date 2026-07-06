@@ -25,6 +25,7 @@ REGISTERED_EVENT_TYPES = {
     "session_stopped",
     "prompt_submitted",
     "prompt_refined",
+    "kimi_wrapper_completed",
     "agent_tool_observed",
     "agent_tool_failed",
     "turn_completed",
@@ -102,6 +103,7 @@ class SidecarEvent(BaseModel):
 def validate_event_payload(event_type: str, payload: dict[str, Any]) -> None:
     required: dict[str, set[str]] = {
         "prompt_submitted": {"prompt"},
+        "kimi_wrapper_completed": {"display_response", "refinement_source"},
         "agent_tool_observed": {"tool_name"},
         "agent_tool_failed": {"tool_name"},
         "file_edit_observed": {"path"},

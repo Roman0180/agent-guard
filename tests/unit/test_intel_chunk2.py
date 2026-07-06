@@ -12,13 +12,14 @@ from agent_sidecar.intel.cost import load_price_map, price_map_metadata, price_t
 from agent_sidecar.intel.refiner import CodingRefinementRequiredError, ModelEnsembleRequiredError, ReasoningRefinementRequiredError, refine_prompt
 from agent_sidecar.intel.refiner_fallback import refine_deterministically
 from agent_sidecar.intel.steering import collect_findings, steer
+from agent_sidecar.intel.wrapper import KimiWrapperRequiredError, wrap_prompt_with_kimi
 from agent_sidecar.models.evals import parse_promotion_result, run_promotion_eval
 from agent_sidecar.models.local_services import list_ollama_models, list_openai_models, model_is_served, pull_ollama_model
 from agent_sidecar.models.registry import ModelRegistry, ModelRegistryEntry, RegistryEval, load_registry, promote, rollback, save_registry
 from agent_sidecar.models.router import ModelRoute, ModelRouter, is_loopback_url, validate_route_allowed
 from agent_sidecar.schema.config import SidecarConfig
 from agent_sidecar.schema.events import SidecarEvent
-from agent_sidecar.schema.model_io import ModelRole, NextStepDraft, RefineDraft, RefineJudgment, SteerResult
+from agent_sidecar.schema.model_io import KimiWrapperResult, ModelRole, NextStepDraft, RefineDraft, RefineJudgment, SteerResult
 from agent_sidecar.models.provider import LiteLLMModelProvider
 from agent_sidecar.models.validation import validate_json_text
 
@@ -312,6 +313,71 @@ def test_required_coding_refiner_raises_instead_of_falling_back(tmp_path: Path) 
             require_reasoning_refinement=True,
             require_coding_refinement=True,
         )
+
+
+def test_kimi_wrapper_uses_deterministic_rules_before_kimi(tmp_path: Path) -> None:
+    provider = StubProvider({
+        ModelRole.coding: KimiWrapperResult(
+            display_response="Implemented the auth refresh fix as requested.",
+            implementation_summary="Focused the task on auth refresh and validation.",
+            files_changed=["packages/auth/src/refresh.ts"],
+            validation_performed="Run pnpm test.",
+            needs_claude_execution=False,
+        ),
+    })
+
+    refined, result, events = wrap_prompt_with_kimi(
+        "fix auth refresh",
+        repo_path=tmp_path,
+        session_id="demo",
+        provider=provider,
+    )
+
+    assert refined.source == "deterministic"
+    assert result.display_response.startswith("Implemented")
+    assert provider.calls == [ModelRole.coding]
+    assert [event.event_type for event in events] == ["prompt_submitted", "prompt_refined", "kimi_wrapper_completed"]
+
+
+def test_kimi_wrapper_uses_deepseek_when_no_deterministic_issue_matches(tmp_path: Path) -> None:
+    provider = StubProvider({
+        ModelRole.reasoning: RefineDraft(
+            refined_prompt=(
+                "Task: inspect the auth refresh flow in packages/auth/src/refresh.ts, preserve refresh-token "
+                "rotation semantics, avoid unrelated auth changes, and validate the behavior with the focused "
+                "auth tests before running pnpm test."
+            ),
+            acceptance_criteria=["refresh-token rotation semantics are preserved", "focused auth tests and pnpm test pass"],
+            testing_expectations="Run pnpm test.",
+            do_not_change=["unrelated auth behavior"],
+            files_or_components=["packages/auth/src/refresh.ts"],
+        ),
+        ModelRole.coding: KimiWrapperResult(
+            display_response="Use the refined auth-refresh implementation path.",
+            implementation_summary="DeepSeek refined the already-specific prompt before Kimi wrapped it.",
+            files_changed=[],
+            validation_performed="Run pnpm test.",
+            needs_claude_execution=True,
+        ),
+    })
+
+    refined, result, _events = wrap_prompt_with_kimi(
+        "Update packages/auth/src/refresh.ts to preserve token rotation and run pnpm test.",
+        repo_path=tmp_path,
+        session_id="demo",
+        provider=provider,
+    )
+
+    assert refined.source == "reasoning-only"
+    assert result.needs_claude_execution is True
+    assert provider.calls == [ModelRole.reasoning, ModelRole.coding]
+
+
+def test_kimi_wrapper_raises_when_kimi_result_is_unavailable(tmp_path: Path) -> None:
+    provider = StubProvider({})
+
+    with pytest.raises(KimiWrapperRequiredError, match="Kimi did not produce"):
+        wrap_prompt_with_kimi("fix auth refresh", repo_path=tmp_path, provider=provider)
 
 
 def test_model_validation_normalizes_common_local_json_shapes() -> None:

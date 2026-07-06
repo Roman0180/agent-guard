@@ -58,6 +58,14 @@ class NextStepDraft(BaseModel):
     rationale: str
 
 
+class KimiWrapperResult(BaseModel):
+    display_response: str
+    implementation_summary: str
+    files_changed: list[str]
+    validation_performed: str
+    needs_claude_execution: bool
+
+
 class WasteEstimate(BaseModel):
     repeated_actions: int | None = None
     cost_usd: float | None = None

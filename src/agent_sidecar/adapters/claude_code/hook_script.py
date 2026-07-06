@@ -10,6 +10,7 @@ import urllib.request
 DEFAULT_API_URL = "http://127.0.0.1:7433"
 TIMEOUT_SECONDS = 0.2
 REFINE_TIMEOUT_SECONDS = 5.0
+WRAPPER_TIMEOUT_SECONDS = 75.0
 MAX_CONTEXT_CHARS = 9500
 
 
@@ -25,7 +26,10 @@ def main() -> int:
         if guard:
             sys.stdout.write(json.dumps(guard, separators=(",", ":")))
             return 0
-        output = prompt_refinement_output(payload, session_id, api_url, budget_status=budget_status)
+        if truthy_env("AGENT_SIDECAR_KIMI_WRAPPER"):
+            output = kimi_wrapper_output(payload, session_id, api_url, budget_status=budget_status)
+        else:
+            output = prompt_refinement_output(payload, session_id, api_url, budget_status=budget_status)
         if output:
             sys.stdout.write(json.dumps(output, separators=(",", ":")))
     except (OSError, ValueError, urllib.error.URLError, TimeoutError):
@@ -177,6 +181,39 @@ def prompt_refinement_output(payload: dict, session_id: str, api_url: str, *, bu
     }
 
 
+def kimi_wrapper_output(payload: dict, session_id: str, api_url: str, *, budget_status: dict | None = None) -> dict | None:
+    if hook_name(payload) != "UserPromptSubmit":
+        return None
+    prompt = str(payload.get("prompt") or payload.get("user_prompt") or payload.get("userPrompt") or "").strip()
+    if not prompt:
+        return None
+    if os.environ.get("AGENT_SIDECAR_PROMPT_INTERCEPT", "1").lower() in {"0", "false", "off", "no"}:
+        return None
+    timeout = float(os.environ.get("AGENT_SIDECAR_WRAPPER_TIMEOUT_SECONDS", WRAPPER_TIMEOUT_SECONDS))
+    request_body = {"session_id": session_id, "prompt": prompt, "record_prompt_submitted": False}
+    try:
+        result = post_json(f"{api_url}/wrap", request_body, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        return block_output(f"Agent Sidecar Kimi wrapper failed: {http_error_detail(error)}")
+    if not result or not isinstance(result.get("display_response"), str):
+        return block_output("Agent Sidecar Kimi wrapper failed: /wrap did not return a display response.")
+    return wrapper_delivery_output(result, budget_status=budget_status)
+
+
+def wrapper_delivery_output(result: dict, *, budget_status: dict | None = None) -> dict:
+    text = format_wrapper_display(result, budget_status=budget_status)
+    delivery = os.environ.get("AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY", "block").lower()
+    if delivery in {"context", "additional_context", "additional-context"}:
+        return {
+            "suppressOutput": True,
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": text[:MAX_CONTEXT_CHARS],
+            },
+        }
+    return block_output(text, limit=MAX_CONTEXT_CHARS)
+
+
 def truthy_env(name: str) -> bool:
     return os.environ.get(name, "").lower() in {"1", "true", "yes", "on"}
 
@@ -197,8 +234,35 @@ def http_error_detail(error: urllib.error.HTTPError) -> str:
     return f"HTTP {error.code}"
 
 
-def block_output(reason: str) -> dict:
-    return {"decision": "block", "continue": False, "reason": reason[:2000]}
+def block_output(reason: str, *, limit: int = 2000) -> dict:
+    return {"decision": "block", "continue": False, "reason": reason[:limit]}
+
+
+def format_wrapper_display(result: dict, *, budget_status: dict | None = None) -> str:
+    display = str(result.get("display_response") or "").strip()
+    summary = str(result.get("implementation_summary") or "").strip()
+    validation = str(result.get("validation_performed") or "").strip()
+    refinement_source = str(result.get("refinement_source") or "unknown")
+    files = result.get("files_changed") if isinstance(result.get("files_changed"), list) else []
+    lines = [
+        "Agent Sidecar Kimi wrapper result.",
+        f"Refinement source: {refinement_source}.",
+    ]
+    budget_context = format_budget_context(budget_status)
+    if budget_context:
+        lines.extend(["Cost guard:", budget_context])
+    if summary:
+        lines.extend(["Implementation summary:", summary])
+    if files:
+        lines.append("Files changed or proposed:")
+        lines.extend(f"- {item}" for item in files if isinstance(item, str))
+    if validation:
+        lines.extend(["Validation:", validation])
+    if result.get("needs_claude_execution") is True:
+        lines.append("Kimi marked this result as requiring Claude Code tool execution or user-applied edits.")
+    if display:
+        lines.extend(["", display])
+    return "\n".join(lines)
 
 
 def format_refinement_context(result: dict, *, budget_status: dict | None = None) -> str:

@@ -35,3 +35,10 @@
 - CLI commands that operate on one session default to the daemon's active session, falling back to the latest known session; explicit ids remain available for multi-session debugging.
 - Savings are reported by comparing a baseline session to a Sidecar session with `agent-sidecar cost compare`; the command preserves precision labels and treats the weaker precision as the comparison precision.
 - `cost compare` can infer the baseline session as the latest stopped session before the active Sidecar session, so the normal paired-run workflow does not require copying session ids.
+
+## 2026-07-06: Kimi Wrapper Prompt Flow
+
+- Add an env-gated Claude Code hook mode, `AGENT_SIDECAR_KIMI_WRAPPER=1`, where `UserPromptSubmit` calls `/wrap` instead of `/refine`.
+- The wrapper first applies deterministic prompt rules. If those rules do not flag the prompt, it tries DeepSeek reasoning refinement before handing the refined contract to Kimi.
+- Kimi returns a strict `KimiWrapperResult` whose `display_response` is sent back through Claude Code. The default delivery mode is a hook `decision: block` response so Claude does not spend another model call; `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` can instead inject the result as additional Claude context.
+- Claude Code hooks still do not give Kimi filesystem/tool execution. The wrapper prompt requires Kimi to mark `needs_claude_execution: true` when actual repo edits or command execution are needed rather than claiming files were changed.

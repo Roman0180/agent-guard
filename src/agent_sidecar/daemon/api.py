@@ -8,6 +8,7 @@ from agent_sidecar.adapters.claude_code.hooks_adapter import events_from_hook
 from agent_sidecar.intel.cost import price_map_metadata, session_cost
 from agent_sidecar.intel.refiner import CodingRefinementRequiredError, ModelEnsembleRequiredError, ReasoningRefinementRequiredError, refine_prompt
 from agent_sidecar.intel.steering import finding_events, steer
+from agent_sidecar.intel.wrapper import KimiWrapperRequiredError, wrap_prompt_with_kimi
 from agent_sidecar.models.provider import LiteLLMModelProvider
 from agent_sidecar.models.router import ModelRouter
 from agent_sidecar.schema.events import EventMeta, EventSource, SidecarEvent
@@ -108,6 +109,38 @@ def create_api_router(manager_dependency) -> APIRouter:
         for event in events:
             manager.add_event(event)
         return result.model_dump(mode="json")
+
+    @router.post("/wrap")
+    def wrap(body: dict[str, Any], manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
+        prompt = str(body.get("prompt") or "")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="prompt is required")
+        session_id = body.get("session_id") or body.get("session")
+        provider = LiteLLMModelProvider(
+            manager.repo_path,
+            manager.config,
+            session_id=str(session_id) if session_id else None,
+            event_sink=manager.add_event if session_id else None,
+        )
+        try:
+            refined, result, events = wrap_prompt_with_kimi(
+                prompt,
+                repo_path=manager.repo_path,
+                session_id=str(session_id) if session_id else None,
+                provider=provider,
+                record_prompt_submitted=bool(body.get("record_prompt_submitted", True)),
+            )
+        except KimiWrapperRequiredError as error:
+            raise HTTPException(status_code=424, detail=f"Kimi wrapper required but unavailable: {error}") from error
+        for event in events:
+            manager.add_event(event)
+        return {
+            **result.model_dump(mode="json"),
+            "refined_prompt": refined.refined_prompt,
+            "refinement_source": refined.source,
+            "quality": refined.quality,
+            "issues": refined.issues,
+        }
 
     @router.post("/sessions/{session_id}/steer")
     def steer_session(session_id: str, manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:

@@ -223,6 +223,7 @@ Registered `event_type` values and primary source:
 | `session_started` / `session_stopped` | hook | SessionStart / SessionEnd |
 | `prompt_submitted` | hook | UserPromptSubmit |
 | `prompt_refined` | detector | written by the refiner |
+| `kimi_wrapper_completed` | detector | written by wrapper mode; payload includes display_response, refinement_source, validation_performed |
 | `agent_tool_observed` | hook | Pre/PostToolUse pair collapsed; payload: tool_name, input summary, exit, duration_ms |
 | `agent_tool_failed` | hook | PostToolUseFailure |
 | `turn_completed` | hook | Stop |
@@ -422,7 +423,8 @@ POST /sessions                    POST /sessions/:id/stop
 POST /sessions/:id/events         GET  /sessions/:id/trace
 POST /v1/metrics   (otlp port)    POST /v1/logs   (otlp port)
 --- Chunk 2 ---
-POST /refine                      POST /sessions/:id/steer
+POST /refine                      POST /wrap
+POST /sessions/:id/steer
 GET  /sessions/:id/recommendations  GET /sessions/:id/cost
 GET  /models
 --- Chunk 3 ---
@@ -489,6 +491,14 @@ Two small, cheap, locally running models with distinct jobs, both reached throug
    - only DeepSeek succeeded → DeepSeek judges the deterministic draft
    - neither → `deterministic` (Chunk 2's fallback scorer+refiner)
 4. Cost engine prices original vs refined token counts; refiner emits `prompt_submitted` + `prompt_refined` + `model_call_completed` events.
+
+**Kimi wrapper prompt flow (`wrap`, env-gated in the Claude hook):**
+
+1. Deterministic prompt rules run first. If they flag the prompt, their task contract is used.
+2. If deterministic rules do not flag the prompt, **reasoning (DeepSeek)** attempts a stricter `RefineDraft`; restatements are rejected and deterministic output remains the fallback.
+3. **coding (Kimi)** receives the refined task contract and returns `KimiWrapperResult`, including `display_response`, `implementation_summary`, `validation_performed`, and `needs_claude_execution`.
+4. The Claude hook sends `display_response` back through Claude Code. Default delivery is a hook `decision: block` so Claude does not spend another model call; `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` injects it as additional context instead.
+5. Kimi does not get filesystem/tool execution from Claude hooks. When actual repo edits or commands are required, the wrapper result must mark `needs_claude_execution: true` and provide exact next steps or a patch proposal.
 
 **Runtime steering (`steer` / auto-steer):**
 

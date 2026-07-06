@@ -474,6 +474,74 @@ def test_user_prompt_hook_requests_kimi_after_deterministic_refinement() -> None
     assert "require_reasoning_refinement" not in refine_request
 
 
+def test_user_prompt_hook_uses_kimi_wrapper_when_enabled() -> None:
+    requests: list[tuple[str, dict]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("content-length", "0"))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            requests.append((self.path, body))
+            if self.path.endswith("/budget/check"):
+                response = {"configured": False, "action": "allow"}
+            elif self.path == "/wrap":
+                response = {
+                    "display_response": "Kimi produced the implementation response.",
+                    "implementation_summary": "Kimi handled the refined task.",
+                    "files_changed": ["packages/auth/src/refresh.ts"],
+                    "validation_performed": "Run pnpm test.",
+                    "needs_claude_execution": False,
+                    "refined_prompt": "Task: fix auth refresh and run pnpm test.",
+                    "refinement_source": "deterministic",
+                    "quality": "low",
+                    "issues": ["prompt is underspecified"],
+                }
+            else:
+                response = {"accepted": 1}
+            encoded = json.dumps(response).encode("utf-8")
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, *_args) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env = {
+            **os.environ,
+            "PYTHONPATH": str(Path.cwd() / "src"),
+            "AGENT_SIDECAR_API_URL": f"http://127.0.0.1:{server.server_port}",
+            "AGENT_SIDECAR_KIMI_WRAPPER": "1",
+        }
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_sidecar.adapters.claude_code.hook_script"],
+            input=json.dumps(load_fixture("user_prompt_submit.json")),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=5,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    output = json.loads(result.stdout)
+    assert output["decision"] == "block"
+    assert output["continue"] is False
+    assert "Kimi produced the implementation response" in output["reason"]
+    assert request_body(requests, "/wrap")["record_prompt_submitted"] is False
+    assert "/refine" not in [path for path, _body in requests]
+
+
 def test_user_prompt_hook_requests_required_deepseek_and_kimi_refinement() -> None:
     requests: list[tuple[str, dict]] = []
 
