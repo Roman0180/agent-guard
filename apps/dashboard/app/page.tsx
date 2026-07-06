@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bot,
   Code2,
+  Maximize2,
   Menu,
+  Minimize2,
   Pause,
   Play,
   RotateCcw,
@@ -232,7 +234,9 @@ function DemoSection() {
   const [demoPaused, setDemoPaused] = useState(true);
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
-  const progressRef = useRef<any>(null);
+  const progressRef = useRef<HTMLButtonElement>(null);
+  const videoShellRef = useRef<HTMLDivElement>(null);
+  const [isDemoFullscreen, setIsDemoFullscreen] = useState(false);
   const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
   const preEditCodeLines: Array<[string, string, string]> = [
     ["01", "import { cookies } from \"next/headers\"", "text-neutral-500"],
@@ -308,6 +312,24 @@ function DemoSection() {
 
     setDemoPaused((paused) => !paused);
   };
+
+  const toggleDemoFullscreen = () => {
+    const shell = videoShellRef.current;
+
+    if (!shell) return;
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    if (shell.requestFullscreen) {
+      void shell.requestFullscreen();
+      return;
+    }
+
+    setIsDemoFullscreen((fullscreen) => !fullscreen);
+  };
   const seekDemo = (clientX: number) => {
     const rect = progressRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -322,6 +344,17 @@ function DemoSection() {
   const promptProgress = Math.min(Math.max((demoTime - 0.7) / 2.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsDemoFullscreen(document.fullscreenElement === videoShellRef.current);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
   useEffect(() => {
     if (demoPaused) return undefined;
 
@@ -341,7 +374,7 @@ function DemoSection() {
 
   return (
     <Section id="demo" eyebrow="Demo" title="Agent Sidecar inside a Codex workspace">
-      <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
+      <div className="mt-8 overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.035] p-2 shadow-2xl shadow-[#22d3ee]/10 sm:mt-10 sm:rounded-[28px] sm:p-3">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
@@ -356,36 +389,37 @@ function DemoSection() {
           </div>
 
           <div
-            className={`demo-stage-bg relative p-4 sm:p-6 ${
+            ref={videoShellRef}
+            className={`demo-video-shell demo-stage-bg relative p-2 sm:p-6 ${
               demoPaused ? "demo-video-paused" : ""
-            }`}
+            } ${isDemoFullscreen ? "demo-video-shell-fullscreen" : ""}`}
           >
             <div
               role="button"
               tabIndex={0}
               aria-label={demoPaused ? "Play demo" : "Pause demo"}
               onClick={toggleDemoPlayback}
-              onKeyDown={(event: any) => {
+              onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   toggleDemoPlayback();
                 }
               }}
-              className="demo-video-frame relative block w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-[#07070b]/90 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#22d3ee]/70"
+              className="demo-video-frame relative block w-full cursor-pointer overflow-hidden rounded-xl border border-white/10 bg-[#07070b]/90 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#22d3ee]/70 sm:rounded-2xl"
             >
-              <div className={`${sceneClass(0, 5)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(0, 5)} absolute inset-0 place-items-center p-3 transition-opacity duration-300 sm:p-5`}>
                 <div className="w-full max-w-6xl">
                   <PhaseHeading title="Codex coding session" body="Agent cost accrues while the task is still unresolved." />
-                <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="mt-3 grid overflow-hidden rounded-xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 sm:mt-4 sm:rounded-2xl lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 bg-[#0b0b12]">
                     <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
                       <div className="rounded-t-lg border border-b-0 border-white/10 bg-[#0b0b12] px-4 py-2 font-mono text-xs text-neutral-200">
                         session.ts
                       </div>
                     </div>
-                    <div className="p-5">
+                    <div className="p-3 sm:p-5">
                       <p className="mb-4 font-mono text-xs text-neutral-500">src/auth/session.ts</p>
-                      <div className="max-h-[430px] overflow-hidden rounded-xl border border-white/10 bg-[#050509] p-4 font-mono text-[13px] leading-6">
+                      <div className="max-h-[300px] overflow-hidden rounded-xl border border-white/10 bg-[#050509] p-3 font-mono text-[11px] leading-5 sm:max-h-[430px] sm:p-4 sm:text-[13px] sm:leading-6">
                         {preEditCodeLines.map(([lineNumber, code, color]) => (
                           <p key={`${lineNumber}-${code}`} className={`grid grid-cols-[42px_1fr] gap-4 ${color}`}>
                             <span className="select-none text-right text-neutral-600">{lineNumber}</span>
@@ -395,7 +429,7 @@ function DemoSection() {
                       </div>
                     </div>
                   </section>
-                  <aside className="border-t border-white/10 bg-[#08080d] p-4 lg:border-l lg:border-t-0">
+                  <aside className="border-t border-white/10 bg-[#08080d] p-3 sm:p-4 lg:border-l lg:border-t-0">
                     <div className="mb-4 flex items-center justify-between">
                       <div>
                         <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Codex</p>
@@ -422,7 +456,7 @@ function DemoSection() {
                 </div>
               </div>
 
-              <div className={`${sceneClass(5, 9)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(5, 9)} absolute inset-0 place-items-center p-3 transition-opacity duration-300 sm:p-5`}>
                 <div className="w-full max-w-5xl">
                   <PhaseHeading title="Coding-specific waste" body="Bloated prompts. Repeated context. Hidden spend." />
                   <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
@@ -467,11 +501,11 @@ function DemoSection() {
                 </div>
               </div>
 
-              <div className={`${sceneClass(9, 14)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(9, 14)} absolute inset-0 place-items-center p-3 transition-opacity duration-300 sm:p-5`}>
                 <div className="w-full max-w-5xl">
                   <PhaseHeading title="Prompt Refiner" body="Prompt Refiner improves the task path before more cost accrues." />
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                    <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30 sm:mt-4 sm:rounded-2xl">
+                    <div className="flex flex-col gap-3 border-b border-white/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
                       <div>
                         <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar</p>
                         <h3 className="mt-2 text-2xl font-semibold">Bloated prompt becomes a focused coding task</h3>
@@ -480,7 +514,7 @@ function DemoSection() {
                         lower task cost
                       </span>
                     </div>
-                    <div className="grid gap-4 p-5 lg:grid-cols-[0.9fr_1.1fr]">
+                    <div className="grid gap-3 p-3 sm:gap-4 sm:p-5 lg:grid-cols-[0.9fr_1.1fr]">
                       <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
                         <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Before</p>
                         <div className="mt-3 grid gap-2">
@@ -518,11 +552,11 @@ function DemoSection() {
                 </div>
               </div>
 
-              <div className={`${sceneClass(14, 19)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(14, 19)} absolute inset-0 place-items-center p-3 transition-opacity duration-300 sm:p-5`}>
                 <div className="w-full max-w-4xl">
                   <PhaseHeading title="Steering applied to coding" body="Refine prompts. Reuse memory. Route smarter." />
-                <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                  <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30 sm:mt-4 sm:rounded-2xl">
+                  <div className="flex flex-col gap-3 border-b border-white/10 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
                     <div>
                       <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
                       <h3 className="mt-2 text-2xl font-semibold">Next Codex step gets a cleaner route</h3>
@@ -531,7 +565,7 @@ function DemoSection() {
                       steering active
                     </span>
                   </div>
-                  <div className="grid gap-3 p-5 sm:grid-cols-2">
+                  <div className="grid gap-3 p-3 sm:grid-cols-2 sm:p-5">
                     {capabilityEvents.map(([label, body], index) => (
                       <div
                         key={label}
@@ -555,7 +589,7 @@ function DemoSection() {
                 </div>
               </div>
 
-              <div className={`${sceneClass(16.6, 19)} absolute inset-0 place-items-end p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(16.6, 19)} absolute inset-0 place-items-end p-3 transition-opacity duration-300 sm:p-5`}>
                 <div className="w-full max-w-5xl">
                 <div className="grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
                   <aside className="hidden border-r border-white/10 bg-[#090910] p-4 lg:block">
@@ -580,7 +614,7 @@ function DemoSection() {
                         narrow edit
                       </span>
                     </div>
-                    <div className="p-5">
+                    <div className="p-3 sm:p-5">
                       <div className="rounded-xl border border-white/10 bg-[#050509] p-4 font-mono text-sm leading-7">
                         {codeLines.map(([lineNumber, code, color]) => (
                           <p
@@ -598,13 +632,13 @@ function DemoSection() {
                 </div>
               </div>
 
-              <div className={`${finalSceneClass} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${finalSceneClass} absolute inset-0 place-items-center p-3 transition-opacity duration-300 sm:p-5`}>
                 <div className="w-full max-w-6xl">
                   <PhaseHeading
                     title="Dashboard and coding outcome"
                     body="Lower spend. Same engineering output."
                   />
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
+                  <div className="mt-3 overflow-hidden rounded-xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30 sm:mt-4 sm:rounded-2xl">
                     <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">
                       <aside className="hidden border-r border-white/10 bg-[#07070b] p-4 lg:block">
                         <div className="flex items-center gap-3">
@@ -689,7 +723,7 @@ function DemoSection() {
                 </div>
               </div>
             </div>
-            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 sm:flex-row sm:items-center">
+            <div className="mt-3 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-3 sm:mt-4 sm:flex-row sm:items-center sm:p-4">
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -707,12 +741,20 @@ function DemoSection() {
                 >
                   <RotateCcw size={17} />
                 </button>
+                <button
+                  type="button"
+                  aria-label={isDemoFullscreen ? "Exit full screen demo" : "Open demo full screen"}
+                  onClick={toggleDemoFullscreen}
+                  className="grid size-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-neutral-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                >
+                  {isDemoFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+                </button>
               </div>
               <button
                 ref={progressRef}
                 type="button"
                 aria-label="Seek demo timeline"
-                onClick={(event: any) => seekDemo(event.clientX)}
+                onClick={(event) => seekDemo(event.clientX)}
                 className="h-5 flex-1 rounded-full py-1"
               >
                 <span className="block h-2 overflow-hidden rounded-full bg-white/10">
