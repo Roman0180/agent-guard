@@ -2,141 +2,161 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Bot, RefreshCw } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  Gauge,
+  RefreshCw,
+  ShieldCheck,
+  Timer,
+  TrendingDown,
+  WifiOff
+} from "lucide-react";
 
-type StoredRun = {
+type AgentProvider = "codex" | "claude-code" | "generic";
+type RunStatus = "active" | "blocked" | "completed" | "failed";
+type SavingsMode = "codex_baseline" | "historical_local_baseline" | "heuristic" | "run_totals";
+type QualityVerdict = "preserved" | "regressed" | "not_evaluated";
+
+type DashboardMetricsRun = {
   id: string;
-  provider: "codex" | "claude-code" | "generic";
-  externalId?: string;
-  repoRoot?: string;
-  branch?: string;
-  taskSummary?: string;
-  status: "active" | "blocked" | "completed" | "failed";
+  label: string;
+  provider: AgentProvider;
+  status: RunStatus;
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
-  successStatus?: "success" | "failure" | "unknown";
-  totalInputTokens?: number;
-  totalOutputTokens?: number;
-  totalEstimatedCostUsd?: number;
-};
-
-type StoredEvent = {
-  id: string;
-  runId: string;
-  agent: StoredRun["provider"];
-  providerEventType?: string;
-  eventType: string;
-  timestamp: string;
-  actor: string;
-  summary: string;
-  command?: { normalized?: string; riskLevel?: string; toolKind?: string };
-  fileEdit?: { paths?: string[]; filesChanged?: number; linesChanged?: number };
-  validation?: { command?: string; status?: string; summary?: string };
-  tokenUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
-  costEstimate?: { amountUsd?: number; source?: string };
-  compactMetadata?: Record<string, unknown>;
-};
-
-type Decision = {
-  id: string;
-  runId: string;
-  eventId: string;
-  createdAt: string;
-  source: string;
-  action: string;
-  severity: string;
-  reasonCode: string;
-  message: string;
-};
-
-type PromptOptimizationRecord = {
-  originalPrompt?: string;
-  result: {
-    id: string;
-    mode: string;
-    optimizedPrompt: string;
-    rewriteReason: string;
-    estimatedTokenDelta: number;
-    createdAt: string;
-    taskContract: {
-      task: string;
-      scope: string[];
-      constraints: string[];
-      validation_requirements: string[];
-      relevant_lessons: string[];
-      risk_notes: string[];
-    };
-  };
-};
-
-type RunState = {
-  status: StoredRun["status"];
-  eventCounts?: Record<string, number>;
-  filesChanged?: string[];
-  validationSinceLastEdit?: boolean;
-  lastValidationPassed?: boolean;
-  promptOptimizationCount?: number;
-  interventions?: Record<string, number>;
-};
-
-type CostEvidence = {
-  runId: string;
-  updatedAt: string;
-  baselineInputTokens: number;
-  baselineOutputTokens: number;
-  baselineEstimatedCostUsd: number;
-  actualInputTokens: number;
-  actualOutputTokens: number;
-  actualCostUsd: number;
+  defaultCostUsd: number;
+  sidecarCostUsd: number;
+  savingsUsd: number;
+  savingsPercent: number;
+  defaultExecutionMs?: number;
+  sidecarExecutionMs?: number;
+  executionDeltaMs?: number;
+  qualityPreserved: boolean | null;
+  qualityVerdict: QualityVerdict;
+  qualitySource: "event_metadata" | "run_status" | "not_evaluated";
+  savingsMode: SavingsMode;
+  confidence: number;
   modelRoute?: string;
   taskType: string;
-  savingsMode: "codex_baseline" | "historical_local_baseline" | "heuristic";
-  confidence: number;
-  promptHashes: Record<string, string>;
+  promptHashCount: number;
 };
 
-type DashboardReplay = {
-  run: StoredRun;
-  events: StoredEvent[];
-  decisions: Decision[];
-  promptOptimizations: PromptOptimizationRecord[];
-  costEvidence?: CostEvidence;
-  state?: RunState;
+type DashboardMetrics = {
+  generatedAt: string;
+  totals: {
+    runCount: number;
+    defaultCostUsd: number;
+    sidecarCostUsd: number;
+    savingsUsd: number;
+    savingsPercent: number;
+    defaultExecutionMs?: number;
+    sidecarExecutionMs?: number;
+    executionDeltaMs?: number;
+    timingSampleCount: number;
+    qualityPreservedRuns: number;
+    qualityEvaluatedRuns: number;
+    qualityPreservationRate: number;
+  };
+  runs: DashboardMetricsRun[];
 };
-
-type DashboardView = "traces" | "decisions" | "policies" | "lessons" | "analytics";
 
 const daemonUrl = (process.env.NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL ?? "http://127.0.0.1:4319").replace(/\/$/, "");
-const fallbackModelCostPerToken = Number(process.env.NEXT_PUBLIC_AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD ?? "0.00001");
 
-const dashboardNav: DashboardView[] = ["traces", "decisions", "policies", "lessons", "analytics"];
+const exampleMetrics: DashboardMetrics = {
+  generatedAt: "2026-07-04T00:00:00.000Z",
+  totals: {
+    runCount: 2,
+    defaultCostUsd: 6.18,
+    sidecarCostUsd: 3.42,
+    savingsUsd: 2.76,
+    savingsPercent: 0.4466,
+    defaultExecutionMs: 582_000,
+    sidecarExecutionMs: 476_000,
+    executionDeltaMs: -106_000,
+    timingSampleCount: 2,
+    qualityPreservedRuns: 2,
+    qualityEvaluatedRuns: 2,
+    qualityPreservationRate: 1
+  },
+  runs: [
+    {
+      id: "example-baseline-sidecar-001",
+      label: "Run example-001",
+      provider: "claude-code",
+      status: "completed",
+      startedAt: "2026-07-04T00:00:00.000Z",
+      updatedAt: "2026-07-04T00:05:12.000Z",
+      completedAt: "2026-07-04T00:05:12.000Z",
+      defaultCostUsd: 3.88,
+      sidecarCostUsd: 2.04,
+      savingsUsd: 1.84,
+      savingsPercent: 0.4742,
+      defaultExecutionMs: 336_000,
+      sidecarExecutionMs: 288_000,
+      executionDeltaMs: -48_000,
+      qualityPreserved: true,
+      qualityVerdict: "preserved",
+      qualitySource: "event_metadata",
+      savingsMode: "codex_baseline",
+      confidence: 0.95,
+      modelRoute: "opus + sidecar route",
+      taskType: "code_edit",
+      promptHashCount: 2
+    },
+    {
+      id: "example-baseline-sidecar-002",
+      label: "Run example-002",
+      provider: "codex",
+      status: "completed",
+      startedAt: "2026-07-04T00:08:00.000Z",
+      updatedAt: "2026-07-04T00:11:08.000Z",
+      completedAt: "2026-07-04T00:11:08.000Z",
+      defaultCostUsd: 2.3,
+      sidecarCostUsd: 1.38,
+      savingsUsd: 0.92,
+      savingsPercent: 0.4,
+      defaultExecutionMs: 246_000,
+      sidecarExecutionMs: 188_000,
+      executionDeltaMs: -58_000,
+      qualityPreserved: true,
+      qualityVerdict: "preserved",
+      qualitySource: "run_status",
+      savingsMode: "heuristic",
+      confidence: 0.45,
+      modelRoute: "deterministic refinement + Kimi",
+      taskType: "coding_prompt",
+      promptHashCount: 1
+    }
+  ]
+};
 
-export default function LocalDashboardPage() {
-  const [runs, setRuns] = useState<StoredRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string>();
-  const [details, setDetails] = useState<DashboardReplay>();
+export default function MetricsDashboardPage() {
+  const [metrics, setMetrics] = useState<DashboardMetrics>();
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>();
   const [refreshSeq, setRefreshSeq] = useState(0);
-  const [activeView, setActiveView] = useState<DashboardView>("traces");
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadRuns() {
+    async function loadMetrics() {
       try {
-        const response = await fetch(`${daemonUrl}/api/runs`, { cache: "no-store" });
+        const response = await fetch(`${daemonUrl}/api/dashboard/metrics`, { cache: "no-store" });
         if (!response.ok) {
           throw new Error(`daemon returned ${response.status}`);
         }
-        const nextRuns = (await response.json()) as StoredRun[];
-        if (cancelled) return;
-        setRuns(nextRuns);
-        setSelectedRunId((current) => current ?? nextRuns[0]?.id);
-        setError(undefined);
-        setLastRefresh(new Date());
+        const nextMetrics = (await response.json()) as DashboardMetrics;
+        if (!cancelled) {
+          setMetrics(nextMetrics);
+          setError(undefined);
+          setLastRefresh(new Date());
+        }
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : String(loadError));
@@ -148,475 +168,278 @@ export default function LocalDashboardPage() {
       }
     }
 
-    void loadRuns();
-    const interval = window.setInterval(loadRuns, 2_500);
+    void loadMetrics();
+    const interval = window.setInterval(loadMetrics, 5_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
   }, [refreshSeq]);
 
-  useEffect(() => {
-    if (!selectedRunId) {
-      setDetails(undefined);
-      return;
-    }
-
-    let cancelled = false;
-    const runId = selectedRunId;
-
-    async function loadDetails() {
-      try {
-        const response = await fetch(`${daemonUrl}/api/dashboard/runs/${encodeURIComponent(runId)}`, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`run detail returned ${response.status}`);
-        }
-        const replay = (await response.json()) as DashboardReplay;
-        if (!cancelled) {
-          setDetails(replay);
-          setError(undefined);
-          setLastRefresh(new Date());
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : String(loadError));
-        }
-      }
-    }
-
-    void loadDetails();
-    const interval = window.setInterval(loadDetails, 2_500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [selectedRunId, refreshSeq]);
-
-  const selectedRun = details?.run ?? runs.find((run) => run.id === selectedRunId);
+  const activeMetrics = metrics ?? exampleMetrics;
+  const rows = useMemo(
+    () => [...activeMetrics.runs].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)),
+    [activeMetrics.runs]
+  );
+  const mode = error ? (metrics ? "stale" : "example") : loading ? "loading" : "live";
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#050509] text-white md:p-4">
-      <div className="mx-auto min-h-screen max-w-[1500px] overflow-hidden border border-white/10 bg-[#050509] shadow-2xl shadow-black/40 md:min-h-[calc(100vh-2rem)] md:rounded-[28px]">
-        <div className="flex h-20 items-center justify-between border-b border-white/10 px-8">
-          <div className="flex items-center gap-4">
-            <span className="size-4 rounded-full bg-red-400/85" />
-            <span className="size-4 rounded-full bg-amber-300/85" />
-            <span className="size-4 rounded-full bg-emerald-300/85" />
-          </div>
-          <span className="hidden font-mono text-2xl font-semibold tracking-[0.08em] text-neutral-500 sm:block">Acme account dashboard</span>
-        </div>
-
-        <div className="grid min-h-[calc(100vh-5rem)] lg:grid-cols-[380px_1fr]">
-          <aside className="border-b border-white/10 p-8 lg:border-b-0 lg:border-r">
-            <div className="flex items-center gap-6">
-              <span className="relative grid size-[72px] place-items-center rounded-[24px] border-2 border-white/85 bg-white/[0.035]">
-                <Bot size={34} />
-                <span className="absolute right-4 top-4 size-3.5 rounded-full bg-[#22d3ee]" />
-              </span>
-              <div>
-                <p className="text-3xl font-semibold tracking-normal">Agent Sidecar</p>
-                <p className="mt-2 font-mono text-xl text-neutral-500">Acme workspace</p>
-              </div>
-            </div>
-
-            <nav className="mt-14 grid gap-5">
-              {dashboardNav.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setActiveView(item)}
-                  className={`rounded-[24px] px-6 py-5 text-left text-3xl font-semibold capitalize transition ${
-                    activeView === item
-                      ? "border border-[#22d3ee]/40 bg-[#07171c] text-white"
-                      : "text-neutral-500 hover:bg-white/[0.035] hover:text-neutral-200"
-                  }`}
-                >
-                  {item}
-                </button>
-              ))}
-            </nav>
-
+    <main className="min-h-screen bg-[#07070b] text-white">
+      <header className="border-b border-white/10 bg-[#07070b]/95">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+          <a href="/" className="flex min-w-0 items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-white/15 bg-white/[0.04]">
+              <Bot size={18} />
+            </span>
+            <span className="truncate text-sm font-semibold tracking-wide">Agent Sidecar</span>
+          </a>
+          <div className="flex items-center gap-2">
+            <a href="/" className="rounded-lg border border-white/10 px-3 py-2 text-sm text-neutral-300 transition hover:border-white/20 hover:text-white">
+              Website
+            </a>
             <button
               type="button"
+              aria-label="Refresh dashboard metrics"
               onClick={() => setRefreshSeq((value) => value + 1)}
-              className="mt-10 flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-4 font-mono text-sm text-neutral-400 transition hover:border-[#22d3ee]/40 hover:text-white"
+              className="grid size-10 place-items-center rounded-lg border border-white/10 text-neutral-300 transition hover:border-[#22d3ee]/40 hover:text-white"
             >
-              <span>{lastRefresh ? `updated ${lastRefresh.toLocaleTimeString()}` : "waiting for daemon"}</span>
               <RefreshCw size={17} />
             </button>
-          </aside>
-
-          <DashboardContent
-            activeView={activeView}
-            details={details}
-            error={error}
-            loading={loading}
-            runs={runs}
-            selectedRun={selectedRun}
-            selectedRunId={selectedRunId}
-            setSelectedRunId={setSelectedRunId}
-          />
+          </div>
         </div>
-      </div>
+      </header>
+
+      <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-4 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="font-mono text-xs uppercase tracking-[0.22em] text-[#67e8f9]">Cost dashboard</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-normal sm:text-4xl">Default vs Sidecar economics</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
+              This view uses run IDs, prompt-hash counts, cost evidence, timing, and quality verdicts. Exact prompt text is not part of the dashboard payload.
+            </p>
+          </div>
+          <ConnectionPill mode={mode} lastRefresh={lastRefresh} />
+        </div>
+
+        {error ? (
+          <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-4 text-sm leading-6 text-amber-100/85">
+            <WifiOff className="mt-0.5 shrink-0" size={17} />
+            <span>{metrics ? `Last refresh failed: ${error}` : `Showing example metrics until the daemon responds: ${error}`}</span>
+          </div>
+        ) : null}
+
+        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <MetricCard icon={<CircleDollarSign size={18} />} label="Default cost" value={formatUsd(activeMetrics.totals.defaultCostUsd)} detail={`${formatInteger(activeMetrics.totals.runCount)} runs`} />
+          <MetricCard icon={<ShieldCheck size={18} />} label="Sidecar cost" value={formatUsd(activeMetrics.totals.sidecarCostUsd)} detail="Observed path" />
+          <MetricCard icon={<TrendingDown size={18} />} label="Savings" value={formatUsd(activeMetrics.totals.savingsUsd)} detail={formatPercent(activeMetrics.totals.savingsPercent)} tone="good" />
+          <MetricCard icon={<Timer size={18} />} label="Execution time" value={formatDurationPair(activeMetrics.totals.defaultExecutionMs, activeMetrics.totals.sidecarExecutionMs)} detail={formatTimingDelta(activeMetrics.totals.executionDeltaMs)} />
+          <MetricCard icon={<CheckCircle2 size={18} />} label="Quality" value={formatQualityRate(activeMetrics.totals)} detail={`${activeMetrics.totals.qualityPreservedRuns}/${activeMetrics.totals.qualityEvaluatedRuns} preserved`} tone="good" />
+        </section>
+
+        <section className="mt-6 grid gap-4 lg:grid-cols-[1fr_360px]">
+          <CostComparison totals={activeMetrics.totals} />
+          <QualityPanel totals={activeMetrics.totals} />
+        </section>
+
+        <section className="mt-6 rounded-lg border border-white/10 bg-white/[0.025]">
+          <div className="flex flex-col gap-3 border-b border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Run comparison</h2>
+              <p className="mt-1 text-sm text-neutral-500">Costs, timing, and quality by sanitized run.</p>
+            </div>
+            <span className="w-fit rounded-lg border border-white/10 px-3 py-2 font-mono text-xs uppercase tracking-[0.16em] text-neutral-400">
+              generated {formatDateTime(activeMetrics.generatedAt)}
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+              <thead className="border-b border-white/10 text-xs uppercase tracking-[0.16em] text-neutral-500">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Run</th>
+                  <th className="px-4 py-3 font-medium">Cost</th>
+                  <th className="px-4 py-3 font-medium">Execution</th>
+                  <th className="px-4 py-3 font-medium">Quality</th>
+                  <th className="px-4 py-3 font-medium">Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length > 0 ? rows.map((run) => <RunRow key={run.id} run={run} />) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-neutral-500">
+                      No dashboard metrics have been recorded yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
     </main>
   );
 }
 
-function DashboardContent({
-  activeView,
-  details,
-  error,
-  loading,
-  runs,
-  selectedRun,
-  selectedRunId,
-  setSelectedRunId
-}: {
-  activeView: DashboardView;
-  details?: DashboardReplay;
-  error?: string;
-  loading: boolean;
-  runs: StoredRun[];
-  selectedRun?: StoredRun;
-  selectedRunId?: string;
-  setSelectedRunId: (runId: string) => void;
-}) {
-  const events = details?.events ?? [];
-  const decisions = details?.decisions ?? [];
-  const promptOptimizations = details?.promptOptimizations ?? [];
-  const savings = useMemo(() => calculateSavings(details?.costEvidence, promptOptimizations), [details?.costEvidence, promptOptimizations]);
-  const lessons = useMemo(() => collectLessons(promptOptimizations), [promptOptimizations]);
-  const guardedRuns = runs.length;
-  const visibleRuns = runs.length > 0 ? runs : selectedRun ? [selectedRun] : [];
+function ConnectionPill({ mode, lastRefresh }: { mode: "live" | "loading" | "stale" | "example"; lastRefresh?: Date }) {
+  const label = mode === "live" ? "daemon connected" : mode === "loading" ? "loading" : mode === "stale" ? "daemon stale" : "example data";
+  const className =
+    mode === "live"
+      ? "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-200"
+      : mode === "loading"
+        ? "border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-[#9be8f4]"
+        : "border-amber-300/25 bg-amber-300/[0.08] text-amber-200";
 
   return (
-    <section className="min-w-0 p-8 sm:p-10">
-      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+    <div className={`flex w-fit items-center gap-2 rounded-lg border px-3 py-2 font-mono text-xs uppercase tracking-[0.16em] ${className}`}>
+      <Activity size={15} />
+      <span>{label}</span>
+      {lastRefresh ? <span className="text-white/45">{lastRefresh.toLocaleTimeString()}</span> : null}
+    </div>
+  );
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  detail,
+  tone = "neutral"
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "neutral" | "good";
+}) {
+  const valueClass = tone === "good" ? "text-emerald-200" : "text-white";
+  return (
+    <div className="min-h-[128px] rounded-lg border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{label}</p>
+        <span className="grid size-8 place-items-center rounded-lg border border-white/10 bg-black/20 text-neutral-300">{icon}</span>
+      </div>
+      <p className={`mt-5 truncate text-2xl font-semibold ${valueClass}`}>{value}</p>
+      <p className="mt-2 truncate text-sm text-neutral-500">{detail}</p>
+    </div>
+  );
+}
+
+function CostComparison({ totals }: { totals: DashboardMetrics["totals"] }) {
+  const maxCost = Math.max(totals.defaultCostUsd, totals.sidecarCostUsd, 0.01);
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="font-mono text-2xl uppercase tracking-[0.34em] text-[#22d3ee]">Live runs</p>
-          <h1 className="mt-8 text-5xl font-semibold tracking-normal sm:text-6xl">Runtime control plane</h1>
+          <h2 className="text-lg font-semibold">Cost movement</h2>
+          <p className="mt-1 text-sm text-neutral-500">Default cost compared with Sidecar observed cost.</p>
         </div>
-        <span className={`w-fit rounded-full border px-7 py-3 font-mono text-2xl font-semibold ${error ? "border-red-300/25 bg-red-300/[0.08] text-red-200" : "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-200"}`}>
-          {error ? "daemon offline" : "daemon connected"}
+        <span className="rounded-lg border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-2 font-mono text-sm text-emerald-200">
+          {formatPercent(totals.savingsPercent)}
         </span>
       </div>
 
-      {error ? (
-        <p className="mt-5 rounded-2xl border border-red-300/20 bg-red-300/[0.06] px-5 py-4 text-sm leading-6 text-red-100/80">
-          {loading ? "Connecting to local daemon." : `Dashboard shell is ready. Start the daemon to populate live traces. ${error}`}
+      <div className="mt-6 grid gap-4">
+        <CostBar label="Default" amount={totals.defaultCostUsd} width={(totals.defaultCostUsd / maxCost) * 100} tone="default" />
+        <CostBar label="Sidecar" amount={totals.sidecarCostUsd} width={(totals.sidecarCostUsd / maxCost) * 100} tone="sidecar" />
+      </div>
+    </div>
+  );
+}
+
+function CostBar({ label, amount, width, tone }: { label: string; amount: number; width: number; tone: "default" | "sidecar" }) {
+  const barClass = tone === "sidecar" ? "bg-emerald-300" : "bg-red-300";
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-4 text-sm">
+        <span className="text-neutral-300">{label}</span>
+        <span className="font-mono text-neutral-400">{formatUsd(amount)}</span>
+      </div>
+      <div className="h-3 overflow-hidden rounded-lg bg-white/10">
+        <div className={`h-full rounded-lg ${barClass}`} style={{ width: `${Math.max(3, Math.min(width, 100))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function QualityPanel({ totals }: { totals: DashboardMetrics["totals"] }) {
+  const evaluated = totals.qualityEvaluatedRuns > 0;
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Quality preservation</h2>
+          <p className="mt-1 text-sm text-neutral-500">Savings count only with a preserved result.</p>
+        </div>
+        <Gauge size={19} className="text-[#67e8f9]" />
+      </div>
+      <div className="mt-6">
+        <p className="text-4xl font-semibold text-emerald-200">{evaluated ? formatPercent(totals.qualityPreservationRate) : "--"}</p>
+        <p className="mt-2 text-sm text-neutral-500">
+          {evaluated ? `${totals.qualityPreservedRuns} of ${totals.qualityEvaluatedRuns} evaluated runs preserved quality` : "No evaluated runs yet"}
         </p>
-      ) : null}
-
-      <div className="mt-12 grid gap-6 xl:grid-cols-3">
-        <DashboardMetric label="guarded runs" value={formatInteger(guardedRuns)} />
-        <DashboardMetric label="actual tokens" value={formatInteger(savings.actualInputTokens + savings.actualOutputTokens)} />
-        <DashboardMetric label="task savings" value={formatUsd(savings.estimatedSavings)} />
       </div>
-
-      <SavingsPanel savings={savings} />
-
-      <div className="mt-8">
-        <MainPanel
-          activeView={activeView}
-          decisions={decisions}
-          events={events}
-          lessons={lessons}
-          runs={visibleRuns}
-          savings={savings}
-          selectedRunId={selectedRunId}
-          setSelectedRunId={setSelectedRunId}
-        />
+      <div className="mt-5 h-3 overflow-hidden rounded-lg bg-white/10">
+        <div className="h-full rounded-lg bg-emerald-300" style={{ width: `${evaluated ? Math.max(3, totals.qualityPreservationRate * 100) : 0}%` }} />
       </div>
-    </section>
-  );
-}
-
-function MainPanel({
-  activeView,
-  decisions,
-  events,
-  lessons,
-  runs,
-  savings,
-  selectedRunId,
-  setSelectedRunId
-}: {
-  activeView: DashboardView;
-  decisions: Decision[];
-  events: StoredEvent[];
-  lessons: string[];
-  runs: StoredRun[];
-  savings: SavingsStats;
-  selectedRunId?: string;
-  setSelectedRunId: (runId: string) => void;
-}) {
-  if (activeView === "decisions") {
-    return (
-      <DashboardPanel title="Decision" companionTitle="Reason">
-        {decisions.length > 0 ? decisions.map((decision) => (
-          <InfoRow key={decision.id} title={decision.action} subtitle={decision.reasonCode} pill={decision.severity} />
-        )) : <MutedLine>No runtime decisions recorded yet.</MutedLine>}
-      </DashboardPanel>
-    );
-  }
-
-  if (activeView === "policies") {
-    return (
-      <DashboardPanel title="Policy" companionTitle="Status">
-        {["validation after edit", "block repeated failures", "require continuation"].map((policy) => (
-          <InfoRow key={policy} title={policy} subtitle="active for guarded runs" pill="enabled" />
-        ))}
-      </DashboardPanel>
-    );
-  }
-
-  if (activeView === "lessons") {
-    return (
-      <DashboardPanel title="Lesson" companionTitle="Source">
-        {lessons.length > 0 ? lessons.map((lesson) => (
-          <InfoRow key={lesson} title={lesson} subtitle="pattern library match" pill="injected" />
-        )) : <MutedLine>No saved lessons or pattern matches recorded yet.</MutedLine>}
-      </DashboardPanel>
-    );
-  }
-
-  if (activeView === "analytics") {
-    return (
-      <DashboardPanel title="Metric" companionTitle="Value">
-        <InfoRow title="baseline cost" subtitle={savings.sourceLabel} pill={formatUsd(savings.baselineCost)} />
-        <InfoRow title="actual cost" subtitle="sidecar observed usage and overhead" pill={formatUsd(savings.actualCost)} />
-        <InfoRow title="cost delta" subtitle="baseline minus actual" pill={formatUsd(savings.estimatedSavings)} />
-        <InfoRow title="baseline tokens" subtitle="input + output token count" pill={formatInteger(savings.baselineInputTokens + savings.baselineOutputTokens)} />
-        <InfoRow title="actual tokens" subtitle="input + output token count" pill={formatInteger(savings.actualInputTokens + savings.actualOutputTokens)} />
-        <InfoRow title="confidence" subtitle={savings.taskType} pill={formatPercent(savings.confidence)} />
-        <InfoRow title="model route" subtitle="observed or inferred route" pill={savings.modelRoute ?? "unknown"} />
-      </DashboardPanel>
-    );
-  }
-
-  return (
-    <section className="rounded-[28px] border border-white/10 bg-white/[0.018] p-6">
-      <div className="flex flex-col gap-4 px-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="font-mono text-2xl uppercase tracking-[0.24em] text-neutral-500">Run activity</p>
-          <h2 className="mt-4 text-4xl font-semibold tracking-normal">Live task economics</h2>
-        </div>
-        <span className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-6 py-3 font-mono text-xl text-[#9be8f4]">
-          {formatInteger(runs.length)} guarded {runs.length === 1 ? "run" : "runs"}
-        </span>
-      </div>
-
-      <div className="mt-8 grid gap-4">
-        {runs.length > 0 ? runs.map((run) => {
-          const isSelected = run.id === selectedRunId;
-          return (
-            <button
-              key={run.id}
-              type="button"
-              onClick={() => setSelectedRunId(run.id)}
-              className={`grid gap-5 rounded-[24px] border p-6 text-left transition lg:grid-cols-[1fr_220px_220px] lg:items-center ${
-                isSelected ? "border-[#22d3ee]/35 bg-[#07171c]" : "border-white/10 bg-[#08080d] hover:border-[#22d3ee]/35"
-              }`}
-            >
-              <div>
-                <p className="text-3xl font-semibold leading-tight">{run.taskSummary ?? run.id}</p>
-                <p className="mt-4 font-mono text-xl text-neutral-500">{run.repoRoot ?? run.provider}</p>
-              </div>
-              <div>
-                <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">Status</p>
-                <p className="mt-3 text-2xl font-semibold text-neutral-200">{statusLabel(run.status)}</p>
-              </div>
-              <div>
-                <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">Observed cost</p>
-                <p className="mt-3 text-2xl font-semibold text-emerald-200">{formatUsd(run.totalEstimatedCostUsd ?? 0)}</p>
-              </div>
-            </button>
-          );
-        }) : <MutedLine>No runs yet. Start the daemon and run a Codex hook to populate this panel.</MutedLine>}
-      </div>
-
-      {events.length > 0 ? (
-        <div className="mt-6 grid gap-4 xl:grid-cols-3">
-          {events.slice(0, 3).map((event) => (
-            <div key={event.id} className="rounded-[24px] border border-white/10 bg-[#08080d] p-6">
-              <p className="font-mono text-sm uppercase tracking-[0.18em] text-neutral-500">{event.eventType}</p>
-              <p className="mt-4 text-2xl font-semibold leading-tight text-neutral-200">{event.summary}</p>
-              <p className="mt-4 font-mono text-lg text-neutral-500">{formatDate(event.timestamp)}</p>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function SavingsPanel({ savings }: { savings: SavingsStats }) {
-  return (
-    <section className="mt-8 rounded-[28px] border border-emerald-300/25 bg-emerald-300/[0.06] p-8">
-      <div className="grid gap-6 xl:grid-cols-[270px_1fr] xl:items-center">
-        <div>
-          <p className="font-mono text-2xl uppercase tracking-[0.28em] text-emerald-100">Task cost delta</p>
-          <p className="mt-8 text-6xl font-semibold leading-none text-emerald-100">{formatUsd(savings.estimatedSavings)}</p>
-        </div>
-        <div>
-          <p className="text-3xl font-semibold leading-[1.45] text-emerald-50/75">
-            Baseline cost {formatUsd(savings.baselineCost)} minus actual cost {formatUsd(savings.actualCost)}, updated from live daemon cost evidence.
-          </p>
-          <p className="mt-5 font-mono text-xl uppercase tracking-[0.22em] text-emerald-100/60">
-            {savings.sourceLabel} / {formatPercent(savings.confidence)} confidence
-          </p>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function DashboardMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[28px] border border-white/10 bg-white/[0.035] p-8">
-      <p className="font-mono text-2xl uppercase tracking-[0.24em] text-neutral-500">{label}</p>
-      <p className="mt-8 text-6xl font-semibold leading-none">{value}</p>
     </div>
   );
 }
 
-function DashboardPanel({ title, companionTitle, children }: { title: string; companionTitle: string; children: ReactNode }) {
+function RunRow({ run }: { run: DashboardMetricsRun }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/[0.018] p-6">
-      <div className="grid grid-cols-[1fr_auto] gap-4 px-5 font-mono text-2xl uppercase tracking-[0.24em] text-neutral-500">
-        <span>{title}</span>
-        <span>{companionTitle}</span>
-      </div>
-      <div className="mt-6 grid gap-4">{children}</div>
-    </section>
+    <tr className="border-b border-white/10 last:border-0">
+      <td className="px-4 py-4 align-top">
+        <div className="font-medium text-white">{run.label}</div>
+        <div className="mt-1 font-mono text-xs text-neutral-500">{run.id}</div>
+        <div className="mt-2 flex items-center gap-2 text-xs text-neutral-400">
+          <span>{providerLabel(run.provider)}</span>
+          <span className="text-neutral-700">/</span>
+          <span>{statusLabel(run.status)}</span>
+        </div>
+      </td>
+      <td className="px-4 py-4 align-top">
+        <MetricPair label="Default" value={formatUsd(run.defaultCostUsd)} />
+        <MetricPair label="Sidecar" value={formatUsd(run.sidecarCostUsd)} />
+        <p className={`mt-2 font-mono text-xs ${run.savingsUsd >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+          {formatUsd(run.savingsUsd)} ({formatPercent(run.savingsPercent)})
+        </p>
+      </td>
+      <td className="px-4 py-4 align-top">
+        <MetricPair label="Default" value={formatDuration(run.defaultExecutionMs)} />
+        <MetricPair label="Sidecar" value={formatDuration(run.sidecarExecutionMs)} />
+        <p className="mt-2 font-mono text-xs text-neutral-500">{formatTimingDelta(run.executionDeltaMs)}</p>
+      </td>
+      <td className="px-4 py-4 align-top">
+        <QualityBadge verdict={run.qualityVerdict} />
+        <p className="mt-2 text-xs text-neutral-500">{qualitySourceLabel(run.qualitySource)}</p>
+      </td>
+      <td className="px-4 py-4 align-top">
+        <p className="font-mono text-xs text-neutral-300">{savingsModeLabel(run.savingsMode)}</p>
+        <p className="mt-2 text-xs text-neutral-500">{formatPercent(run.confidence)} confidence</p>
+        <p className="mt-2 text-xs text-neutral-500">{run.promptHashCount} prompt hashes</p>
+        {run.modelRoute ? <p className="mt-2 max-w-[220px] truncate text-xs text-neutral-500">{run.modelRoute}</p> : null}
+      </td>
+    </tr>
   );
 }
 
-function InfoRow({ title, subtitle, pill }: { title: string; subtitle: string; pill: string }) {
+function MetricPair({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-4 rounded-[24px] border border-white/10 bg-[#08080d] p-6 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div>
-        <p className="text-3xl font-semibold leading-tight">{title}</p>
-        <p className="mt-4 font-mono text-xl text-neutral-500">{subtitle}</p>
-      </div>
-      <span className="w-fit rounded-full border border-white/10 px-6 py-3 font-mono text-xl text-neutral-300">{pill}</span>
-    </div>
+    <p className="mt-1 grid grid-cols-[72px_1fr] gap-3 font-mono text-xs">
+      <span className="text-neutral-500">{label}</span>
+      <span className="text-neutral-200">{value}</span>
+    </p>
   );
 }
 
-function MutedLine({ children }: { children: ReactNode }) {
-  return <p className="rounded-[24px] border border-white/10 bg-[#08080d] p-6 text-xl leading-9 text-neutral-500">{children}</p>;
-}
-
-type SavingsStats = {
-  tracesInjected: number;
-  avgTokensSavedPerInjection: number;
-  avgCostDeltaPerTrace: number;
-  baselineCost: number;
-  actualCost: number;
-  estimatedSavings: number;
-  baselineInputTokens: number;
-  baselineOutputTokens: number;
-  actualInputTokens: number;
-  actualOutputTokens: number;
-  sourceLabel: string;
-  confidence: number;
-  modelRoute?: string;
-  taskType: string;
-};
-
-function calculateSavings(costEvidence: CostEvidence | undefined, promptOptimizations: PromptOptimizationRecord[]): SavingsStats {
-  if (costEvidence) {
-    const tokenDelta =
-      costEvidence.baselineInputTokens +
-      costEvidence.baselineOutputTokens -
-      costEvidence.actualInputTokens -
-      costEvidence.actualOutputTokens;
-    const tracesInjected = Math.max(1, promptOptimizations.length);
-    return {
-      tracesInjected: promptOptimizations.length,
-      avgTokensSavedPerInjection: tokenDelta / tracesInjected,
-      avgCostDeltaPerTrace: (costEvidence.baselineEstimatedCostUsd - costEvidence.actualCostUsd) / tracesInjected,
-      baselineCost: costEvidence.baselineEstimatedCostUsd,
-      actualCost: costEvidence.actualCostUsd,
-      estimatedSavings: costEvidence.baselineEstimatedCostUsd - costEvidence.actualCostUsd,
-      baselineInputTokens: costEvidence.baselineInputTokens,
-      baselineOutputTokens: costEvidence.baselineOutputTokens,
-      actualInputTokens: costEvidence.actualInputTokens,
-      actualOutputTokens: costEvidence.actualOutputTokens,
-      sourceLabel: savingsModeLabel(costEvidence.savingsMode),
-      confidence: costEvidence.confidence,
-      modelRoute: costEvidence.modelRoute,
-      taskType: costEvidence.taskType
-    };
+function QualityBadge({ verdict }: { verdict: QualityVerdict }) {
+  if (verdict === "preserved") {
+    return <span className="inline-flex rounded-lg border border-emerald-300/20 bg-emerald-300/[0.08] px-2.5 py-1 text-xs font-medium text-emerald-200">Preserved</span>;
   }
-
-  const tracesInjected = promptOptimizations.length;
-  const totalTokensSaved = promptOptimizations.reduce((sum, record) => {
-    return sum + Math.max(0, -record.result.estimatedTokenDelta);
-  }, 0);
-  const avgTokensSavedPerInjection = tracesInjected > 0 ? totalTokensSaved / tracesInjected : 0;
-  const estimatedSavings = tracesInjected * avgTokensSavedPerInjection * fallbackModelCostPerToken;
-
-  return {
-    tracesInjected,
-    avgTokensSavedPerInjection,
-    avgCostDeltaPerTrace: avgTokensSavedPerInjection * fallbackModelCostPerToken,
-    baselineCost: estimatedSavings,
-    actualCost: 0,
-    estimatedSavings,
-    baselineInputTokens: totalTokensSaved,
-    baselineOutputTokens: 0,
-    actualInputTokens: 0,
-    actualOutputTokens: 0,
-    sourceLabel: "Legacy prompt delta fallback",
-    confidence: tracesInjected > 0 ? 0.25 : 0,
-    taskType: "unknown"
-  };
-}
-
-function savingsModeLabel(mode: CostEvidence["savingsMode"]): string {
-  if (mode === "codex_baseline") return "Codex baseline telemetry";
-  if (mode === "historical_local_baseline") return "Historical local baseline";
-  return "Task-type heuristic";
-}
-
-function collectLessons(promptOptimizations: PromptOptimizationRecord[]): string[] {
-  const lessons = new Set<string>();
-  for (const record of promptOptimizations) {
-    for (const lesson of record.result.taskContract.relevant_lessons) {
-      if (lesson.trim()) {
-        lessons.add(lesson);
-      }
-    }
+  if (verdict === "regressed") {
+    return <span className="inline-flex rounded-lg border border-red-300/20 bg-red-300/[0.08] px-2.5 py-1 text-xs font-medium text-red-200">Regressed</span>;
   }
-  return [...lessons];
-}
-
-function statusLabel(status: StoredRun["status"]): string {
-  if (status === "active") return "watching";
-  if (status === "completed") return "healthy";
-  return status;
-}
-
-function formatDate(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
-function formatInteger(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function formatRate(value: number): string {
-  return value.toLocaleString("en-US", { maximumSignificantDigits: 3 });
-}
-
-function formatPercent(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "percent",
-    maximumFractionDigits: 0
-  }).format(value);
+  return <span className="inline-flex rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs font-medium text-neutral-300">Not evaluated</span>;
 }
 
 function formatUsd(value: number): string {
@@ -626,4 +449,73 @@ function formatUsd(value: number): string {
     minimumFractionDigits: value > 0 && value < 1 ? 4 : 2,
     maximumFractionDigits: value > 0 && value < 1 ? 4 : 2
   }).format(value);
+}
+
+function formatInteger(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function formatPercent(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    maximumFractionDigits: Math.abs(value) < 0.1 && value !== 0 ? 1 : 0
+  }).format(value);
+}
+
+function formatDuration(value?: number): string {
+  if (value === undefined) return "--";
+  if (value < 1000) return `${value} ms`;
+  const seconds = value / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+function formatDurationPair(defaultMs?: number, sidecarMs?: number): string {
+  if (defaultMs === undefined && sidecarMs === undefined) return "--";
+  if (defaultMs === undefined) return formatDuration(sidecarMs);
+  if (sidecarMs === undefined) return formatDuration(defaultMs);
+  return `${formatDuration(defaultMs)} -> ${formatDuration(sidecarMs)}`;
+}
+
+function formatTimingDelta(value?: number): string {
+  if (value === undefined) return "No baseline timing";
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatDuration(Math.abs(value))}`;
+}
+
+function formatQualityRate(totals: DashboardMetrics["totals"]): string {
+  return totals.qualityEvaluatedRuns > 0 ? formatPercent(totals.qualityPreservationRate) : "--";
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function providerLabel(provider: AgentProvider): string {
+  if (provider === "claude-code") return "Claude Code";
+  if (provider === "codex") return "Codex";
+  return "Generic";
+}
+
+function statusLabel(status: RunStatus): string {
+  if (status === "active") return "active";
+  if (status === "blocked") return "blocked";
+  if (status === "completed") return "completed";
+  return "failed";
+}
+
+function savingsModeLabel(mode: SavingsMode): string {
+  if (mode === "codex_baseline") return "Codex baseline";
+  if (mode === "historical_local_baseline") return "Historical baseline";
+  if (mode === "heuristic") return "Heuristic baseline";
+  return "Run totals";
+}
+
+function qualitySourceLabel(source: DashboardMetricsRun["qualitySource"]): string {
+  if (source === "event_metadata") return "Evaluator metadata";
+  if (source === "run_status") return "Run status";
+  return "Awaiting evaluator";
 }

@@ -175,6 +175,9 @@ describe("@agent-sidecar/daemon", () => {
         runId: "usage-run-1",
         providerEventType: "UserPromptSubmit",
         prompt: "Add billing telemetry",
+        baselineExecutionMs: 120_000,
+        sidecarExecutionMs: 90_000,
+        qualityPreserved: true,
         tokenUsage: { inputTokens: 1200, outputTokens: 140, totalTokens: 1340 },
         costEstimate: { amountUsd: 0.043, source: "provider" },
         codexBaseline: {
@@ -207,6 +210,10 @@ describe("@agent-sidecar/daemon", () => {
     const dashboardResponse = await server.inject({
       method: "GET",
       url: "/api/dashboard/runs/usage-run-1"
+    });
+    const metricsResponse = await server.inject({
+      method: "GET",
+      url: "/api/dashboard/metrics"
     });
 
     await server.close();
@@ -254,6 +261,40 @@ describe("@agent-sidecar/daemon", () => {
       }
     });
     expect(dashboardResponse.json().run.totalEstimatedCostUsd).toBeCloseTo(0.049);
+    expect(metricsResponse.statusCode).toBe(200);
+    expect(metricsResponse.json()).toMatchObject({
+      totals: {
+        runCount: 1,
+        defaultCostUsd: 0.09,
+        sidecarCostUsd: 0.049,
+        savingsUsd: 0.041,
+        defaultExecutionMs: 120_000,
+        sidecarExecutionMs: 90_000,
+        executionDeltaMs: -30_000,
+        timingSampleCount: 1,
+        qualityPreservedRuns: 1,
+        qualityEvaluatedRuns: 1,
+        qualityPreservationRate: 1
+      },
+      runs: [
+        {
+          id: "usage-run-1",
+          label: "Run usage-run-1",
+          defaultCostUsd: 0.09,
+          sidecarCostUsd: 0.049,
+          savingsUsd: 0.041,
+          defaultExecutionMs: 120_000,
+          sidecarExecutionMs: 90_000,
+          executionDeltaMs: -30_000,
+          qualityPreserved: true,
+          qualityVerdict: "preserved",
+          qualitySource: "event_metadata",
+          promptHashCount: expect.any(Number)
+        }
+      ]
+    });
+    expect(metricsResponse.json().runs[0].promptHashCount).toBeGreaterThan(0);
+    expect(JSON.stringify(metricsResponse.json())).not.toContain("Add billing telemetry");
   });
 
   it("returns injected prompt optimization context for the demo Codex prompt", async () => {

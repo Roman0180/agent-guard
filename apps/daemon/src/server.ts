@@ -64,6 +64,58 @@ type BaselineEstimate = {
   confidence: number;
 };
 
+type DashboardMetricsRun = {
+  id: string;
+  label: string;
+  provider: StoredRun["provider"];
+  status: StoredRun["status"];
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  defaultCostUsd: number;
+  sidecarCostUsd: number;
+  savingsUsd: number;
+  savingsPercent: number;
+  defaultExecutionMs?: number;
+  sidecarExecutionMs?: number;
+  executionDeltaMs?: number;
+  qualityPreserved: boolean | null;
+  qualityVerdict: "preserved" | "regressed" | "not_evaluated";
+  qualitySource: "event_metadata" | "run_status" | "not_evaluated";
+  savingsMode: SavingsMode | "run_totals";
+  confidence: number;
+  modelRoute?: string;
+  taskType: string;
+  promptHashCount: number;
+};
+
+type DashboardMetrics = {
+  generatedAt: string;
+  totals: {
+    runCount: number;
+    defaultCostUsd: number;
+    sidecarCostUsd: number;
+    savingsUsd: number;
+    savingsPercent: number;
+    defaultExecutionMs?: number;
+    sidecarExecutionMs?: number;
+    executionDeltaMs?: number;
+    timingSampleCount: number;
+    qualityPreservedRuns: number;
+    qualityEvaluatedRuns: number;
+    qualityPreservationRate: number;
+  };
+  runs: DashboardMetricsRun[];
+};
+
+type ExecutionMetrics = {
+  defaultExecutionMs?: number;
+  sidecarExecutionMs?: number;
+  executionDeltaMs?: number;
+};
+
+type QualityMetrics = Pick<DashboardMetricsRun, "qualityPreserved" | "qualityVerdict" | "qualitySource">;
+
 const DEFAULT_INPUT_COST_PER_TOKEN_USD = envNumber(
   "AGENT_SIDECAR_INPUT_COST_PER_TOKEN_USD",
   envNumber("AGENT_SIDECAR_MODEL_COST_PER_TOKEN_USD", 0.00001)
@@ -211,6 +263,8 @@ export function buildServer(options: BuildServerOptions = {}): FastifyInstance {
       storage.getLatestRunStateSnapshot(run.id)
     );
   });
+
+  server.get("/api/dashboard/metrics", async (): Promise<DashboardMetrics> => createDashboardMetrics(storage));
 
   server.get<{ Params: { id: string } }>("/api/runs/:id/state", async (request, reply) => {
     const snapshot = storage.getLatestRunStateSnapshot(request.params.id);
@@ -516,6 +570,259 @@ function createDemoReplay(
     costEvidence,
     state: snapshot?.state
   };
+}
+
+function createDashboardMetrics(storage: Storage): DashboardMetrics {
+  const runs = storage.listRuns().map((run) => createDashboardMetricsRun(storage, run));
+  const defaultCostUsd = roundCurrency(runs.reduce((sum, run) => sum + run.defaultCostUsd, 0));
+  const sidecarCostUsd = roundCurrency(runs.reduce((sum, run) => sum + run.sidecarCostUsd, 0));
+  const savingsUsd = roundCurrency(defaultCostUsd - sidecarCostUsd);
+  const timingRuns = runs.filter((run) => run.defaultExecutionMs !== undefined && run.sidecarExecutionMs !== undefined);
+  const sidecarTimingRuns = runs.filter((run) => run.sidecarExecutionMs !== undefined);
+  const qualityEvaluatedRuns = runs.filter((run) => run.qualityPreserved !== null);
+  const qualityPreservedRuns = qualityEvaluatedRuns.filter((run) => run.qualityPreserved).length;
+  const defaultExecutionMs = timingRuns.length > 0
+    ? Math.round(timingRuns.reduce((sum, run) => sum + (run.defaultExecutionMs ?? 0), 0))
+    : undefined;
+  const sidecarExecutionMs = sidecarTimingRuns.length > 0
+    ? Math.round(sidecarTimingRuns.reduce((sum, run) => sum + (run.sidecarExecutionMs ?? 0), 0))
+    : undefined;
+  const executionDeltaMs = timingRuns.length > 0
+    ? Math.round(timingRuns.reduce((sum, run) => sum + (run.executionDeltaMs ?? 0), 0))
+    : undefined;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totals: {
+      runCount: runs.length,
+      defaultCostUsd,
+      sidecarCostUsd,
+      savingsUsd,
+      savingsPercent: savingsPercent(defaultCostUsd, sidecarCostUsd),
+      defaultExecutionMs,
+      sidecarExecutionMs,
+      executionDeltaMs,
+      timingSampleCount: timingRuns.length,
+      qualityPreservedRuns,
+      qualityEvaluatedRuns: qualityEvaluatedRuns.length,
+      qualityPreservationRate: qualityEvaluatedRuns.length > 0 ? qualityPreservedRuns / qualityEvaluatedRuns.length : 0
+    },
+    runs
+  };
+}
+
+function createDashboardMetricsRun(storage: Storage, run: StoredRun): DashboardMetricsRun {
+  const events = storage.listEventsForRun(run.id) as Array<NormalizedAgentEvent & { rawPayload?: unknown }>;
+  const costEvidence = storage.getCostEvidenceForRun(run.id);
+  const defaultCostUsd = roundCurrency(costEvidence?.baselineEstimatedCostUsd ?? 0);
+  const sidecarCostUsd = roundCurrency(costEvidence?.actualCostUsd ?? run.totalEstimatedCostUsd ?? 0);
+  const timing = extractExecutionMetrics(run, events);
+  const quality = extractQualityMetrics(run, events);
+
+  return {
+    id: run.id,
+    label: `Run ${shortRunId(run.id)}`,
+    provider: run.provider,
+    status: run.status,
+    startedAt: run.startedAt,
+    updatedAt: run.updatedAt,
+    completedAt: run.completedAt,
+    defaultCostUsd,
+    sidecarCostUsd,
+    savingsUsd: roundCurrency(defaultCostUsd - sidecarCostUsd),
+    savingsPercent: savingsPercent(defaultCostUsd, sidecarCostUsd),
+    ...timing,
+    ...quality,
+    savingsMode: costEvidence?.savingsMode ?? "run_totals",
+    confidence: costEvidence?.confidence ?? 0,
+    modelRoute: costEvidence?.modelRoute,
+    taskType: costEvidence?.taskType ?? "coding_agent_run",
+    promptHashCount: Object.keys(costEvidence?.promptHashes ?? {}).length
+  };
+}
+
+function extractExecutionMetrics(
+  run: StoredRun,
+  events: Array<NormalizedAgentEvent & { rawPayload?: unknown }>
+): ExecutionMetrics {
+  const eventRecords = events.flatMap((event) => [asRecord(event.rawPayload), asRecord(event.compactMetadata)]);
+  const finalEventRecords = events
+    .filter((event) => ["run_finished", "final_attempt"].includes(event.eventType))
+    .flatMap((event) => [asRecord(event.rawPayload), asRecord(event.compactMetadata)]);
+  const defaultExecutionMs = firstDurationMs(
+    eventRecords,
+    [
+      "defaultExecutionMs",
+      "default_execution_ms",
+      "baselineExecutionMs",
+      "baseline_execution_ms",
+      "baselineElapsedMs",
+      "baseline_elapsed_ms",
+      "claudeBaselineExecutionMs",
+      "claude_baseline_execution_ms"
+    ],
+    [
+      "defaultExecutionSeconds",
+      "default_execution_seconds",
+      "baselineExecutionSeconds",
+      "baseline_execution_seconds",
+      "baselineElapsedSeconds",
+      "baseline_elapsed_seconds",
+      "claudeBaselineExecutionSeconds",
+      "claude_baseline_execution_seconds"
+    ]
+  );
+  const explicitSidecarExecutionMs = firstDurationMs(
+    eventRecords,
+    [
+      "sidecarExecutionMs",
+      "sidecar_execution_ms",
+      "agentSidecarExecutionMs",
+      "agent_sidecar_execution_ms",
+      "actualExecutionMs",
+      "actual_execution_ms"
+    ],
+    [
+      "sidecarExecutionSeconds",
+      "sidecar_execution_seconds",
+      "agentSidecarExecutionSeconds",
+      "agent_sidecar_execution_seconds",
+      "actualExecutionSeconds",
+      "actual_execution_seconds"
+    ]
+  );
+  const finalEventDurationMs = firstDurationMs(
+    finalEventRecords,
+    ["elapsedMs", "elapsed_ms", "durationMs", "duration_ms"],
+    ["elapsedSeconds", "elapsed_seconds", "durationSeconds", "duration_seconds"]
+  );
+  const sidecarExecutionMs =
+    explicitSidecarExecutionMs ?? finalEventDurationMs ?? durationBetween(run.startedAt, run.completedAt ?? run.updatedAt);
+
+  return {
+    defaultExecutionMs,
+    sidecarExecutionMs,
+    executionDeltaMs:
+      defaultExecutionMs !== undefined && sidecarExecutionMs !== undefined
+        ? Math.round(sidecarExecutionMs - defaultExecutionMs)
+        : undefined
+  };
+}
+
+function extractQualityMetrics(
+  run: StoredRun,
+  events: Array<NormalizedAgentEvent & { rawPayload?: unknown }>
+): QualityMetrics {
+  const eventRecords = events.flatMap((event) => [asRecord(event.rawPayload), asRecord(event.compactMetadata)]);
+  const explicitPreserved = firstBoolean(eventRecords, [
+    "qualityPreserved",
+    "quality_preserved",
+    "qualityPassed",
+    "quality_passed",
+    "qualityEquivalent",
+    "quality_equivalent"
+  ]);
+  if (explicitPreserved !== undefined) {
+    return {
+      qualityPreserved: explicitPreserved,
+      qualityVerdict: explicitPreserved ? "preserved" : "regressed",
+      qualitySource: "event_metadata"
+    };
+  }
+
+  const explicitStatus = firstString(eventRecords, ["qualityStatus", "quality_status", "qualityVerdict", "quality_verdict"]);
+  if (explicitStatus && /\b(pass|passed|preserved|same|equivalent|non[-_ ]?inferior)\b/i.test(explicitStatus)) {
+    return {
+      qualityPreserved: true,
+      qualityVerdict: "preserved",
+      qualitySource: "event_metadata"
+    };
+  }
+  if (explicitStatus && /\b(fail|failed|regress|regressed|worse)\b/i.test(explicitStatus)) {
+    return {
+      qualityPreserved: false,
+      qualityVerdict: "regressed",
+      qualitySource: "event_metadata"
+    };
+  }
+
+  if (run.successStatus === "success") {
+    return {
+      qualityPreserved: true,
+      qualityVerdict: "preserved",
+      qualitySource: "run_status"
+    };
+  }
+  if (run.successStatus === "failure") {
+    return {
+      qualityPreserved: false,
+      qualityVerdict: "regressed",
+      qualitySource: "run_status"
+    };
+  }
+
+  return {
+    qualityPreserved: null,
+    qualityVerdict: "not_evaluated",
+    qualitySource: "not_evaluated"
+  };
+}
+
+function savingsPercent(defaultCostUsd: number, sidecarCostUsd: number): number {
+  return defaultCostUsd > 0 ? (defaultCostUsd - sidecarCostUsd) / defaultCostUsd : 0;
+}
+
+function firstDurationMs(records: UnknownRecord[], msKeys: string[], secondsKeys: string[]): number | undefined {
+  const msValue = firstNumber(records, msKeys);
+  if (msValue !== undefined) {
+    return Math.max(0, Math.round(msValue));
+  }
+  const secondsValue = firstNumber(records, secondsKeys);
+  return secondsValue !== undefined ? Math.max(0, Math.round(secondsValue * 1000)) : undefined;
+}
+
+function firstBoolean(records: UnknownRecord[], keys: string[]): boolean | undefined {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "string") {
+        if (/^(true|yes|pass|passed|preserved)$/i.test(value.trim())) return true;
+        if (/^(false|no|fail|failed|regressed)$/i.test(value.trim())) return false;
+      }
+    }
+  }
+  return undefined;
+}
+
+function firstString(records: UnknownRecord[], keys: string[]): string | undefined {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = stringValue(record[key]);
+      if (value) {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+function durationBetween(startedAt: string, endedAt?: string): number | undefined {
+  if (!endedAt) {
+    return undefined;
+  }
+  const started = Date.parse(startedAt);
+  const ended = Date.parse(endedAt);
+  if (!Number.isFinite(started) || !Number.isFinite(ended) || ended < started) {
+    return undefined;
+  }
+  return Math.round(ended - started);
+}
+
+function shortRunId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
 }
 
 function normalizeProviderHook(provider: HookProvider, payload: UnknownRecord): NormalizedAgentEvent {
@@ -992,10 +1299,16 @@ function collectPromptHashes(records: UnknownRecord[], optimization?: PromptOpti
     for (const key of PROMPT_HASH_KEYS) {
       addPromptHash(hashes, key, record[key]);
     }
+    for (const key of ["promptHash", "prompt_hash", "originalPromptHash", "optimizedPromptHash"]) {
+      addExistingPromptHash(hashes, key, record[key]);
+    }
     for (const nestedKey of ["baseline", "codexBaseline", "codex_baseline", "promptOptimization", "prompt_optimization"]) {
       const nested = asRecord(record[nestedKey]);
       for (const key of PROMPT_HASH_KEYS) {
         addPromptHash(hashes, key, nested[key]);
+      }
+      for (const key of ["promptHash", "prompt_hash", "originalPromptHash", "optimizedPromptHash"]) {
+        addExistingPromptHash(hashes, key, nested[key]);
       }
     }
   }
@@ -1008,6 +1321,12 @@ function collectPromptHashes(records: UnknownRecord[], optimization?: PromptOpti
 function addPromptHash(hashes: Record<string, string>, key: string, value: unknown): void {
   if (typeof value === "string" && value.trim().length > 0) {
     hashes[key] = hashString(value);
+  }
+}
+
+function addExistingPromptHash(hashes: Record<string, string>, key: string, value: unknown): void {
+  if (typeof value === "string" && /^[a-f0-9]{64}$/i.test(value.trim())) {
+    hashes[key] = value.trim().toLowerCase();
   }
 }
 

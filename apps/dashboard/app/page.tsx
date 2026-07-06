@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 const navItems = [
+  ["Dashboard", "/dashboard"],
   ["Demo", "#demo"],
   ["Privacy", "#privacy"],
   ["How to use", "#how-to-use"]
@@ -22,8 +23,8 @@ const workflow = [
   "Install the sidecar package with pip",
   "Start the daemon from your terminal",
   "Code in Codex like normal while Agent Sidecar runs in the background",
-  "Sidecar optimizes prompts, context, model routing, and telemetry behind the scenes",
-  "Review original prompts, optimized prompts, cost evidence, result quality, decisions, and evidence-labeled analytics"
+  "Sidecar optimizes prompt metadata, context, model routing, and telemetry behind the scenes",
+  "Review prompt hashes, cost evidence, result quality, decisions, and evidence-labeled analytics"
 ];
 
 export default function HomePage() {
@@ -115,7 +116,7 @@ function HowToUse() {
       <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the separate control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
+            The dashboard is the separate control plane for cost, timing, and quality evidence. Developers keep coding in Codex while Agent Sidecar optimizes sanitized task context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
           </p>
           <div className="mt-5 grid gap-3">
             {workflow.map((item, index) => (
@@ -135,7 +136,7 @@ function HowToUse() {
 }
 
 function DashboardPreview() {
-  const nav = ["Traces", "Decisions", "Policies", "Lessons", "Analytics"];
+  const nav = ["Costs", "Timing", "Quality", "Runs", "Evidence"];
 
   return (
     <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
@@ -176,7 +177,7 @@ function DashboardPreview() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Live runs</p>
-                <h3 className="mt-2 text-2xl font-semibold">Runtime control plane</h3>
+                <h3 className="mt-2 text-2xl font-semibold">Economics dashboard</h3>
               </div>
               <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
                 daemon connected
@@ -185,9 +186,9 @@ function DashboardPreview() {
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {[
-                ["guarded runs", "18"],
-                ["decisions", "43"],
-                ["saved lessons", "9"]
+                ["default cost", "$9.28"],
+                ["sidecar cost", "$5.11"],
+                ["quality", "100%"]
               ].map(([label, value]) => (
                 <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
                   <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">{label}</p>
@@ -203,7 +204,7 @@ function DashboardPreview() {
                   <p className="mt-2 text-3xl font-semibold text-emerald-100">$4,820</p>
                 </div>
                 <p className="max-w-xs text-sm leading-6 text-emerald-50/70">
-                  Estimated from successful traces, observed cost movement, and current model pricing.
+                  Estimated from successful traces, observed cost movement, timing, and quality gates.
                 </p>
               </div>
             </div>
@@ -850,7 +851,7 @@ function PrivacyComparisonCard() {
   const privateItems = [
     ["Source contents", "Repository files stay on the developer machine unless explicitly shared"],
     ["Secrets", "Environment variables, credentials, and protected paths are never exposed"],
-    ["Raw prompts", "Sensitive task text can remain local while metadata rolls up for teams"]
+    ["Raw prompts", "Sensitive task text remains local while rollups use hashes and metadata"]
   ] as const;
 
   return (
