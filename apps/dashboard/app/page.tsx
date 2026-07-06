@@ -5,7 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   Bot,
   Code2,
+  Maximize2,
   Menu,
+  Minimize2,
   Pause,
   Play,
   RotateCcw,
@@ -233,6 +235,8 @@ function DemoSection() {
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
   const progressRef = useRef<HTMLButtonElement>(null);
+  const videoShellRef = useRef<HTMLDivElement>(null);
+  const [isDemoFullscreen, setIsDemoFullscreen] = useState(false);
   const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
   const preEditCodeLines: Array<[string, string, string]> = [
     ["01", "import { cookies } from \"next/headers\"", "text-neutral-500"],
@@ -308,6 +312,24 @@ function DemoSection() {
 
     setDemoPaused((paused) => !paused);
   };
+
+  const toggleDemoFullscreen = () => {
+    const shell = videoShellRef.current;
+
+    if (!shell) return;
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+
+    if (shell.requestFullscreen) {
+      void shell.requestFullscreen();
+      return;
+    }
+
+    setIsDemoFullscreen((fullscreen) => !fullscreen);
+  };
   const seekDemo = (clientX: number) => {
     const rect = progressRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -322,6 +344,17 @@ function DemoSection() {
   const promptProgress = Math.min(Math.max((demoTime - 0.7) / 2.8, 0), 1);
   const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsDemoFullscreen(document.fullscreenElement === videoShellRef.current);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
   useEffect(() => {
     if (demoPaused) return undefined;
 
@@ -356,9 +389,10 @@ function DemoSection() {
           </div>
 
           <div
-            className={`demo-stage-bg relative p-2 sm:p-6 ${
+            ref={videoShellRef}
+            className={`demo-video-shell demo-stage-bg relative p-2 sm:p-6 ${
               demoPaused ? "demo-video-paused" : ""
-            }`}
+            } ${isDemoFullscreen ? "demo-video-shell-fullscreen" : ""}`}
           >
             <div
               role="button"
@@ -706,6 +740,14 @@ function DemoSection() {
                   className="grid size-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-neutral-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
                 >
                   <RotateCcw size={17} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={isDemoFullscreen ? "Exit full screen demo" : "Open demo full screen"}
+                  onClick={toggleDemoFullscreen}
+                  className="grid size-10 place-items-center rounded-full border border-white/10 bg-white/[0.04] text-neutral-200 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white"
+                >
+                  {isDemoFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
                 </button>
               </div>
               <button

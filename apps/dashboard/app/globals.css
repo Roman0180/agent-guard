@@ -724,6 +724,26 @@ a {
   min-height: clamp(560px, 72vw, 640px);
 }
 
+.demo-video-shell:fullscreen {
+  background: #050509;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+}
+
+.demo-video-shell-fullscreen:not(:fullscreen) {
+  inset: 0;
+  position: fixed;
+  z-index: 100;
+}
+
+.demo-video-shell:fullscreen .demo-video-frame,
+.demo-video-shell-fullscreen .demo-video-frame {
+  flex: 1;
+  min-height: 0;
+}
+
 @media (max-width: 639px) {
   .hero-headline,
   .hero-subcopy {
@@ -774,11 +794,9 @@ a {
   }
 
   .demo-video-frame {
-    max-height: min(760px, calc(100svh - 8.5rem));
-    min-height: min(680px, calc(100svh - 8.5rem));
-    overflow-y: auto;
+    max-height: none;
+    min-height: clamp(320px, 58svh, 440px);
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
   }
 
   .demo-video-frame > div {
@@ -844,6 +862,13 @@ a {
 
   .demo-video-frame .grid-cols-\[42px_1fr\] {
     grid-template-columns: 2rem minmax(0, 1fr);
+  }
+
+  .demo-video-shell:fullscreen .demo-video-frame,
+  .demo-video-shell-fullscreen .demo-video-frame {
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .hero-core {
