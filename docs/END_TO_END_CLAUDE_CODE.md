@@ -78,6 +78,16 @@ claude
 
 In this mode, a `UserPromptSubmit` hook calls `/wrap`: deterministic prompt rules run first, DeepSeek refines only when the deterministic rules do not flag the prompt, Kimi produces the display response, and the hook blocks Claude execution by default so Claude Code displays the Kimi result without spending another model call. Set `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` to inject the Kimi result as additional Claude context instead.
 
+For a SWE-bench Lite token-savings benchmark:
+
+```bash
+./scripts/swebench_lite_token_savings.sh --limit 3
+```
+
+The script loads `princeton-nlp/SWE-bench_Lite`, creates fresh baseline and Sidecar checkouts for each selected instance, runs Claude Code once with prompt interception disabled and once with Sidecar enabled, then writes per-instance and aggregate token savings under `.agent-sidecar/swebench-lite/<timestamp>/`. This measures token and cost movement from Claude telemetry; it does not run the official SWE-bench Docker verifier or claim task correctness. Use `--instances <id1,id2>` or `--instance-file <path>` for fixed task sets, and `--require-kimi` when the local Kimi route must be part of the Sidecar run.
+
+The runner defaults Claude Code to `--permission-mode bypassPermissions` because SWE-bench execution is non-interactive and happens in disposable task checkouts. Override with `--permission-mode acceptEdits` for safer debugging. Each task phase writes `claude.<phase>.log`, `sidecar.<phase>.log`, and, with `--claude-debug`, `claude.<phase>.debug.log` for failed-run diagnosis.
+
 For the older paste-it-yourself flow:
 
 ```bash

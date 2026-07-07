@@ -24,7 +24,7 @@ def refine(prompt: str, session_id: str | None = typer.Option(None, "--session")
 
 def steer(session_id: str | None = typer.Option(None, "--session")) -> None:
     session_id = resolve_session_id(session_id)
-    result = request("POST", f"/sessions/{session_id}/steer").json()
+    result = request("POST", f"/sessions/{session_id}/steer", timeout_s=120).json()
     decision = result["result"]
     typer.echo(f"Decision: {decision['decision']} ({decision['confidence']:.2f})")
     typer.echo(f"Recommendation: {decision['recommendation']}")

@@ -42,3 +42,16 @@
 - The wrapper first applies deterministic prompt rules. If those rules do not flag the prompt, it tries DeepSeek reasoning refinement before handing the refined contract to Kimi.
 - Kimi returns a strict `KimiWrapperResult` whose `display_response` is sent back through Claude Code. The default delivery mode is a hook `decision: block` response so Claude does not spend another model call; `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` can instead inject the result as additional Claude context.
 - Claude Code hooks still do not give Kimi filesystem/tool execution. The wrapper prompt requires Kimi to mark `needs_claude_execution: true` when actual repo edits or command execution are needed rather than claiming files were changed.
+
+## 2026-07-06: SWE-bench Lite Token Savings Runner
+
+- Add `scripts/swebench_lite_token_savings.sh` as a paired-run benchmark harness for token and cost movement.
+- The harness loads `princeton-nlp/SWE-bench_Lite`, creates fresh baseline and Sidecar checkouts at each task's `base_commit`, runs Claude Code with prompt interception off and then on, and summarizes Claude telemetry from the Sidecar traces.
+- The harness defaults Claude Code to `bypassPermissions` because these are non-interactive benchmark runs in disposable clones; callers can override the mode for safer debugging.
+- Each phase records Sidecar startup, hook, telemetry, Claude exit, and optional Claude debug diagnostics beside the benchmark logs.
+- The benchmark reports average and aggregate token savings only. It does not run the official SWE-bench Docker verifier or treat token savings as correctness evidence.
+
+## 2026-07-07: CLI Timeout for Local Steering
+
+- Increase the default Agent Sidecar CLI HTTP timeout from 5 seconds to 30 seconds and allow `AGENT_SIDECAR_CLI_TIMEOUT_SECONDS` override.
+- Use a 120 second timeout for `agent-sidecar steer` because local DeepSeek/Kimi steering can legitimately exceed short health-check style request windows.

@@ -178,3 +178,61 @@ def test_budget_routes_configure_and_block_when_measured_cost_exceeds_limit(tmp_
     assert over_budget.status_code == 200
     assert over_budget.json()["action"] == "block"
     assert "budget_guard_triggered" in trace.text
+
+
+def test_dashboard_metrics_route_returns_real_session_and_swebench_rows(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    get_manager.cache_clear()
+    app = create_app()
+
+    swebench_dir = tmp_path / ".agent-sidecar" / "swebench-lite" / "20260707T051539Z"
+    swebench_dir.mkdir(parents=True)
+    (swebench_dir / "results.jsonl").write_text(
+        json.dumps({
+            "instance_id": "astropy__astropy-12907",
+            "repo": "astropy/astropy",
+            "baseline": {
+                "cost_usd": 0.65818,
+                "duration_ms": 214178,
+                "exit_code": 0,
+                "by_source": {"claude-opus-4-8 / sdk": {"cost": 0.65818}},
+            },
+            "sidecar": {
+                "cost_usd": 0.290853,
+                "duration_ms": 110995,
+                "exit_code": 0,
+                "by_source": {"claude-opus-4-8 / sdk": {"cost": 0.290853}},
+            },
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    cost_event = {
+        "event_type": "cost_estimate_updated",
+        "source": "otlp",
+        "payload": {
+            "precision": "measured",
+            "cost_usd": 0.019,
+            "gen_ai.request.model": "claude-sonnet-4",
+            "gen_ai.usage.input_tokens": 100,
+            "gen_ai.usage.output_tokens": 20,
+            "gen_ai.usage.cache_read_tokens": 0,
+        },
+        "metadata": {"repo_path": str(tmp_path)},
+    }
+
+    with TestClient(app) as client:
+        session_cost_response = client.post("/sessions/sidecar/events", json=cost_event)
+        metrics_response = client.get("/api/dashboard/metrics")
+
+    assert session_cost_response.status_code == 200
+    assert metrics_response.status_code == 200
+    metrics = metrics_response.json()
+    assert metrics["totals"]["runCount"] == 2
+    assert metrics["totals"]["defaultCostUsd"] == 0.67718
+    assert metrics["totals"]["sidecarCostUsd"] == 0.309853
+    assert any(run["id"].startswith("swebench-lite:20260707T051539Z:astropy__astropy-12907") for run in metrics["runs"])
+    assert any(run["id"] == "cc-sidecar" for run in metrics["runs"])
+    swebench_run = next(run for run in metrics["runs"] if run["taskType"] == "swebench_lite")
+    assert swebench_run["qualityVerdict"] == "preserved"
+    assert swebench_run["savingsPercent"] == 0.558095

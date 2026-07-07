@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { dirname, parse, resolve } from "node:path";
 
 const DEFAULT_PORT = 4738;
 const MAX_PORT = 65_535;
@@ -22,7 +23,11 @@ if (port !== requestedPort) {
   console.warn(`Dashboard port ${requestedPort} is unavailable; using ${port}.`);
 }
 
+const daemonUrl = process.env.NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL ?? readDaemonUrl();
 console.log(`${route === "/dashboard" ? "Dashboard" : "Website"} URL: ${formatLocalUrl(host, port)}${route === "/" ? "" : route}`);
+if (daemonUrl) {
+  console.log(`Daemon URL: ${daemonUrl}`);
+}
 
 if (mode === "dev") {
   rmSync(".next", { recursive: true, force: true });
@@ -32,6 +37,7 @@ const child = spawn("next", [mode, "--hostname", host, "--port", String(port)], 
   stdio: "inherit",
   env: {
     ...process.env,
+    ...(daemonUrl ? { NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL: daemonUrl } : {}),
     PORT: String(port)
   }
 });
@@ -62,6 +68,36 @@ function formatLocalUrl(listenHost, portCandidate) {
   const browserHost = listenHost === "0.0.0.0" || listenHost === "::" ? "127.0.0.1" : listenHost;
   const formattedHost = browserHost.includes(":") && !browserHost.startsWith("[") ? `[${browserHost}]` : browserHost;
   return `http://${formattedHost}:${portCandidate}`;
+}
+
+function readDaemonUrl() {
+  const statePath = findUp(".agent-sidecar/daemon.json", process.cwd());
+  if (!existsSync(statePath)) {
+    return undefined;
+  }
+
+  try {
+    const state = JSON.parse(readFileSync(statePath, "utf8"));
+    const url = typeof state.api_url === "string" ? state.api_url : state.url;
+    return typeof url === "string" ? url.replace(/\/$/, "") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function findUp(relativePath, startDir) {
+  let dir = resolve(startDir);
+  const root = parse(dir).root;
+  while (true) {
+    const candidate = resolve(dir, relativePath);
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    if (dir === root) {
+      return resolve(startDir, relativePath);
+    }
+    dir = dirname(dir);
+  }
 }
 
 async function findAvailablePort(startPort, listenHost, maxAttempts) {

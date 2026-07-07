@@ -7,6 +7,7 @@ import httpx
 import respx
 from typer.testing import CliRunner
 
+from agent_sidecar.cli.client import cli_timeout_seconds
 from agent_sidecar.cli.main import app
 
 
@@ -56,6 +57,17 @@ def test_cli_exposes_chunk2_gap_commands() -> None:
     assert cost.exit_code == 0
     assert "refresh-map" in cost.stdout
     assert "compare" in cost.stdout
+
+
+def test_cli_timeout_defaults_and_env_override(monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_SIDECAR_CLI_TIMEOUT_SECONDS", raising=False)
+    assert cli_timeout_seconds() == 30.0
+
+    monkeypatch.setenv("AGENT_SIDECAR_CLI_TIMEOUT_SECONDS", "90")
+    assert cli_timeout_seconds() == 90.0
+
+    monkeypatch.setenv("AGENT_SIDECAR_CLI_TIMEOUT_SECONDS", "not-a-number")
+    assert cli_timeout_seconds() == 30.0
 
 
 @respx.mock

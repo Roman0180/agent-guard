@@ -5,6 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from agent_sidecar.daemon.api import create_api_router
 from agent_sidecar.daemon.otlp import create_otlp_router
@@ -24,6 +25,7 @@ def get_manager() -> SessionManager:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Agent Sidecar")
+    _add_local_dashboard_cors(app)
     app.include_router(create_api_router(get_manager))
     app.include_router(create_otlp_router(get_manager))
     return app
@@ -31,6 +33,7 @@ def create_app() -> FastAPI:
 
 def create_api_app() -> FastAPI:
     app = FastAPI(title="Agent Sidecar API")
+    _add_local_dashboard_cors(app)
     app.include_router(create_api_router(get_manager))
     return app
 
@@ -39,3 +42,12 @@ def create_otlp_app() -> FastAPI:
     app = FastAPI(title="Agent Sidecar OTLP")
     app.include_router(create_otlp_router(get_manager))
     return app
+
+
+def _add_local_dashboard_cors(app: FastAPI) -> None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?",
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
