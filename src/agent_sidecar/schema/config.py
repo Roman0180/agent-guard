@@ -20,6 +20,7 @@ class HooksConfig(BaseModel):
 class ModelRoleConfig(BaseModel):
     model: str
     fallback_base: str
+    serving: Literal["ollama", "llama_server", "deepseek"] | None = None
 
 
 class ModelEndpointConfig(BaseModel):
@@ -29,14 +30,26 @@ class ModelEndpointConfig(BaseModel):
 
 class ModelsConfig(BaseModel):
     roles: dict[str, ModelRoleConfig] = Field(default_factory=lambda: {
-        "reasoning": ModelRoleConfig(model="sidecar-deepseek-reasoning", fallback_base="deepseek-r1:8b"),
-        "coding": ModelRoleConfig(model="sidecar-kimi-coding", fallback_base="kimi-linear-48b-a3b"),
+        "reasoning": ModelRoleConfig(
+            model="sidecar-llama3-reasoning",
+            fallback_base="llama3:latest",
+            serving="ollama",
+        ),
+        "coding": ModelRoleConfig(
+            model="sidecar-llama3-coding",
+            fallback_base="llama3:latest",
+            serving="llama_server",
+        ),
     })
     endpoints: dict[str, ModelEndpointConfig] = Field(default_factory=lambda: {
         "ollama": ModelEndpointConfig(api_base="http://localhost:11434", litellm_prefix="ollama_chat/"),
         "llama_server": ModelEndpointConfig(api_base="http://localhost:8080/v1", litellm_prefix="openai/"),
+        "deepseek": ModelEndpointConfig(api_base="https://api.deepseek.com", litellm_prefix="deepseek/"),
     })
-    allowlist: list[str] = Field(default_factory=lambda: ["ollama_chat/*", "openai/*@http://localhost:8080/v1"])
+    allowlist: list[str] = Field(default_factory=lambda: [
+        "ollama_chat/*",
+        "openai/*@http://localhost:8080/v1",
+    ])
     remote_fallback: bool = False
     timeout_ms: int = 12000
     hardware_tier: str = "auto"

@@ -78,10 +78,26 @@ function readDaemonUrl() {
 
   try {
     const state = JSON.parse(readFileSync(statePath, "utf8"));
+    if (!stateProcessIsRunning(state)) {
+      return undefined;
+    }
     const url = typeof state.api_url === "string" ? state.api_url : state.url;
     return typeof url === "string" ? url.replace(/\/$/, "") : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function stateProcessIsRunning(state) {
+  if (!Number.isInteger(state?.pid) || state.pid <= 0) {
+    return true;
+  }
+
+  try {
+    process.kill(state.pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
 

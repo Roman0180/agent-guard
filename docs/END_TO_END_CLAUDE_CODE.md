@@ -1,9 +1,11 @@
 # End-to-End Claude Code
 
-Start/register Kimi for implementation focus and DeepSeek for post-run evaluation before running the demo. One available helper is:
+Start the coding-role model locally through llama.cpp's llama-server, then let the helper pull and preflight the Llama 3 8B reasoning model through Ollama:
 
 ```bash
-START_DEEPSEEK=1 ./scripts/start_local_models.sh
+brew install llama.cpp
+llama-server -hf bartowski/Meta-Llama-3-8B-Instruct-GGUF:Q4_0 --host 127.0.0.1 --port 8080 --alias llama3:latest
+./scripts/start_local_models.sh
 ```
 
 Then run the demo from the repo root:
@@ -18,11 +20,17 @@ The script runs Claude Code with `CLAUDE_MODEL=opus` by default. Override it whe
 CLAUDE_MODEL=sonnet ./scripts/e2e_claude_code.sh
 ```
 
-The demo script verifies the Kimi coding route and DeepSeek reasoning route before launching Claude Code. DeepSeek is used only to evaluate the saved baseline and Sidecar implementations after both runs; it is not used for prompt refinement.
+The demo script verifies the local coding route (Llama 3 8B via llama-server) and the local reasoning route (Llama 3 8B via Ollama) before launching Claude Code. Sidecar uses deterministic prompt refinement, then asks the configured local coding model for the implementation-focused follow-up. In paired mode, the local reasoning model evaluates the saved baseline and Sidecar implementations after both runs.
 
-The demo script backs up the current `boilerplate.html`, resets it to the same controlled starter file before both runs, uses deterministic prompt refinement plus Kimi implementation focus, submits the example prompt to Claude Code automatically, captures both session IDs, optionally derives a Sidecar cost budget from the baseline session when measured baseline cost is available, prints savings from raw Claude API-request telemetry, prints baseline-vs-Sidecar execution time, then asks DeepSeek for a single verdict on whether Sidecar preserved implementation quality. It resets `boilerplate.html` again before exit.
+The demo script backs up the current `boilerplate.html`, resets it to the same controlled starter file before both runs, uses deterministic prompt refinement plus local coding-model implementation focus, submits a compact example prompt to Claude Code automatically, captures both session IDs, optionally derives a Sidecar cost budget from the baseline session when measured baseline cost is available, prints savings from raw Claude API-request telemetry, prints baseline-vs-Sidecar execution time, then asks the local reasoning model for a single verdict on whether Sidecar preserved implementation quality. It resets `boilerplate.html` again before exit.
 
-If Kimi cannot produce the coding focus, DeepSeek cannot evaluate the finished outputs, quality is not preserved, or measured Sidecar cost is not lower than baseline cost, the script exits non-zero. Cost savings are printed before the DeepSeek quality verdict. Model route preflight failures stop before spending Claude baseline/sidecar tokens.
+The built-in prompt is scoped for a roughly 45 second Claude phase. Override it without editing the script:
+
+```bash
+AGENT_SIDECAR_E2E_PROMPT='Replace boilerplate.html with a compact static status card.' ./scripts/e2e_claude_code.sh
+```
+
+If the local coding model cannot produce the coding focus, the local reasoning model cannot evaluate the finished outputs in paired mode, quality is not preserved, or measured Sidecar cost is not lower than baseline cost, the script exits non-zero. Cost savings are printed before the reasoning-model quality verdict. Model route preflight failures stop before spending Claude baseline/sidecar tokens.
 
 By default the paired run sets:
 
@@ -66,7 +74,7 @@ For a single intercepted run without baseline comparison:
 ./scripts/e2e_claude_code.sh --single
 ```
 
-For the Kimi-wrapper prompt flow, start the daemon and hooks normally, then enable the wrapper before launching Claude Code:
+For the legacy wrapper prompt flow, start the daemon and hooks normally, then enable the wrapper before launching Claude Code:
 
 ```bash
 agent-sidecar start
@@ -76,15 +84,21 @@ export AGENT_SIDECAR_KIMI_WRAPPER=1
 claude
 ```
 
-In this mode, a `UserPromptSubmit` hook calls `/wrap`: deterministic prompt rules run first, DeepSeek refines only when the deterministic rules do not flag the prompt, Kimi produces the display response, and the hook blocks Claude execution by default so Claude Code displays the Kimi result without spending another model call. Set `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` to inject the Kimi result as additional Claude context instead.
+In this mode, a `UserPromptSubmit` hook calls `/wrap`: deterministic prompt rules run first, DeepSeek refines only when the deterministic rules do not flag the prompt, the configured local coding model produces the display response, and the hook blocks Claude execution by default so Claude Code displays that result without spending another model call. Set `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` to inject the wrapper result as additional Claude context instead.
 
 For a SWE-bench Lite token-savings benchmark:
 
 ```bash
-./scripts/swebench_lite_token_savings.sh --limit 3
+./scripts/swebench_lite_token_savings.sh --count 3
+./scripts/swebench_lite_token_savings.sh --test astropy__astropy-12907 --test django__django-11099
+./scripts/swebench_lite_token_savings.sh --tests astropy__astropy-12907,django__django-11099
+./scripts/swebench_lite_token_savings.sh --test-file ./swebench-instances.txt
+./scripts/swebench_lite_token_savings.sh --count 12 --parallel 6
 ```
 
-The script loads `princeton-nlp/SWE-bench_Lite`, creates fresh baseline and Sidecar checkouts for each selected instance, runs Claude Code once with prompt interception disabled and once with Sidecar enabled, then writes per-instance and aggregate token savings under `.agent-sidecar/swebench-lite/<timestamp>/`. This measures token and cost movement from Claude telemetry; it does not run the official SWE-bench Docker verifier or claim task correctness. Use `--instances <id1,id2>` or `--instance-file <path>` for fixed task sets, and `--require-kimi` when the local Kimi route must be part of the Sidecar run.
+The script loads `princeton-nlp/SWE-bench_Lite`, creates fresh baseline and Sidecar checkouts for each selected instance, runs Claude Code once with prompt interception disabled and once with Sidecar enabled, runs the SWE-bench grader for both generated patches by default, then writes per-instance and aggregate token savings plus score deltas under `.agent-sidecar/swebench-lite/<timestamp>/`. Use `--count <n>` with optional `--offset <n>` for count-based task selection, or use `--test`, `--tests`, or `--test-file` for fixed task sets. Exact test selection preserves the requested order and fails before any Claude runs if an instance id is not found. Sidecar runs use coding-model focus by default and fall back to deterministic refinement if the local model fails; pass `--skip-model-refinement` for the deterministic-only path or `--strict-model-refinement` to fail on coding-model errors.
+
+Tasks run `--parallel N` at a time (default 4), each already running its baseline and Sidecar Claude Code phases concurrently — so the real concurrent Claude Code process count is `2 * N`. Baseline and sidecar SWE-bench grading also run concurrently. Lower `--parallel` if Claude API rate limits, Docker resources, or local machine memory become a bottleneck; `--parallel 1` restores the old fully-sequential behavior.
 
 The runner defaults Claude Code to `--permission-mode bypassPermissions` because SWE-bench execution is non-interactive and happens in disposable task checkouts. Override with `--permission-mode acceptEdits` for safer debugging. Each task phase writes `claude.<phase>.log`, `sidecar.<phase>.log`, and, with `--claude-debug`, `claude.<phase>.debug.log` for failed-run diagnosis.
 

@@ -6,7 +6,21 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from agent_sidecar.daemon.app import create_app, get_manager
+from agent_sidecar.schema.config import SidecarConfig
 from agent_sidecar.schema.model_io import KimiWrapperResult, ModelRole
+
+
+def _write_unreachable_model_endpoints_config(repo_path: Path) -> None:
+    # Route both roles at loopback ports nothing listens on so this test's steering/refine
+    # assertions reflect the deterministic fallback deterministically, regardless of whether
+    # the machine running the test happens to have a real Ollama/llama-server instance up
+    # with a model matching the configured default (D7: tests must not depend on the host).
+    config = SidecarConfig()
+    config.models.endpoints["ollama"].api_base = "http://127.0.0.1:1"
+    config.models.endpoints["llama_server"].api_base = "http://127.0.0.1:1"
+    config_dir = repo_path / ".agent-sidecar"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.json").write_text(config.model_dump_json(indent=2), encoding="utf-8")
 
 
 def test_hook_sequence_posts_to_api_and_writes_trace(tmp_path: Path, monkeypatch) -> None:
@@ -61,6 +75,75 @@ def test_otlp_endpoint_updates_measured_cost_status(tmp_path: Path, monkeypatch)
     assert status["cost_usd"]["precision"] == "measured"
 
 
+def test_cost_endpoint_aggregates_api_requests_and_ignores_zero_rollups(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    get_manager.cache_clear()
+    app = create_app()
+
+    api_request_event = {
+        "event_type": "cost_estimate_updated",
+        "source": "otlp",
+        "payload": {
+            "precision": "measured",
+            "cost_usd": 0.03,
+            "gen_ai.request.model": "claude-opus-4-8",
+            "gen_ai.usage.input_tokens": 30,
+            "gen_ai.usage.output_tokens": 5,
+            "gen_ai.usage.cache_read_tokens": 100,
+            "raw_otel": {
+                "resourceLogs": [{
+                    "scopeLogs": [{
+                        "logRecords": [{
+                            "body": {"stringValue": "claude_code.api_request"},
+                            "attributes": [
+                                {"key": "request_id", "value": {"stringValue": "req-test"}},
+                                {"key": "model", "value": {"stringValue": "claude-opus-4-8"}},
+                                {"key": "query_source", "value": {"stringValue": "sdk"}},
+                                {"key": "input_tokens", "value": {"intValue": "30"}},
+                                {"key": "output_tokens", "value": {"intValue": "5"}},
+                                {"key": "cache_read_tokens", "value": {"intValue": "100"}},
+                                {"key": "cache_creation_tokens", "value": {"intValue": "7"}},
+                                {"key": "cost_usd", "value": {"doubleValue": 0.03}},
+                            ],
+                        }],
+                    }],
+                }],
+            },
+        },
+        "metadata": {"repo_path": str(tmp_path)},
+    }
+    zero_rollup_event = {
+        "event_type": "cost_estimate_updated",
+        "source": "otlp",
+        "payload": {
+            "precision": "measured",
+            "cost_usd": 0.0,
+            "gen_ai.usage.input_tokens": 0,
+            "gen_ai.usage.output_tokens": 0,
+            "gen_ai.usage.cache_read_tokens": 0,
+            "raw_otel": {"resourceMetrics": []},
+        },
+        "metadata": {"repo_path": str(tmp_path)},
+    }
+
+    with TestClient(app) as client:
+        first = client.post("/sessions/rollup-demo/events", json=api_request_event)
+        second = client.post("/sessions/rollup-demo/events", json=zero_rollup_event)
+        cost = client.get("/sessions/rollup-demo/cost").json()
+        status = client.get("/sessions/rollup-demo").json()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert cost["cost_usd"] == {"value": 0.03, "precision": "measured"}
+    assert cost["tokens"]["input"] == 30
+    assert cost["tokens"]["output"] == 5
+    assert cost["tokens"]["cache_read"] == 100
+    assert cost["tokens"]["cache_create"] == 7
+    assert cost["requests"] == 1
+    assert status["cost_usd"]["value"] == 0.03
+    assert status["tokens"]["input"] == 30
+
+
 def test_manual_session_create_and_stop(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
     get_manager.cache_clear()
@@ -77,6 +160,7 @@ def test_manual_session_create_and_stop(tmp_path: Path, monkeypatch) -> None:
 
 def test_chunk2_routes_refine_steer_cost_and_models(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    _write_unreachable_model_endpoints_config(tmp_path)
     get_manager.cache_clear()
     app = create_app()
     trace_lines = Path("evals/fixtures/traces/auth-refresh-loop.jsonl").read_text(encoding="utf-8").splitlines()
@@ -191,17 +275,21 @@ def test_dashboard_metrics_route_returns_real_session_and_swebench_rows(tmp_path
         json.dumps({
             "instance_id": "astropy__astropy-12907",
             "repo": "astropy/astropy",
+            "baseline_score": 1,
+            "sidecar_score": 0,
             "baseline": {
                 "cost_usd": 0.65818,
                 "duration_ms": 214178,
                 "exit_code": 0,
                 "by_source": {"claude-opus-4-8 / sdk": {"cost": 0.65818}},
+                "grade": {"score": 1, "status": "resolved", "resolved": True},
             },
             "sidecar": {
                 "cost_usd": 0.290853,
                 "duration_ms": 110995,
                 "exit_code": 0,
                 "by_source": {"claude-opus-4-8 / sdk": {"cost": 0.290853}},
+                "grade": {"score": 0, "status": "unresolved", "resolved": False},
             },
         }) + "\n",
         encoding="utf-8",
@@ -234,5 +322,65 @@ def test_dashboard_metrics_route_returns_real_session_and_swebench_rows(tmp_path
     assert any(run["id"].startswith("swebench-lite:20260707T051539Z:astropy__astropy-12907") for run in metrics["runs"])
     assert any(run["id"] == "cc-sidecar" for run in metrics["runs"])
     swebench_run = next(run for run in metrics["runs"] if run["taskType"] == "swebench_lite")
-    assert swebench_run["qualityVerdict"] == "preserved"
+    assert swebench_run["qualityVerdict"] == "regressed"
+    assert swebench_run["qualitySource"] == "swebench_evaluator"
+    assert swebench_run["baselineScore"] == 1
+    assert swebench_run["sidecarScore"] == 0
+    assert swebench_run["baselineGradeStatus"] == "resolved"
+    assert swebench_run["sidecarGradeStatus"] == "unresolved"
     assert swebench_run["savingsPercent"] == 0.558095
+
+
+def test_dashboard_reset_clears_visible_rows_without_removing_caches(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SIDECAR_REPO_PATH", str(tmp_path))
+    get_manager.cache_clear()
+    app = create_app()
+
+    swebench_root = tmp_path / ".agent-sidecar" / "swebench-lite"
+    swebench_dir = swebench_root / "20260707T051539Z"
+    cache_dir = swebench_root / "repo-cache"
+    swebench_dir.mkdir(parents=True)
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "keep.txt").write_text("cached", encoding="utf-8")
+    (swebench_dir / "results.jsonl").write_text(
+        json.dumps({
+            "instance_id": "astropy__astropy-12907",
+            "baseline": {"cost_usd": 0.2, "duration_ms": 2000, "exit_code": 0},
+            "sidecar": {"cost_usd": 0.1, "duration_ms": 1000, "exit_code": 0},
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    cost_event = {
+        "event_type": "cost_estimate_updated",
+        "source": "otlp",
+        "payload": {
+            "precision": "measured",
+            "cost_usd": 0.019,
+            "gen_ai.request.model": "claude-sonnet-4",
+            "gen_ai.usage.input_tokens": 100,
+            "gen_ai.usage.output_tokens": 20,
+            "gen_ai.usage.cache_read_tokens": 0,
+        },
+        "metadata": {"repo_path": str(tmp_path)},
+    }
+
+    with TestClient(app) as client:
+        session_response = client.post("/sessions/reset-demo/events", json=cost_event)
+        before_reset = client.get("/api/dashboard/metrics")
+        reset_response = client.post("/api/dashboard/reset")
+        after_reset = client.get("/api/dashboard/metrics")
+
+    assert session_response.status_code == 200
+    assert before_reset.status_code == 200
+    assert before_reset.json()["totals"]["runCount"] == 2
+    assert reset_response.status_code == 200
+    reset_body = reset_response.json()
+    assert reset_body["ok"] is True
+    assert reset_body["sessionsRemoved"] == 1
+    assert reset_body["swebenchRunsRemoved"] == 1
+    assert reset_body["metrics"]["totals"]["runCount"] == 0
+    assert after_reset.status_code == 200
+    assert after_reset.json()["totals"]["runCount"] == 0
+    assert not swebench_dir.exists()
+    assert (cache_dir / "keep.txt").read_text(encoding="utf-8") == "cached"

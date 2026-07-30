@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import respx
@@ -16,7 +17,7 @@ from agent_sidecar.intel.wrapper import KimiWrapperRequiredError, wrap_prompt_wi
 from agent_sidecar.models.evals import parse_promotion_result, run_promotion_eval
 from agent_sidecar.models.local_services import list_ollama_models, list_openai_models, model_is_served, pull_ollama_model
 from agent_sidecar.models.registry import ModelRegistry, ModelRegistryEntry, RegistryEval, load_registry, promote, rollback, save_registry
-from agent_sidecar.models.router import ModelRoute, ModelRouter, is_loopback_url, validate_route_allowed
+from agent_sidecar.models.router import ModelRoute, ModelRouter, infer_serving, is_loopback_url, validate_route_allowed
 from agent_sidecar.schema.config import SidecarConfig
 from agent_sidecar.schema.events import SidecarEvent
 from agent_sidecar.schema.model_io import KimiWrapperResult, ModelRole, NextStepDraft, RefineDraft, RefineJudgment, SteerResult
@@ -74,6 +75,27 @@ def test_provider_rejects_remote_endpoint_before_socket_or_litellm(tmp_path: Pat
     assert provider.complete_json(ModelRole.reasoning, "task", "{}", RefineJudgment) is None
 
 
+def test_router_defaults_coding_to_local_llama3(tmp_path: Path) -> None:
+    config = SidecarConfig()
+    config.models.hardware_tier = "medium"
+
+    route = ModelRouter(tmp_path, config).resolve(ModelRole.coding)
+
+    assert route.model_id == "llama3:latest"
+    assert route.serving == "llama_server"
+    assert route.litellm_model == "openai/llama3:latest"
+
+
+def test_deepseek_v4_infers_local_openai_compatible_serving() -> None:
+    assert infer_serving(ModelRole.reasoning, "deepseek-v4-flash") == "llama_server"
+    assert infer_serving(ModelRole.coding, "deepseek-ai/DeepSeek-V4-Flash") == "llama_server"
+
+
+def test_qwen3_coder_next_infers_local_openai_compatible_serving() -> None:
+    assert infer_serving(ModelRole.coding, "Qwen/Qwen3-Coder-Next") == "llama_server"
+    assert infer_serving(ModelRole.coding, "qwen3-coder-next") == "llama_server"
+
+
 @respx.mock
 def test_local_service_discovery_for_ollama_and_llama_server() -> None:
     respx.get("http://127.0.0.1:11434/api/tags").mock(
@@ -111,6 +133,37 @@ def test_provider_skips_litellm_when_model_is_not_served(tmp_path: Path, monkeyp
     monkeypatch.setattr(LiteLLMModelProvider, "_completion", fail_completion)
 
     assert LiteLLMModelProvider(tmp_path, config).complete_json(ModelRole.reasoning, "task", "{}", RefineJudgment) is None
+
+
+def test_provider_calls_litellm_with_one_api_base_for_llama_server(tmp_path: Path, monkeypatch) -> None:
+    config = SidecarConfig()
+    config.models.hardware_tier = "medium"
+    config.models.roles["coding"].fallback_base = "kimi-linear-48b-a3b"
+    config.models.roles["coding"].serving = "llama_server"
+    monkeypatch.setattr("agent_sidecar.models.provider._endpoint_reachable", lambda _api_base: True)
+    monkeypatch.setattr("agent_sidecar.models.provider.model_is_served", lambda *args, **kwargs: (True, None))
+    calls: dict[str, object] = {}
+
+    def completion(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=json.dumps({"next_step": "Edit the focused file.", "rationale": "Keeps the requested scope."})
+                    )
+                )
+            ]
+        )
+
+    monkeypatch.setattr("litellm.completion", completion)
+
+    result = LiteLLMModelProvider(tmp_path, config).complete_json(ModelRole.coding, "task", "prompt", NextStepDraft)
+
+    assert isinstance(result, NextStepDraft)
+    assert calls["model"] == "openai/kimi-linear-48b-a3b"
+    assert calls["api_base"] == "http://localhost:8080/v1"
+    assert calls["api_key"] == "local"
 
 
 def test_registry_promote_requires_passing_eval(tmp_path: Path) -> None:
@@ -241,7 +294,7 @@ def test_required_reasoning_refiner_raises_instead_of_falling_back(tmp_path: Pat
         refine_prompt("fix auth refresh", repo_path=tmp_path, provider=provider, require_reasoning_refinement=True)
 
 
-def test_required_kimi_coding_uses_deterministic_refinement_without_deepseek(tmp_path: Path) -> None:
+def test_required_coding_model_uses_deterministic_refinement_without_deepseek(tmp_path: Path) -> None:
     provider = StubProvider({
         ModelRole.coding: NextStepDraft(
             next_step="Update packages/auth/src/refresh.ts so auth refresh succeeds, then run pnpm test.",
@@ -259,12 +312,12 @@ def test_required_kimi_coding_uses_deterministic_refinement_without_deepseek(tmp
 
     assert result.source == "deterministic-then-coding"
     assert result.refined_prompt.startswith("Task: fix auth refresh")
-    assert "Kimi implementation focus: Update packages/auth/src/refresh.ts" in result.refined_prompt
+    assert "Focus: Update packages/auth/src/refresh.ts" in result.refined_prompt
     assert provider.calls == [ModelRole.coding]
     assert [event.event_type for event in events] == ["prompt_submitted", "prompt_refined"]
 
 
-def test_required_reasoning_then_coding_refiner_uses_deepseek_and_kimi(tmp_path: Path) -> None:
+def test_required_reasoning_then_coding_refiner_uses_deepseek_and_coding_model(tmp_path: Path) -> None:
     provider = StubProvider({
         ModelRole.reasoning: RefineDraft(
             refined_prompt="Task: fix auth refresh in packages/auth/src/refresh.ts and run pnpm test.",
@@ -290,7 +343,7 @@ def test_required_reasoning_then_coding_refiner_uses_deepseek_and_kimi(tmp_path:
 
     assert result.source == "reasoning-then-coding"
     assert result.refined_prompt.startswith("Task: fix auth refresh")
-    assert "Kimi coding focus: Update packages/auth/src/refresh.ts" in result.refined_prompt
+    assert "Focus: Update packages/auth/src/refresh.ts" in result.refined_prompt
     assert [event.event_type for event in events] == ["prompt_submitted", "prompt_refined"]
 
 
@@ -305,7 +358,7 @@ def test_required_coding_refiner_raises_instead_of_falling_back(tmp_path: Path) 
         ),
     })
 
-    with pytest.raises(CodingRefinementRequiredError, match="Kimi did not produce"):
+    with pytest.raises(CodingRefinementRequiredError, match="coding model did not produce"):
         refine_prompt(
             "fix auth refresh",
             repo_path=tmp_path,
@@ -376,7 +429,7 @@ def test_kimi_wrapper_uses_deepseek_when_no_deterministic_issue_matches(tmp_path
 def test_kimi_wrapper_raises_when_kimi_result_is_unavailable(tmp_path: Path) -> None:
     provider = StubProvider({})
 
-    with pytest.raises(KimiWrapperRequiredError, match="Kimi did not produce"):
+    with pytest.raises(KimiWrapperRequiredError, match="coding model did not produce"):
         wrap_prompt_with_kimi("fix auth refresh", repo_path=tmp_path, provider=provider)
 
 

@@ -66,6 +66,17 @@ class SessionManager:
             self.get_session(path.stem)
         return sorted(self._records.values(), key=lambda record: record.started_at)
 
+    def clear_sessions(self) -> int:
+        removed = 0
+        for path in sorted(self.trace_dir.glob("*.jsonl")):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            removed += 1
+        self._records.clear()
+        return removed
+
     def add_event(self, event: SidecarEvent) -> SessionRecord:
         record = self.get_session(event.session_id)
         if record is None:
@@ -138,14 +149,20 @@ class SessionManager:
         model = record.model
         if event.event_type == "cost_estimate_updated":
             precision = Precision(event.payload.get("precision", Precision.approximate.value))
-            tokens = TokenUsage(
-                input=int(event.payload.get("gen_ai.usage.input_tokens", tokens.input if tokens else 0) or 0),
-                output=int(event.payload.get("gen_ai.usage.output_tokens", tokens.output if tokens else 0) or 0),
-                cache_read=int(event.payload.get("gen_ai.usage.cache_read_tokens", tokens.cache_read if tokens else 0) or 0),
-                precision=precision,
-            )
-            cost = Money(value=float(event.payload.get("cost_usd", cost.value if cost else 0) or 0), precision=precision)
-            model = str(event.payload.get("gen_ai.request.model") or model or "")
+            input_tokens = int(event.payload.get("gen_ai.usage.input_tokens", tokens.input if tokens else 0) or 0)
+            output_tokens = int(event.payload.get("gen_ai.usage.output_tokens", tokens.output if tokens else 0) or 0)
+            cache_read = int(event.payload.get("gen_ai.usage.cache_read_tokens", tokens.cache_read if tokens else 0) or 0)
+            cost_value = float(event.payload.get("cost_usd", cost.value if cost else 0) or 0)
+            is_zero_rollup = input_tokens + output_tokens + cache_read == 0 and cost_value == 0
+            if not is_zero_rollup:
+                tokens = TokenUsage(
+                    input=input_tokens,
+                    output=output_tokens,
+                    cache_read=cache_read,
+                    precision=precision,
+                )
+                cost = Money(value=cost_value, precision=precision)
+                model = str(event.payload.get("gen_ai.request.model") or model or "")
         if event.event_type == "budget_configured":
             precision = Precision(event.payload.get("precision", Precision.approximate.value))
             budget = CostBudget(

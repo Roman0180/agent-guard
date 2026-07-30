@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from agent_sidecar.models.local_services import model_is_served
+from agent_sidecar.models.local_services import ServingBackend, model_is_served
 from agent_sidecar.models.registry import ModelRegistryEntry, load_registry
 from agent_sidecar.schema.config import SidecarConfig, load_config
 from agent_sidecar.schema.model_io import ModelRole
@@ -18,7 +18,7 @@ class ModelRoute:
     model_id: str
     litellm_model: str
     api_base: str
-    serving: Literal["ollama", "llama_server"]
+    serving: ServingBackend
     kind: Literal["base", "tuned"]
     available: bool = True
     reason: str | None = None
@@ -31,15 +31,14 @@ class ModelRouter:
         self.config = config or load_config(repo_path)
 
     def resolve(self, role: ModelRole) -> ModelRoute:
-        tier = resolve_hardware_tier(self.config.models.hardware_tier)
         active = load_registry(self.repo_path).active_for_role(role)
         if active:
             return self._route_from_registry_entry(active)
-        if role == ModelRole.coding and tier == "small":
-            return self._unavailable(role, "coding role disabled on small hardware tier")
         role_config = self.config.models.roles[role.value]
-        serving: Literal["ollama", "llama_server"] = "ollama" if role == ModelRole.reasoning else "llama_server"
-        endpoint = self.config.models.endpoints[serving]
+        serving = role_config.serving or infer_serving(role, role_config.fallback_base)
+        endpoint = self.config.models.endpoints.get(serving)
+        if endpoint is None:
+            return self._unavailable(role, f"missing model endpoint: {serving}")
         return ModelRoute(
             role=role,
             model_id=role_config.fallback_base,
@@ -75,7 +74,7 @@ class ModelRouter:
         return rows
 
     def _route_from_registry_entry(self, entry: ModelRegistryEntry) -> ModelRoute:
-        endpoint_key: Literal["ollama", "llama_server"] = entry.serving
+        endpoint_key = entry.serving
         endpoint = self.config.models.endpoints[endpoint_key]
         return ModelRoute(
             role=entry.role,
@@ -106,6 +105,23 @@ def resolve_hardware_tier(configured: str) -> str:
     if gib >= 24:
         return "medium"
     return "small"
+
+
+def infer_serving(role: ModelRole, model_id: str) -> ServingBackend:
+    normalized = model_id.lower()
+    if normalized.startswith("deepseek-v4") or normalized.startswith("deepseek-ai/deepseek-v4"):
+        return "llama_server"
+    if normalized.startswith("qwen/qwen3-coder-next") or normalized.startswith("qwen3-coder-next"):
+        return "llama_server"
+    if role == ModelRole.reasoning:
+        return "ollama"
+    if normalized.startswith("deepseek-r1") or normalized.startswith("deepseek-coder") or normalized.startswith("qwen"):
+        return "ollama"
+    if normalized.startswith("kimi"):
+        return "llama_server"
+    if normalized.startswith("deepseek-chat") or normalized.startswith("deepseek-reasoner"):
+        return "deepseek"
+    return "llama_server"
 
 
 def validate_route_allowed(route: ModelRoute, config: SidecarConfig) -> bool:

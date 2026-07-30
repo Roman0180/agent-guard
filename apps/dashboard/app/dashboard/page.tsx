@@ -12,60 +12,24 @@ import {
   RefreshCw,
   ShieldCheck,
   Timer,
+  Trash2,
   TrendingDown,
   WifiOff
 } from "lucide-react";
 
-type AgentProvider = "codex" | "claude-code" | "generic";
-type RunStatus = "active" | "blocked" | "completed" | "failed";
-type SavingsMode = "codex_baseline" | "historical_local_baseline" | "heuristic" | "run_totals";
-type QualityVerdict = "preserved" | "regressed" | "not_evaluated";
+import {
+  dashboardEventsUrl,
+  fetchDashboardMetrics,
+  resetDashboardMetrics,
+  type AgentProvider,
+  type DashboardMetrics,
+  type DashboardMetricsRun,
+  type QualityVerdict,
+  type RunStatus,
+  type SavingsMode
+} from "./metrics";
 
-type DashboardMetricsRun = {
-  id: string;
-  label: string;
-  provider: AgentProvider;
-  status: RunStatus;
-  startedAt: string;
-  updatedAt: string;
-  completedAt?: string;
-  defaultCostUsd: number;
-  sidecarCostUsd: number;
-  savingsUsd: number;
-  savingsPercent: number;
-  defaultExecutionMs?: number;
-  sidecarExecutionMs?: number;
-  executionDeltaMs?: number;
-  qualityPreserved: boolean | null;
-  qualityVerdict: QualityVerdict;
-  qualitySource: "event_metadata" | "run_status" | "not_evaluated";
-  savingsMode: SavingsMode;
-  confidence: number;
-  modelRoute?: string;
-  taskType: string;
-  promptHashCount: number;
-};
-
-type DashboardMetrics = {
-  generatedAt: string;
-  totals: {
-    runCount: number;
-    defaultCostUsd: number;
-    sidecarCostUsd: number;
-    savingsUsd: number;
-    savingsPercent: number;
-    defaultExecutionMs?: number;
-    sidecarExecutionMs?: number;
-    executionDeltaMs?: number;
-    timingSampleCount: number;
-    qualityPreservedRuns: number;
-    qualityEvaluatedRuns: number;
-    qualityPreservationRate: number;
-  };
-  runs: DashboardMetricsRun[];
-};
-
-const daemonUrl = (process.env.NEXT_PUBLIC_AGENT_SIDECAR_DAEMON_URL ?? "http://127.0.0.1:4319").replace(/\/$/, "");
+const DASHBOARD_POLL_MS = 2_000;
 
 const exampleMetrics: DashboardMetrics = {
   generatedAt: "2026-07-04T00:00:00.000Z",
@@ -141,19 +105,19 @@ export default function MetricsDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date>();
   const [refreshSeq, setRefreshSeq] = useState(0);
+  const [resetting, setResetting] = useState(false);
+  const [metricsSourceUrl, setMetricsSourceUrl] = useState<string>();
+  const [streamConnected, setStreamConnected] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadMetrics() {
       try {
-        const response = await fetch(`${daemonUrl}/api/dashboard/metrics`, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`daemon returned ${response.status}`);
-        }
-        const nextMetrics = (await response.json()) as DashboardMetrics;
+        const { metrics: nextMetrics, sourceUrl } = await fetchDashboardMetrics();
         if (!cancelled) {
           setMetrics(nextMetrics);
+          setMetricsSourceUrl(sourceUrl);
           setError(undefined);
           setLastRefresh(new Date());
         }
@@ -169,12 +133,44 @@ export default function MetricsDashboardPage() {
     }
 
     void loadMetrics();
-    const interval = window.setInterval(loadMetrics, 5_000);
+    const interval = window.setInterval(loadMetrics, DASHBOARD_POLL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
     };
   }, [refreshSeq]);
+
+  useEffect(() => {
+    if (!metricsSourceUrl || typeof window.EventSource === "undefined") {
+      setStreamConnected(false);
+      return;
+    }
+
+    let closed = false;
+    const stream = new window.EventSource(dashboardEventsUrl(metricsSourceUrl));
+
+    stream.addEventListener("open", () => {
+      if (!closed) {
+        setStreamConnected(true);
+      }
+    });
+    stream.addEventListener("metrics", () => {
+      if (!closed) {
+        setRefreshSeq((value) => value + 1);
+      }
+    });
+    stream.addEventListener("error", () => {
+      if (!closed) {
+        setStreamConnected(false);
+      }
+    });
+
+    return () => {
+      closed = true;
+      setStreamConnected(false);
+      stream.close();
+    };
+  }, [metricsSourceUrl]);
 
   const activeMetrics = metrics ?? exampleMetrics;
   const rows = useMemo(
@@ -182,6 +178,28 @@ export default function MetricsDashboardPage() {
     [activeMetrics.runs]
   );
   const mode = error ? (metrics ? "stale" : "example") : loading ? "loading" : "live";
+
+  async function resetDashboard() {
+    if (resetting) {
+      return;
+    }
+    const confirmed = window.confirm("Reset dashboard metrics? This removes local session traces and SWE-bench dashboard run results.");
+    if (!confirmed) {
+      return;
+    }
+    setResetting(true);
+    try {
+      const { result, sourceUrl } = await resetDashboardMetrics(undefined, metricsSourceUrl ? [metricsSourceUrl] : undefined);
+      setMetrics(result.metrics);
+      setMetricsSourceUrl(sourceUrl);
+      setError(undefined);
+      setLastRefresh(new Date());
+    } catch (resetError) {
+      setError(`Reset failed: ${resetError instanceof Error ? resetError.message : String(resetError)}`);
+    } finally {
+      setResetting(false);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-[#07070b] text-white">
@@ -205,6 +223,16 @@ export default function MetricsDashboardPage() {
             >
               <RefreshCw size={17} />
             </button>
+            <button
+              type="button"
+              aria-label={resetting ? "Resetting dashboard metrics" : "Reset dashboard metrics"}
+              title="Reset dashboard metrics"
+              disabled={resetting}
+              onClick={resetDashboard}
+              className="grid size-10 place-items-center rounded-lg border border-white/10 text-neutral-300 transition hover:border-red-300/40 hover:text-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 size={17} />
+            </button>
           </div>
         </div>
       </header>
@@ -218,7 +246,7 @@ export default function MetricsDashboardPage() {
               This view uses run IDs, prompt-hash counts, cost evidence, timing, and quality verdicts. Exact prompt text is not part of the dashboard payload.
             </p>
           </div>
-          <ConnectionPill mode={mode} lastRefresh={lastRefresh} />
+          <ConnectionPill mode={mode} lastRefresh={lastRefresh} sourceUrl={metricsSourceUrl} streamConnected={streamConnected} />
         </div>
 
         {error ? (
@@ -280,8 +308,27 @@ export default function MetricsDashboardPage() {
   );
 }
 
-function ConnectionPill({ mode, lastRefresh }: { mode: "live" | "loading" | "stale" | "example"; lastRefresh?: Date }) {
-  const label = mode === "live" ? "daemon connected" : mode === "loading" ? "loading" : mode === "stale" ? "daemon stale" : "example data";
+function ConnectionPill({
+  mode,
+  lastRefresh,
+  sourceUrl,
+  streamConnected
+}: {
+  mode: "live" | "loading" | "stale" | "example";
+  lastRefresh?: Date;
+  sourceUrl?: string;
+  streamConnected: boolean;
+}) {
+  const label =
+    mode === "live"
+      ? streamConnected
+        ? "daemon streaming"
+        : "daemon connected"
+      : mode === "loading"
+        ? "loading"
+        : mode === "stale"
+          ? "daemon stale"
+          : "example data";
   const className =
     mode === "live"
       ? "border-emerald-300/25 bg-emerald-300/[0.08] text-emerald-200"
@@ -290,7 +337,10 @@ function ConnectionPill({ mode, lastRefresh }: { mode: "live" | "loading" | "sta
         : "border-amber-300/25 bg-amber-300/[0.08] text-amber-200";
 
   return (
-    <div className={`flex w-fit items-center gap-2 rounded-lg border px-3 py-2 font-mono text-xs uppercase tracking-[0.16em] ${className}`}>
+    <div
+      className={`flex w-fit items-center gap-2 rounded-lg border px-3 py-2 font-mono text-xs uppercase tracking-[0.16em] ${className}`}
+      title={sourceUrl}
+    >
       <Activity size={15} />
       <span>{label}</span>
       {lastRefresh ? <span className="text-white/45">{lastRefresh.toLocaleTimeString()}</span> : null}
@@ -411,6 +461,16 @@ function RunRow({ run }: { run: DashboardMetricsRun }) {
       </td>
       <td className="px-4 py-4 align-top">
         <QualityBadge verdict={run.qualityVerdict} />
+        {run.baselineScore !== undefined && run.sidecarScore !== undefined ? (
+          <p className="mt-2 font-mono text-xs text-neutral-300">
+            SWE-bench {run.baselineScore}/1 {"->"} {run.sidecarScore}/1
+          </p>
+        ) : null}
+        {run.baselineGradeStatus || run.sidecarGradeStatus ? (
+          <p className="mt-2 text-xs text-neutral-500">
+            {run.baselineGradeStatus ?? "unknown"} {"->"} {run.sidecarGradeStatus ?? "unknown"}
+          </p>
+        ) : null}
         <p className="mt-2 text-xs text-neutral-500">{qualitySourceLabel(run.qualitySource)}</p>
       </td>
       <td className="px-4 py-4 align-top">
@@ -491,7 +551,18 @@ function formatQualityRate(totals: DashboardMetrics["totals"]): string {
 
 function formatDateTime(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return value;
+  const year = date.getUTCFullYear();
+  const month = padDatePart(date.getUTCMonth() + 1);
+  const day = padDatePart(date.getUTCDate());
+  const hours = padDatePart(date.getUTCHours());
+  const minutes = padDatePart(date.getUTCMinutes());
+  const seconds = padDatePart(date.getUTCSeconds());
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds} UTC`;
+}
+
+function padDatePart(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 function providerLabel(provider: AgentProvider): string {
@@ -516,6 +587,7 @@ function savingsModeLabel(mode: SavingsMode): string {
 
 function qualitySourceLabel(source: DashboardMetricsRun["qualitySource"]): string {
   if (source === "event_metadata") return "Evaluator metadata";
+  if (source === "swebench_evaluator") return "SWE-bench evaluator";
   if (source === "run_status") return "Run status";
   return "Awaiting evaluator";
 }

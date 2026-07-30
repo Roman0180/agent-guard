@@ -410,7 +410,7 @@ def test_user_prompt_hook_requests_required_deepseek_refinement() -> None:
     assert request_body(requests, "/refine")["require_reasoning_refinement"] is True
 
 
-def test_user_prompt_hook_requests_kimi_after_deterministic_refinement() -> None:
+def test_user_prompt_hook_requests_coding_model_after_deterministic_refinement() -> None:
     requests: list[tuple[str, dict]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -423,7 +423,7 @@ def test_user_prompt_hook_requests_kimi_after_deterministic_refinement() -> None
                     "source": "deterministic-then-coding",
                     "quality": "low",
                     "issues": ["prompt is underspecified"],
-                    "refined_prompt": "Task: fix auth refresh and run pnpm test.\n\nKimi implementation focus: Update refresh.ts.",
+                    "refined_prompt": "Task: fix auth refresh and run pnpm test.\n\nFocus: Update refresh.ts.",
                     "acceptance_criteria": ["auth refresh succeeds", "pnpm test passes"],
                     "testing_expectations": "Run pnpm test.",
                     "do_not_change": ["unrelated auth behavior"],
@@ -448,7 +448,7 @@ def test_user_prompt_hook_requests_kimi_after_deterministic_refinement() -> None
             **os.environ,
             "PYTHONPATH": str(Path.cwd() / "src"),
             "AGENT_SIDECAR_API_URL": f"http://127.0.0.1:{server.server_port}",
-            "AGENT_SIDECAR_REQUIRE_KIMI_CODING": "1",
+            "AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT": "1",
         }
         result = subprocess.run(
             [sys.executable, "-m", "agent_sidecar.adapters.claude_code.hook_script"],
@@ -542,7 +542,7 @@ def test_user_prompt_hook_uses_kimi_wrapper_when_enabled() -> None:
     assert "/refine" not in [path for path, _body in requests]
 
 
-def test_user_prompt_hook_requests_required_deepseek_and_kimi_refinement() -> None:
+def test_user_prompt_hook_requests_required_deepseek_and_coding_model_refinement() -> None:
     requests: list[tuple[str, dict]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -581,7 +581,7 @@ def test_user_prompt_hook_requests_required_deepseek_and_kimi_refinement() -> No
             "PYTHONPATH": str(Path.cwd() / "src"),
             "AGENT_SIDECAR_API_URL": f"http://127.0.0.1:{server.server_port}",
             "AGENT_SIDECAR_REQUIRE_DEEPSEEK_REFINEMENT": "1",
-            "AGENT_SIDECAR_REQUIRE_KIMI_CODING": "1",
+            "AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT": "1",
         }
         result = subprocess.run(
             [sys.executable, "-m", "agent_sidecar.adapters.claude_code.hook_script"],
@@ -605,3 +605,79 @@ def test_user_prompt_hook_requests_required_deepseek_and_kimi_refinement() -> No
     refine_request = request_body(requests, "/refine")
     assert refine_request["require_reasoning_refinement"] is True
     assert refine_request["require_coding_refinement"] is True
+
+
+def test_user_prompt_hook_falls_back_when_required_model_refinement_fails() -> None:
+    requests: list[tuple[str, dict]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("content-length", "0"))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            requests.append((self.path, body))
+            refine_count = sum(1 for path, _body in requests if path == "/refine")
+            if self.path == "/refine" and refine_count == 1:
+                response = {"detail": "DeepSeek prompt refinement required but unavailable: invalid_json"}
+                encoded = json.dumps(response).encode("utf-8")
+                self.send_response(424)
+            elif self.path == "/refine":
+                response = {
+                    "source": "deterministic",
+                    "quality": "low",
+                    "issues": ["prompt is underspecified"],
+                    "refined_prompt": "Task: fix auth refresh and run pnpm test.",
+                    "acceptance_criteria": ["auth refresh succeeds"],
+                    "testing_expectations": "Run pnpm test.",
+                    "do_not_change": ["unrelated auth behavior"],
+                }
+                encoded = json.dumps(response).encode("utf-8")
+                self.send_response(200)
+            else:
+                response = {"accepted": 1}
+                encoded = json.dumps(response).encode("utf-8")
+                self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(encoded)))
+            self.end_headers()
+            self.wfile.write(encoded)
+
+        def log_message(self, *_args) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        env = {
+            **os.environ,
+            "PYTHONPATH": str(Path.cwd() / "src"),
+            "AGENT_SIDECAR_API_URL": f"http://127.0.0.1:{server.server_port}",
+            "AGENT_SIDECAR_REQUIRE_DEEPSEEK_REFINEMENT": "1",
+            "AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT": "1",
+            "AGENT_SIDECAR_ALLOW_REFINEMENT_FALLBACK": "1",
+        }
+        result = subprocess.run(
+            [sys.executable, "-m", "agent_sidecar.adapters.claude_code.hook_script"],
+            input=json.dumps(load_fixture("user_prompt_submit.json")),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            timeout=5,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    output = json.loads(result.stdout)
+    assert output["suppressOutput"] is True
+    assert "Source: deterministic" in output["hookSpecificOutput"]["additionalContext"]
+    refine_requests = [body for path, body in requests if path == "/refine"]
+    assert len(refine_requests) == 2
+    assert refine_requests[0]["require_reasoning_refinement"] is True
+    assert refine_requests[0]["require_coding_refinement"] is True
+    assert "require_reasoning_refinement" not in refine_requests[1]
+    assert "require_coding_refinement" not in refine_requests[1]

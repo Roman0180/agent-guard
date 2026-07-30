@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
 
 
-ServingBackend = Literal["ollama", "llama_server"]
+ServingBackend = Literal["ollama", "llama_server", "deepseek"]
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,13 @@ class ServiceStatus:
 
 def service_status(backend: ServingBackend, api_base: str, *, timeout_s: float = 0.5) -> ServiceStatus:
     try:
-        models = list_ollama_models(api_base, timeout_s=timeout_s) if backend == "ollama" else list_openai_models(api_base, timeout_s=timeout_s)
+        if backend == "ollama":
+            models = list_ollama_models(api_base, timeout_s=timeout_s)
+        else:
+            api_key = api_key_for_backend(backend)
+            if backend == "deepseek" and not api_key:
+                return ServiceStatus(backend=backend, api_base=api_base, reachable=False, models=[], error="DEEPSEEK_API_KEY is not set")
+            models = list_openai_models(api_base, backend=backend, api_key=api_key, timeout_s=timeout_s)
         return ServiceStatus(backend=backend, api_base=api_base, reachable=True, models=models)
     except (httpx.HTTPError, ValueError) as error:
         return ServiceStatus(backend=backend, api_base=api_base, reachable=False, models=[], error=str(error))
@@ -50,8 +57,9 @@ def list_ollama_models(api_base: str, *, timeout_s: float = 0.5) -> list[Service
     return result
 
 
-def list_openai_models(api_base: str, *, timeout_s: float = 0.5) -> list[ServiceModel]:
-    response = httpx.get(f"{api_base.rstrip('/')}/models", timeout=timeout_s)
+def list_openai_models(api_base: str, *, backend: ServingBackend = "llama_server", api_key: str | None = None, timeout_s: float = 0.5) -> list[ServiceModel]:
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    response = httpx.get(f"{api_base.rstrip('/')}/models", headers=headers, timeout=timeout_s)
     response.raise_for_status()
     payload = response.json()
     data = payload.get("data")
@@ -63,7 +71,7 @@ def list_openai_models(api_base: str, *, timeout_s: float = 0.5) -> list[Service
             continue
         model_id = item.get("id")
         if isinstance(model_id, str):
-            result.append(ServiceModel(id=model_id, backend="llama_server", raw=item))
+            result.append(ServiceModel(id=model_id, backend=backend, raw=item))
     return result
 
 
@@ -82,3 +90,9 @@ def pull_ollama_model(api_base: str, model_id: str, *, timeout_s: float = 1800.0
     response.raise_for_status()
     payload = response.json()
     return payload if isinstance(payload, dict) else {"status": "ok"}
+
+
+def api_key_for_backend(backend: ServingBackend) -> str | None:
+    if backend == "deepseek":
+        return os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("AGENT_SIDECAR_DEEPSEEK_API_KEY")
+    return None

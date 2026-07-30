@@ -10,7 +10,7 @@ from agent_sidecar.schema.model_io import KimiWrapperResult, ModelProvider, Mode
 
 
 class KimiWrapperRequiredError(RuntimeError):
-    """Raised when Kimi wrapper execution is requested but unavailable."""
+    """Raised when coding-wrapper execution is requested but unavailable."""
 
 
 def wrap_prompt_with_kimi(
@@ -22,7 +22,7 @@ def wrap_prompt_with_kimi(
     record_prompt_submitted: bool = True,
 ) -> tuple[RefineResult, KimiWrapperResult, list[SidecarEvent]]:
     if provider is None:
-        raise KimiWrapperRequiredError("Kimi wrapper requires a model provider")
+        raise KimiWrapperRequiredError("coding wrapper requires a model provider")
 
     refined = _refine_for_wrapper(prompt, provider)
     result = provider.complete_json(
@@ -32,7 +32,7 @@ def wrap_prompt_with_kimi(
         KimiWrapperResult,
     )
     if not isinstance(result, KimiWrapperResult):
-        raise KimiWrapperRequiredError("Kimi did not produce a valid wrapper result")
+        raise KimiWrapperRequiredError("coding model did not produce a valid wrapper result")
 
     return refined, result, _wrapper_events(
         result,

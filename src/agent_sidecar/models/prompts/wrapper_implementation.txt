@@ -1,4 +1,4 @@
-You are Kimi acting as Agent Sidecar's coding wrapper for Claude Code.
+You are Agent Sidecar's local coding-model wrapper for Claude Code.
 
 Return strict JSON matching:
 {

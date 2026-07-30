@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import shutil
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import StreamingResponse
 
 from agent_sidecar.adapters.claude_code.hooks_adapter import events_from_hook
 from agent_sidecar.intel.cost import price_map_metadata, session_cost
@@ -108,7 +111,7 @@ def create_api_router(manager_dependency) -> APIRouter:
         except ReasoningRefinementRequiredError as error:
             raise HTTPException(status_code=424, detail=f"DeepSeek prompt refinement required but unavailable: {error}") from error
         except CodingRefinementRequiredError as error:
-            raise HTTPException(status_code=424, detail=f"Kimi coding refinement required but unavailable: {error}") from error
+            raise HTTPException(status_code=424, detail=f"coding-model refinement required but unavailable: {error}") from error
         for event in events:
             manager.add_event(event)
         return result.model_dump(mode="json")
@@ -134,7 +137,7 @@ def create_api_router(manager_dependency) -> APIRouter:
                 record_prompt_submitted=bool(body.get("record_prompt_submitted", True)),
             )
         except KimiWrapperRequiredError as error:
-            raise HTTPException(status_code=424, detail=f"Kimi wrapper required but unavailable: {error}") from error
+            raise HTTPException(status_code=424, detail=f"coding wrapper required but unavailable: {error}") from error
         for event in events:
             manager.add_event(event)
         return {
@@ -179,6 +182,38 @@ def create_api_router(manager_dependency) -> APIRouter:
     @router.get("/api/dashboard/metrics")
     def dashboard_metrics(manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
         return _dashboard_metrics(manager)
+
+    @router.get("/api/dashboard/events")
+    async def dashboard_events(manager: SessionManager = Depends(manager_dependency)) -> StreamingResponse:
+        async def event_stream():
+            last_fingerprint: str | None = None
+            while True:
+                metrics = _dashboard_metrics(manager)
+                fingerprint = _dashboard_fingerprint(metrics)
+                if fingerprint != last_fingerprint:
+                    last_fingerprint = fingerprint
+                    payload = {
+                        "fingerprint": fingerprint,
+                        "generatedAt": metrics.get("generatedAt"),
+                        "runCount": (metrics.get("totals") or {}).get("runCount", 0),
+                    }
+                    yield f"event: metrics\ndata: {json.dumps(payload, sort_keys=True)}\n\n"
+                else:
+                    yield ": keepalive\n\n"
+                await asyncio.sleep(1)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @router.post("/api/dashboard/reset")
+    def reset_dashboard(manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
+        return {**_reset_dashboard_data(manager), "metrics": _dashboard_metrics(manager)}
 
     @router.post("/sessions/{session_id}/budget")
     def configure_budget(session_id: str, body: dict[str, Any], manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
@@ -242,6 +277,44 @@ def _dashboard_metrics(manager: SessionManager) -> dict[str, Any]:
     }
 
 
+def _dashboard_fingerprint(metrics: dict[str, Any]) -> str:
+    runs = metrics.get("runs") if isinstance(metrics.get("runs"), list) else []
+    payload = [
+        {
+            "id": run.get("id"),
+            "status": run.get("status"),
+            "updatedAt": run.get("updatedAt"),
+            "defaultCostUsd": run.get("defaultCostUsd"),
+            "sidecarCostUsd": run.get("sidecarCostUsd"),
+            "qualityVerdict": run.get("qualityVerdict"),
+            "baselineScore": run.get("baselineScore"),
+            "sidecarScore": run.get("sidecarScore"),
+        }
+        for run in runs
+        if isinstance(run, dict)
+    ]
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _reset_dashboard_data(manager: SessionManager) -> dict[str, Any]:
+    sessions_removed = manager.clear_sessions()
+    swebench_runs_removed = 0
+    root = manager.repo_path / ".agent-sidecar" / "swebench-lite"
+    if root.exists():
+        for results_path in sorted(root.glob("*/results.jsonl")):
+            run_dir = results_path.parent
+            try:
+                shutil.rmtree(run_dir)
+            except FileNotFoundError:
+                continue
+            swebench_runs_removed += 1
+    return {
+        "ok": True,
+        "sessionsRemoved": sessions_removed,
+        "swebenchRunsRemoved": swebench_runs_removed,
+    }
+
+
 def _swebench_dashboard_runs(manager: SessionManager) -> list[dict[str, Any]]:
     root = manager.repo_path / ".agent-sidecar" / "swebench-lite"
     if not root.exists():
@@ -270,14 +343,25 @@ def _swebench_dashboard_runs(manager: SessionManager) -> list[dict[str, Any]]:
             savings = baseline_cost - sidecar_cost
             baseline_exit = _int_value(baseline.get("exit_code"))
             sidecar_exit = _int_value(sidecar.get("exit_code"))
-            quality_preserved = baseline_exit == 0 and sidecar_exit == 0
+            baseline_grade = baseline.get("grade") if isinstance(baseline.get("grade"), dict) else {}
+            sidecar_grade = sidecar.get("grade") if isinstance(sidecar.get("grade"), dict) else {}
+            baseline_score = _optional_score(row.get("baseline_score"), baseline_grade.get("score"))
+            sidecar_score = _optional_score(row.get("sidecar_score"), sidecar_grade.get("score"))
+            if baseline_score is not None and sidecar_score is not None:
+                quality_preserved = sidecar_score >= baseline_score
+                quality_source = "swebench_evaluator"
+                status = "completed" if sidecar_score > 0 else "failed"
+            else:
+                quality_preserved = baseline_exit == 0 and sidecar_exit == 0
+                quality_source = "run_status"
+                status = "completed" if quality_preserved else "failed"
             instance_id = str(row.get("instance_id") or f"task-{index}")
             model_route = _model_route_from_sources(baseline, sidecar)
             runs.append({
                 "id": f"swebench-lite:{results_path.parent.name}:{instance_id}",
                 "label": f"SWE-bench Lite {instance_id}",
                 "provider": "claude-code",
-                "status": "completed" if quality_preserved else "failed",
+                "status": status,
                 "startedAt": generated_at,
                 "updatedAt": generated_at,
                 "completedAt": generated_at,
@@ -290,7 +374,12 @@ def _swebench_dashboard_runs(manager: SessionManager) -> list[dict[str, Any]]:
                 "executionDeltaMs": _optional_delta(baseline.get("duration_ms"), sidecar.get("duration_ms")),
                 "qualityPreserved": quality_preserved,
                 "qualityVerdict": "preserved" if quality_preserved else "regressed",
-                "qualitySource": "run_status",
+                "qualitySource": quality_source,
+                "baselineScore": baseline_score,
+                "sidecarScore": sidecar_score,
+                "scoreDelta": sidecar_score - baseline_score if baseline_score is not None and sidecar_score is not None else None,
+                "baselineGradeStatus": baseline_grade.get("status"),
+                "sidecarGradeStatus": sidecar_grade.get("status"),
                 "savingsMode": "run_totals",
                 "confidence": 1.0 if baseline_cost > 0 and sidecar_cost > 0 else 0.0,
                 "modelRoute": model_route,
@@ -374,6 +463,22 @@ def _swebench_timestamp(value: str) -> str:
     except ValueError:
         return _iso(utc_now())
     return _iso(parsed)
+
+
+def _optional_score(*values: Any) -> int | None:
+    for value in values:
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                continue
+    return None
 
 
 def _model_route_from_sources(*phases: dict[str, Any]) -> str | None:

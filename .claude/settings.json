@@ -1,0 +1,82 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script"
+          }
+        ]
+      }
+    ]
+  }
+}

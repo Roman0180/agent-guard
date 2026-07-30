@@ -9,32 +9,48 @@ ARTIFACT_DIR="$ROOT_DIR/.agent-sidecar/e2e/$RUN_ID"
 START_HTML="$ARTIFACT_DIR/boilerplate.start.html"
 BASELINE_HTML="$ARTIFACT_DIR/boilerplate.baseline.html"
 SIDECAR_HTML="$ARTIFACT_DIR/boilerplate.sidecar.html"
+BASELINE_WORKDIR="$ARTIFACT_DIR/workspaces/baseline"
+SIDECAR_WORKDIR="$ARTIFACT_DIR/workspaces/sidecar"
+BASELINE_META_JSON="$ARTIFACT_DIR/baseline.meta.json"
+SIDECAR_META_JSON="$ARTIFACT_DIR/sidecar.meta.json"
+RAW_TELEMETRY_COMPARE_JSON="$ARTIFACT_DIR/raw-telemetry-compare.json"
 DEEPSEEK_EVAL_JSON="$ARTIFACT_DIR/deepseek.implementation-eval.json"
 DEEPSEEK_EVAL_RAW_TXT="$ARTIFACT_DIR/deepseek.implementation-eval.raw.txt"
 BASELINE_CLAUDE_LOG="$ARTIFACT_DIR/claude.baseline.log"
 SIDECAR_CLAUDE_LOG="$ARTIFACT_DIR/claude.sidecar.log"
 BASELINE_DURATION_TXT="$ARTIFACT_DIR/claude.baseline.duration.txt"
 SIDECAR_DURATION_TXT="$ARTIFACT_DIR/claude.sidecar.duration.txt"
+BASELINE_API_PORT="${AGENT_SIDECAR_E2E_BASELINE_API_PORT:-17453}"
+BASELINE_OTLP_PORT="${AGENT_SIDECAR_E2E_BASELINE_OTLP_PORT:-14338}"
+SIDECAR_API_PORT="${AGENT_SIDECAR_E2E_SIDECAR_API_PORT:-17454}"
+SIDECAR_OTLP_PORT="${AGENT_SIDECAR_E2E_SIDECAR_OTLP_PORT:-14339}"
 CLAUDE_MODEL="${CLAUDE_MODEL:-opus}"
 CLAUDE_PERMISSION_MODE="${CLAUDE_PERMISSION_MODE:-acceptEdits}"
 AGENT_SIDECAR_MODEL_TIMEOUT_MS="${AGENT_SIDECAR_MODEL_TIMEOUT_MS:-60000}"
 AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS="${AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS:-75}"
 AGENT_SIDECAR_MODEL_MAX_TOKENS="${AGENT_SIDECAR_MODEL_MAX_TOKENS:-768}"
+AGENT_SIDECAR_E2E_BASELINE_COST_USD="${AGENT_SIDECAR_BASELINE_COST_USD:-}"
 SKIP_INSTALL=0
 SINGLE_RUN=0
 AUTO_SUBMIT=1
+HTML_OUTPUTS_OPENED=0
 
-EXAMPLE_PROMPT='Update the untracked boilerplate.html file into a polished single-page HTML demo for Agent Sidecar. Keep it dependency-free: only HTML and inline CSS/JS in this one file. Add semantic sections for a header, a status panel, a short prompt-interception workflow, and a cost comparison panel. Include accessible labels, responsive styling, and a small interactive button that toggles between "Baseline" and "Sidecar" cost examples. Do not touch any other files. After editing, read the final HTML back to inspect it for obvious syntax issues and summarize exactly what changed.'
+DEFAULT_EXAMPLE_PROMPT='Replace boilerplate.html with a compact Agent Sidecar savings card for a fast smoke demo. Keep it dependency-free in one file with semantic HTML and inline CSS only. Include a header, one status pill, three metric tiles for Baseline $0.60, Sidecar $0.51, and Savings 15%, plus a three-step workflow list. No JavaScript, external assets, tests, extra files, or final file reread. Keep the HTML under 120 lines. Briefly summarize the change.'
+EXAMPLE_PROMPT="${AGENT_SIDECAR_E2E_PROMPT:-$DEFAULT_EXAMPLE_PROMPT}"
 
 usage() {
   cat <<'EOF'
 Run the Agent Sidecar + Claude Code end-to-end flow.
 
-Prompt refinement is deterministic by default. This demo still requires the Kimi coding route
-for the implementation-focused follow-up and DeepSeek for post-run implementation evaluation.
+This demo requires the configured local coding route for the implementation-focused prompt
+follow-up and the local reasoning model for post-run implementation evaluation.
+In paired auto-submit mode, the baseline and Sidecar Claude Code runs execute in parallel in
+separate artifact workspaces.
 
 Prepare local models first with:
-  START_DEEPSEEK=1 ./scripts/start_local_models.sh
+  brew install llama.cpp
+  llama-server -hf bartowski/Meta-Llama-3-8B-Instruct-GGUF:Q4_0 --host 127.0.0.1 --port 8080 --alias llama3:latest
+  ./scripts/start_local_models.sh
 
 Usage:
   scripts/e2e_claude_code.sh [--skip-install] [--single] [--manual]
@@ -50,12 +66,26 @@ Environment:
                           Default: opus
   CLAUDE_PERMISSION_MODE  Permission mode for auto-submitted Claude runs.
                           Default: acceptEdits
+  AGENT_SIDECAR_E2E_BASELINE_API_PORT / AGENT_SIDECAR_E2E_BASELINE_OTLP_PORT
+                         Ports for the baseline workspace daemon.
+                         Defaults: 17453 / 14338
+  AGENT_SIDECAR_E2E_SIDECAR_API_PORT / AGENT_SIDECAR_E2E_SIDECAR_OTLP_PORT
+                         Ports for the Sidecar workspace daemon.
+                         Defaults: 17454 / 14339
   AGENT_SIDECAR_MODEL_TIMEOUT_MS
                          Local model call timeout. Default: 60000
   AGENT_SIDECAR_MODEL_MAX_TOKENS
                          Local model output cap. Default: 768
-  AGENT_SIDECAR_REQUIRE_KIMI_CODING
-                         Set by this script; requires Kimi coding focus after deterministic refinement.
+  AGENT_SIDECAR_BASELINE_COST_USD
+                         Optional explicit baseline cost for testing Sidecar budget context
+                         in parallel mode. Same-run baseline cost is compared after both runs.
+  AGENT_SIDECAR_E2E_OPEN_HTML
+                         Open saved HTML artifacts before exit. Default: 1
+  AGENT_SIDECAR_E2E_PROMPT
+                         Override the compact default prompt. The built-in prompt is
+                         intentionally scoped for an approximately 45 second Claude phase.
+  AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT
+                         Set by this script; requires coding-model focus after deterministic refinement.
 EOF
 }
 
@@ -86,6 +116,11 @@ done
 if [[ "$AUTO_SUBMIT" -eq 0 && (! -t 0 || ! -t 1) ]]; then
   echo "Run manual mode from an interactive terminal; it launches Claude Code." >&2
   exit 1
+fi
+
+if [[ "$AUTO_SUBMIT" -eq 0 && "$SINGLE_RUN" -eq 0 ]]; then
+  echo "Manual paired runs cannot run in parallel. Use auto-submit mode, or combine --manual with --single." >&2
+  exit 2
 fi
 
 cd "$ROOT_DIR"
@@ -156,19 +191,90 @@ EOF
 
 restore_html_fixture() {
   local label="$1"
-  cp "$START_HTML" "$TARGET_HTML"
-  echo "Reset boilerplate.html for $label from $START_HTML"
+  local destination="${2:-$TARGET_HTML}"
+  cp "$START_HTML" "$destination"
+  echo "Reset $destination for $label from $START_HTML"
 }
 
 save_html_output() {
   local label="$1"
   local destination="$2"
-  if [[ -f "$TARGET_HTML" ]]; then
-    cp "$TARGET_HTML" "$destination"
+  local source="${3:-$TARGET_HTML}"
+  if [[ -f "$source" ]]; then
+    cp "$source" "$destination"
     echo "Saved $label HTML output: $destination"
   else
-    echo "Warning: boilerplate.html does not exist after $label run." >&2
+    echo "Warning: $source does not exist after $label run." >&2
   fi
+}
+
+open_html_output() {
+  local label="$1"
+  local path="$2"
+  if [[ "${AGENT_SIDECAR_E2E_OPEN_HTML:-1}" == "0" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "Warning: cannot open $label HTML; missing file: $path" >&2
+    return 0
+  fi
+
+  if command -v open >/dev/null 2>&1; then
+    if open "$path" >/dev/null 2>&1; then
+      echo "Opened $label HTML: $path"
+    else
+      echo "Warning: failed to open $label HTML: $path" >&2
+    fi
+    return 0
+  fi
+
+  if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$path" >/dev/null 2>&1 &
+    echo "Opened $label HTML: $path"
+    return 0
+  fi
+
+  python3 - "$path" <<'PY' || true
+from __future__ import annotations
+
+import sys
+import webbrowser
+from pathlib import Path
+
+webbrowser.open(Path(sys.argv[1]).resolve().as_uri())
+PY
+  echo "Opened $label HTML: $path"
+}
+
+open_saved_html_outputs() {
+  if [[ "${AGENT_SIDECAR_E2E_OPEN_HTML:-1}" == "0" || "$HTML_OUTPUTS_OPENED" -eq 1 ]]; then
+    return 0
+  fi
+
+  local opened=0
+  if [[ -f "$BASELINE_HTML" ]]; then
+    open_html_output "baseline" "$BASELINE_HTML"
+    opened=1
+  fi
+  if [[ -f "$SIDECAR_HTML" ]]; then
+    open_html_output "sidecar" "$SIDECAR_HTML"
+    opened=1
+  fi
+  if [[ "$opened" -eq 1 ]]; then
+    HTML_OUTPUTS_OPENED=1
+  fi
+}
+
+prepare_run_workspace() {
+  local label="$1"
+  local repo_dir="$2"
+  rm -rf "$repo_dir"
+  mkdir -p "$repo_dir"
+  cp "$START_HTML" "$repo_dir/boilerplate.html"
+  if command -v git >/dev/null 2>&1; then
+    git -C "$repo_dir" init -q
+  fi
+  echo "Prepared $label workspace: $repo_dir"
 }
 
 reset_html_on_exit() {
@@ -176,6 +282,51 @@ reset_html_on_exit() {
     cp "$START_HTML" "$TARGET_HTML"
     echo "Reset boilerplate.html after script run."
   fi
+}
+
+stop_sidecar_daemon() {
+  local repo_dir="$1"
+  python3 - "$repo_dir" <<'PY'
+from __future__ import annotations
+
+import json
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+path = Path(sys.argv[1]) / ".agent-sidecar" / "daemon.json"
+try:
+    state = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+
+pid = state.get("pid")
+if not isinstance(pid, int) or pid <= 0:
+    raise SystemExit(0)
+
+try:
+    os.kill(pid, 0)
+except OSError:
+    raise SystemExit(0)
+
+os.kill(pid, signal.SIGTERM)
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        break
+    time.sleep(0.1)
+PY
+}
+
+cleanup_on_exit() {
+  stop_sidecar_daemon "$BASELINE_WORKDIR" || true
+  stop_sidecar_daemon "$SIDECAR_WORKDIR" || true
+  open_saved_html_outputs
+  reset_html_on_exit
 }
 
 restart_sidecar_daemon_for_demo() {
@@ -253,13 +404,15 @@ ensure_python_env() {
 }
 
 latest_stopped_session() {
-  agent-sidecar session list | awk '$2 == "stopped" { id = $1 } END { if (id) print id }'
+  local repo_dir="${1:-$ROOT_DIR}"
+  (cd "$repo_dir" && agent-sidecar session list | awk '$2 == "stopped" { id = $1 } END { if (id) print id }')
 }
 
 stop_active_session() {
+  local repo_dir="${1:-$ROOT_DIR}"
   local output session_id
   set +e
-  output="$(agent-sidecar session stop 2>&1)"
+  output="$(cd "$repo_dir" && agent-sidecar session stop 2>&1)"
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
@@ -269,9 +422,64 @@ stop_active_session() {
   echo "$output"
   session_id="$(printf '%s\n' "$output" | awk '/^Stopped / { print $2; exit }')"
   if [[ -z "$session_id" ]]; then
-    session_id="$(latest_stopped_session)"
+    session_id="$(latest_stopped_session "$repo_dir")"
   fi
   printf '%s\n' "$session_id"
+}
+
+json_file_field() {
+  local path="$1"
+  local field="$2"
+  python3 - "$path" "$field" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+value = payload.get(sys.argv[2], "")
+print("" if value is None else value)
+PY
+}
+
+write_e2e_run_meta() {
+  local path="$1"
+  local phase="$2"
+  local session_id="$3"
+  local exit_code="$4"
+  local repo_dir="$5"
+  local api_port="$6"
+  local otlp_port="$7"
+  local log_path="$8"
+  local duration_path="$9"
+  local html_path="${10}"
+  local diagnostic_log_path="${11}"
+  python3 - "$path" "$phase" "$session_id" "$exit_code" "$repo_dir" "$api_port" "$otlp_port" "$log_path" "$duration_path" "$html_path" "$diagnostic_log_path" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = {
+    "phase": sys.argv[2],
+    "session_id": sys.argv[3],
+    "exit_code": int(sys.argv[4]),
+    "repo_dir": sys.argv[5],
+    "api_port": int(sys.argv[6]),
+    "otlp_port": int(sys.argv[7]),
+    "log_path": sys.argv[8],
+    "duration_path": sys.argv[9],
+    "html_path": sys.argv[10],
+    "diagnostic_log_path": sys.argv[11],
+}
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 }
 
 print_example_prompt() {
@@ -286,6 +494,7 @@ run_claude_session() {
   local label="$1"
   local log_path="$2"
   local duration_path="${3:-}"
+  local repo_dir="${4:-$ROOT_DIR}"
   local started ended elapsed_ms status
   section "$label"
   print_example_prompt
@@ -293,13 +502,13 @@ run_claude_session() {
   if [[ "$AUTO_SUBMIT" -eq 1 ]]; then
     printf '\nSubmitting prompt with: %s -p --model %s --permission-mode %s\n' "$CLAUDE_BIN" "$CLAUDE_MODEL" "$CLAUDE_PERMISSION_MODE"
     set +e
-    "$CLAUDE_BIN" -p --model "$CLAUDE_MODEL" --permission-mode "$CLAUDE_PERMISSION_MODE" "$EXAMPLE_PROMPT" | tee "$log_path"
+    (cd "$repo_dir" && "$CLAUDE_BIN" -p --model "$CLAUDE_MODEL" --permission-mode "$CLAUDE_PERMISSION_MODE" "$EXAMPLE_PROMPT") | tee "$log_path"
     status=${PIPESTATUS[0]}
     set -e
   else
     pause "Claude Code will open now. Submit the prompt, let it finish, then exit Claude Code."
     set +e
-    "$CLAUDE_BIN" --model "$CLAUDE_MODEL"
+    (cd "$repo_dir" && "$CLAUDE_BIN" --model "$CLAUDE_MODEL")
     status=$?
     set -e
   fi
@@ -332,86 +541,83 @@ PY
   return "$status"
 }
 
-preflight_kimi_coding_route() {
-  section "Preflight Kimi Coding Route"
-  python3 - <<'PY'
+preflight_coding_route() {
+  local api_url="${1:-${AGENT_SIDECAR_API_URL:-http://127.0.0.1:7433}}"
+  section "Preflight Local Coding Route"
+  python3 - "$api_url" <<'PY'
 from __future__ import annotations
 
 import json
-import os
 import sys
 import urllib.request
 
-api_url = os.environ.get("AGENT_SIDECAR_API_URL", "http://127.0.0.1:7433").rstrip()
+api_url = sys.argv[1].rstrip("/")
 try:
     with urllib.request.urlopen(f"{api_url}/models", timeout=5) as response:
         rows = json.loads(response.read().decode("utf-8")).get("roles", [])
 except (OSError, json.JSONDecodeError) as error:
-    print(f"Kimi coding-route preflight failed: {error}", file=sys.stderr)
-    print("Start/register Kimi with llama-server, then rerun this demo.", file=sys.stderr)
+    print(f"Local coding-route preflight failed: {error}", file=sys.stderr)
+    print("Start/register the configured local coding model, then rerun this demo.", file=sys.stderr)
     raise SystemExit(1)
 
 coding = next((row for row in rows if row.get("role") == "coding"), None)
 if not coding:
-    print("Kimi coding-route preflight failed: no coding role returned by /models.", file=sys.stderr)
+    print("Local coding-route preflight failed: no coding role returned by /models.", file=sys.stderr)
     raise SystemExit(1)
-if coding.get("model_id") != "kimi-linear-48b-a3b" or coding.get("served") is not True or coding.get("available") is not True:
-    print(f"Kimi coding route is not ready: {coding}", file=sys.stderr)
-    print("Start/register Kimi with llama-server, then rerun this demo.", file=sys.stderr)
+if coding.get("served") is not True or coding.get("available") is not True:
+    print(f"Local coding route is not ready: {coding}", file=sys.stderr)
+    print("Start/register the configured local coding model, then rerun this demo.", file=sys.stderr)
     raise SystemExit(1)
 
-print(f"Kimi coding route ok: {coding.get('model_id')} via {coding.get('serving')}")
+print(f"Local coding route ok: {coding.get('model_id')} via {coding.get('serving')}")
 PY
 }
 
 preflight_deepseek_reasoning_route() {
-  section "Preflight DeepSeek Evaluation Route"
-  python3 - <<'PY'
+  local api_url="${1:-${AGENT_SIDECAR_API_URL:-http://127.0.0.1:7433}}"
+  section "Preflight Reasoning Route"
+  python3 - "$api_url" <<'PY'
 from __future__ import annotations
 
 import json
-import os
 import sys
 import urllib.request
 
-api_url = os.environ.get("AGENT_SIDECAR_API_URL", "http://127.0.0.1:7433").rstrip()
+api_url = sys.argv[1].rstrip("/")
 try:
     with urllib.request.urlopen(f"{api_url}/models", timeout=5) as response:
         rows = json.loads(response.read().decode("utf-8")).get("roles", [])
 except (OSError, json.JSONDecodeError) as error:
-    print(f"DeepSeek reasoning-route preflight failed: {error}", file=sys.stderr)
-    print("Start/register DeepSeek with Ollama, then rerun this demo.", file=sys.stderr)
+    print(f"Reasoning-route preflight failed: {error}", file=sys.stderr)
+    print("Start Ollama and pull the configured reasoning model (./scripts/start_local_models.sh), then rerun this demo.", file=sys.stderr)
     raise SystemExit(1)
 
 reasoning = next((row for row in rows if row.get("role") == "reasoning"), None)
 if not reasoning:
-    print("DeepSeek reasoning-route preflight failed: no reasoning role returned by /models.", file=sys.stderr)
-    raise SystemExit(1)
-model_id = str(reasoning.get("model_id") or "")
-if "deepseek" not in model_id.lower():
-    print(f"Reasoning route is not DeepSeek-backed: {reasoning}", file=sys.stderr)
+    print("Reasoning-route preflight failed: no reasoning role returned by /models.", file=sys.stderr)
     raise SystemExit(1)
 if reasoning.get("served") is not True or reasoning.get("available") is not True:
-    print(f"DeepSeek reasoning route is not ready: {reasoning}", file=sys.stderr)
-    print("Start/register DeepSeek with Ollama, then rerun this demo.", file=sys.stderr)
+    print(f"Reasoning route is not ready: {reasoning}", file=sys.stderr)
+    print("Start Ollama and pull the configured reasoning model (./scripts/start_local_models.sh), then rerun this demo.", file=sys.stderr)
     raise SystemExit(1)
 
 print(f"DeepSeek reasoning route ok: {reasoning.get('model_id')} via {reasoning.get('serving')}")
 PY
 }
 
-assert_deterministic_and_kimi_used() {
+assert_deterministic_and_coding_model_used() {
   local session_id="$1"
-  python3 - "$ROOT_DIR" "$session_id" <<'PY'
+  local repo_dir="${2:-$ROOT_DIR}"
+  python3 - "$repo_dir" "$session_id" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
 
-root = Path(sys.argv[1])
+repo_dir = Path(sys.argv[1])
 session_id = sys.argv[2]
-path = root / ".agent-sidecar" / "sessions" / f"{session_id}.jsonl"
+path = repo_dir / ".agent-sidecar" / "sessions" / f"{session_id}.jsonl"
 events = []
 try:
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -442,7 +648,7 @@ if latest.get("source") != "deterministic-then-coding":
 calls = [event.get("payload") or {} for event in events if event.get("event_type") == "model_call_completed"]
 reasoning_calls = [call for call in calls if call.get("role") == "reasoning"]
 if reasoning_calls:
-    print("Sidecar prompt refinement used the reasoning model; expected deterministic prompt refinement with no DeepSeek call.", file=sys.stderr)
+    print("Sidecar prompt refinement used the reasoning model; expected coding-model focus after deterministic refinement.", file=sys.stderr)
     for call in calls[-6:]:
         print(
             "  model_call "
@@ -457,10 +663,10 @@ valid_coding = any(
     for call in calls
 )
 if not valid_coding:
-    print("Sidecar deterministic refinement was recorded, but no successful Kimi coding call was found.", file=sys.stderr)
+    print("Sidecar deterministic refinement was recorded, but no successful coding-model call was found.", file=sys.stderr)
     raise SystemExit(1)
 
-print(f"Verified deterministic prompt refinement and Kimi coding focus for {session_id}.")
+print(f"Verified deterministic prompt refinement and coding-model focus for {session_id}.")
 PY
 }
 
@@ -468,7 +674,7 @@ evaluate_implementations_with_deepseek() {
   local baseline_html="$1"
   local sidecar_html="$2"
   local output_json="$3"
-  section "DeepSeek Implementation Evaluation"
+  section "Reasoning-Model Implementation Evaluation"
   python3 - "$ROOT_DIR" "$baseline_html" "$sidecar_html" "$output_json" "$EXAMPLE_PROMPT" <<'PY'
 from __future__ import annotations
 
@@ -632,7 +838,10 @@ PY
 raw_telemetry_compare() {
   local baseline_session="$1"
   local sidecar_session="$2"
-  python3 - "$ROOT_DIR" "$baseline_session" "$sidecar_session" <<'PY'
+  local baseline_repo_dir="${3:-$ROOT_DIR}"
+  local sidecar_repo_dir="${4:-$ROOT_DIR}"
+  local output_json="${5:-}"
+  python3 - "$baseline_repo_dir" "$baseline_session" "$sidecar_repo_dir" "$sidecar_session" "$output_json" <<'PY'
 from __future__ import annotations
 
 import json
@@ -641,8 +850,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-root = Path(sys.argv[1])
-sessions = [("Baseline", sys.argv[2]), ("Sidecar", sys.argv[3])]
+sessions = [
+    ("Baseline", Path(sys.argv[1]), sys.argv[2]),
+    ("Sidecar", Path(sys.argv[3]), sys.argv[4]),
+]
+output_json = Path(sys.argv[5]) if len(sys.argv) > 5 and sys.argv[5] else None
 
 
 def value(raw: dict[str, Any]) -> Any:
@@ -734,8 +946,8 @@ def iter_api_requests(path: Path) -> list[dict[str, Any]]:
     return list(rows.values()) or fallback_rows
 
 
-def summarize(session_id: str) -> dict[str, Any]:
-    path = root / ".agent-sidecar" / "sessions" / f"{session_id}.jsonl"
+def summarize(repo_dir: Path, session_id: str) -> dict[str, Any]:
+    path = repo_dir / ".agent-sidecar" / "sessions" / f"{session_id}.jsonl"
     rows = iter_api_requests(path)
     totals = {
         "requests": len(rows),
@@ -758,21 +970,21 @@ def summarize(session_id: str) -> dict[str, Any]:
     return totals
 
 
-summaries = [(label, session_id, summarize(session_id)) for label, session_id in sessions]
+summaries = [(label, repo_dir, session_id, summarize(repo_dir, session_id)) for label, repo_dir, session_id in sessions]
 
 print("Raw Claude API-request comparison")
 print("Note: sums unique claude_code.api_request records by request_id and ignores zero-only rollup events.")
 print()
 print(f"{'Run':<10} {'Session':<42} {'Req':>4} {'Input':>8} {'Output':>8} {'CacheRead':>10} {'CacheNew':>9} {'Cost':>11}")
-for label, session_id, total in summaries:
+for label, _repo_dir, session_id, total in summaries:
     print(
         f"{label:<10} {session_id:<42} {total['requests']:>4} "
         f"{total['input']:>8} {total['output']:>8} {total['cache_read']:>10} "
         f"{total['cache_create']:>9} ${total['cost']:>10.6f}"
     )
 
-baseline = summaries[0][2]
-sidecar = summaries[1][2]
+baseline = summaries[0][3]
+sidecar = summaries[1][3]
 delta_cost = baseline["cost"] - sidecar["cost"]
 delta_tokens = (
     baseline["input"] + baseline["output"] + baseline["cache_read"]
@@ -787,7 +999,7 @@ else:
 print(f"Token delta excluding cache creation: {delta_tokens:+d}")
 
 print()
-for label, _session_id, total in summaries:
+for label, _repo_dir, _session_id, total in summaries:
     print(f"{label} breakdown:")
     for key in sorted(total["by_source"]):
         group = total["by_source"][key]
@@ -839,6 +1051,55 @@ print(
     "Likely driver: "
     f"{request_delta:+d} Claude API requests and {largest_metric} changed by {largest_delta:+d} tokens."
 )
+
+if output_json is not None:
+    output_json.write_text(
+        json.dumps(
+            {
+                "baseline_session": summaries[0][2],
+                "sidecar_session": summaries[1][2],
+                "baseline_repo_dir": str(summaries[0][1]),
+                "sidecar_repo_dir": str(summaries[1][1]),
+                "baseline": {
+                    key: value for key, value in baseline.items() if key != "by_source"
+                },
+                "sidecar": {
+                    key: value for key, value in sidecar.items() if key != "by_source"
+                },
+                "delta_cost_usd": round(delta_cost, 6),
+                "delta_tokens_excluding_cache_creation": delta_tokens,
+                "cost_savings_pct": round(percent, 3),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+PY
+}
+
+enforce_raw_cost_savings() {
+  local compare_json="$1"
+  python3 - "$compare_json" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+delta = float(payload.get("delta_cost_usd") or 0.0)
+if delta <= 0:
+    baseline = float((payload.get("baseline") or {}).get("cost") or 0.0)
+    sidecar = float((payload.get("sidecar") or {}).get("cost") or 0.0)
+    print(
+        f"Measured Sidecar cost is not lower than baseline "
+        f"(baseline=${baseline:.6f}, sidecar=${sidecar:.6f}).",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+print(f"Measured raw telemetry savings: ${delta:.6f}")
 PY
 }
 
@@ -879,6 +1140,144 @@ print(f"Sidecar - baseline: {sign}{abs(delta_ms) / 1000:.1f}s ({sign}{abs(percen
 PY
 }
 
+run_e2e_phase() {
+  local phase="$1"
+  local label="$2"
+  local repo_dir="$3"
+  local api_port="$4"
+  local otlp_port="$5"
+  local claude_log="$6"
+  local duration_path="$7"
+  local html_output="$8"
+  local meta_path="$9"
+  local diag_path="$ARTIFACT_DIR/agent-sidecar.$phase.log"
+  local telemetry_exports session_output session_id status
+
+  section "Start $phase Sidecar workspace"
+  stop_sidecar_daemon "$repo_dir" || true
+  (
+    cd "$repo_dir"
+    export AGENT_SIDECAR_MODEL_TIMEOUT_MS
+    export AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS
+    export AGENT_SIDECAR_MODEL_MAX_TOKENS
+    : > "$diag_path"
+    {
+      printf 'phase=%s\n' "$phase"
+      printf 'repo_dir=%s\n' "$repo_dir"
+      printf 'api_port=%s\n' "$api_port"
+      printf 'otlp_port=%s\n' "$otlp_port"
+      printf 'claude_bin=%s\n' "$CLAUDE_BIN"
+      printf 'claude_model=%s\n' "$CLAUDE_MODEL"
+      printf 'claude_permission_mode=%s\n' "$CLAUDE_PERMISSION_MODE"
+      "$CLAUDE_BIN" --version || true
+      printf '\n== agent-sidecar start ==\n'
+      agent-sidecar start --api-port "$api_port" --otlp-port "$otlp_port"
+      printf '\n== hooks install ==\n'
+      agent-sidecar hooks install
+      printf '\n== hooks status ==\n'
+      agent-sidecar hooks status
+      printf '\n== models list ==\n'
+      agent-sidecar models list || true
+    } >> "$diag_path" 2>&1
+    telemetry_exports="$(agent-sidecar telemetry print-env 2>> "$diag_path")"
+    {
+      printf '\n== telemetry env ==\n'
+      printf '%s\n' "$telemetry_exports"
+    } >> "$diag_path"
+    eval "$telemetry_exports"
+    export AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT=1
+    unset AGENT_SIDECAR_REQUIRE_DEEPSEEK_REFINEMENT || true
+    unset AGENT_SIDECAR_REQUIRE_DEEPSEEK_CODING || true
+    if [[ "$phase" == "baseline" ]]; then
+      export AGENT_SIDECAR_PROMPT_INTERCEPT=off
+      unset AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT || true
+      unset AGENT_SIDECAR_REQUIRE_DEEPSEEK_REFINEMENT || true
+      unset AGENT_SIDECAR_REQUIRE_KIMI_CODING || true
+      unset AGENT_SIDECAR_BASELINE_SESSION || true
+      unset AGENT_SIDECAR_BASELINE_COST_USD || true
+      unset AGENT_SIDECAR_BUDGET_USD || true
+      unset AGENT_SIDECAR_REQUIRE_BUDGET || true
+    else
+      unset AGENT_SIDECAR_PROMPT_INTERCEPT || true
+      unset AGENT_SIDECAR_BASELINE_SESSION || true
+      export AGENT_SIDECAR_REQUIRE_BUDGET=0
+      export AGENT_SIDECAR_TARGET_SAVINGS_PCT="${AGENT_SIDECAR_TARGET_SAVINGS_PCT:-10}"
+      export AGENT_SIDECAR_BUDGET_WARNING_THRESHOLD_PCT="${AGENT_SIDECAR_BUDGET_WARNING_THRESHOLD_PCT:-80}"
+      export AGENT_SIDECAR_BUDGET_ENFORCEMENT="${AGENT_SIDECAR_BUDGET_ENFORCEMENT:-block}"
+      if [[ -n "$AGENT_SIDECAR_E2E_BASELINE_COST_USD" ]]; then
+        export AGENT_SIDECAR_BASELINE_COST_USD="$AGENT_SIDECAR_E2E_BASELINE_COST_USD"
+      else
+        unset AGENT_SIDECAR_BASELINE_COST_USD || true
+      fi
+      preflight_coding_route "http://127.0.0.1:$api_port"
+      preflight_deepseek_reasoning_route "http://127.0.0.1:$api_port"
+    fi
+    {
+      printf '\n== claude environment ==\n'
+      env | sort | grep -E '^(AGENT_SIDECAR|CLAUDE_CODE|OTEL_)' || true
+    } >> "$diag_path" 2>&1
+
+    set +e
+    run_claude_session "$label" "$claude_log" "$duration_path" "$repo_dir"
+    status=$?
+    set -e
+
+    {
+      printf '\n== claude result ==\n'
+      printf 'exit_code=%s\n' "$status"
+      printf 'claude_log_bytes=%s\n' "$(wc -c < "$claude_log" | tr -d ' ')"
+      printf '\n== session stop ==\n'
+    } >> "$diag_path" 2>&1
+    session_output="$(stop_active_session "$repo_dir" 2>> "$diag_path" || true)"
+    printf '%s\n' "$session_output" >> "$diag_path"
+    session_id="$(printf '%s\n' "$session_output" | tail -n 1)"
+    {
+      printf 'session_id=%s\n' "$session_id"
+      printf '\n== hooks uninstall ==\n'
+      agent-sidecar hooks uninstall
+    } >> "$diag_path" 2>&1 || true
+    save_html_output "$phase" "$html_output" "$repo_dir/boilerplate.html"
+    write_e2e_run_meta "$meta_path" "$phase" "$session_id" "$status" "$repo_dir" "$api_port" "$otlp_port" "$claude_log" "$duration_path" "$html_output" "$diag_path"
+    return "$status"
+  )
+}
+
+run_parallel_pair() {
+  local baseline_pid sidecar_pid baseline_status sidecar_status
+
+  prepare_run_workspace "baseline" "$BASELINE_WORKDIR"
+  prepare_run_workspace "sidecar" "$SIDECAR_WORKDIR"
+
+  section "Run baseline and Sidecar in parallel"
+  run_e2e_phase "baseline" "Claude Code: Baseline Run" "$BASELINE_WORKDIR" "$BASELINE_API_PORT" "$BASELINE_OTLP_PORT" "$BASELINE_CLAUDE_LOG" "$BASELINE_DURATION_TXT" "$BASELINE_HTML" "$BASELINE_META_JSON" &
+  baseline_pid=$!
+  run_e2e_phase "sidecar" "Claude Code: Sidecar Intercepted Run" "$SIDECAR_WORKDIR" "$SIDECAR_API_PORT" "$SIDECAR_OTLP_PORT" "$SIDECAR_CLAUDE_LOG" "$SIDECAR_DURATION_TXT" "$SIDECAR_HTML" "$SIDECAR_META_JSON" &
+  sidecar_pid=$!
+
+  set +e
+  wait "$baseline_pid"
+  baseline_status=$?
+  wait "$sidecar_pid"
+  sidecar_status=$?
+  set -e
+
+  BASELINE_SESSION="$(json_file_field "$BASELINE_META_JSON" session_id)"
+  SIDECAR_SESSION="$(json_file_field "$SIDECAR_META_JSON" session_id)"
+
+  if [[ "$baseline_status" -ne 0 || "$sidecar_status" -ne 0 ]]; then
+    echo "Paired Claude run failed (baseline=$baseline_status, sidecar=$sidecar_status)." >&2
+    exit 1
+  fi
+  if [[ -z "$BASELINE_SESSION" ]]; then
+    echo "Could not determine the baseline session id. Did Claude Code submit a prompt?" >&2
+    exit 1
+  fi
+  if [[ -z "$SIDECAR_SESSION" ]]; then
+    echo "Could not determine the Sidecar session id. Did Claude Code submit a prompt?" >&2
+    exit 1
+  fi
+}
+
 require_command python3
 ensure_python_env
 require_command agent-sidecar
@@ -888,34 +1287,36 @@ if ! CLAUDE_BIN="$(find_claude_bin)"; then
   exit 1
 fi
 prepare_html_fixture
-trap reset_html_on_exit EXIT
-export AGENT_SIDECAR_REQUIRE_KIMI_CODING=1
+trap cleanup_on_exit EXIT
+export AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT=1
+unset AGENT_SIDECAR_REQUIRE_DEEPSEEK_REFINEMENT || true
+unset AGENT_SIDECAR_REQUIRE_DEEPSEEK_CODING || true
 export AGENT_SIDECAR_MODEL_TIMEOUT_MS
 export AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS
 export AGENT_SIDECAR_MODEL_MAX_TOKENS
-restart_sidecar_daemon_for_demo
-
-section "Start Sidecar"
-agent-sidecar start
-agent-sidecar hooks install
-eval "$(agent-sidecar telemetry print-env)"
-agent-sidecar hooks status
-agent-sidecar models list || true
-preflight_kimi_coding_route
-if [[ "$SINGLE_RUN" -eq 0 ]]; then
-  preflight_deepseek_reasoning_route
-fi
 
 if [[ "$SINGLE_RUN" -eq 1 ]]; then
+  restart_sidecar_daemon_for_demo
+
+  section "Start Sidecar"
+  agent-sidecar start
+  agent-sidecar hooks install
+  eval "$(agent-sidecar telemetry print-env)"
+  agent-sidecar hooks status
+  agent-sidecar models list || true
+  preflight_coding_route
+
   restore_html_fixture "single intercepted run"
   unset AGENT_SIDECAR_PROMPT_INTERCEPT
   run_claude_session "Claude Code: Sidecar Intercepted Run" "$SIDECAR_CLAUDE_LOG" "$SIDECAR_DURATION_TXT"
   section "Stop Sidecar Session"
-  sidecar_output="$(stop_active_session)"
+  sidecar_output="$(stop_active_session "$ROOT_DIR")"
   printf '%s\n' "$sidecar_output"
   SIDECAR_SESSION="$(printf '%s\n' "$sidecar_output" | tail -n 1)"
   save_html_output "single intercepted" "$SIDECAR_HTML"
-  assert_deterministic_and_kimi_used "$SIDECAR_SESSION"
+  assert_deterministic_and_coding_model_used "$SIDECAR_SESSION" "$ROOT_DIR"
+  section "Open HTML Output"
+  open_saved_html_outputs
   section "Inspect Sidecar Run"
   agent-sidecar status || true
   agent-sidecar steer --session "$SIDECAR_SESSION" || true
@@ -925,52 +1326,17 @@ if [[ "$SINGLE_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-restore_html_fixture "baseline run"
-export AGENT_SIDECAR_PROMPT_INTERCEPT=off
-run_claude_session "Claude Code: Baseline Run" "$BASELINE_CLAUDE_LOG" "$BASELINE_DURATION_TXT"
-
-section "Stop Baseline Session"
-baseline_output="$(stop_active_session)"
-printf '%s\n' "$baseline_output"
-BASELINE_SESSION="$(printf '%s\n' "$baseline_output" | tail -n 1)"
-if [[ -z "$BASELINE_SESSION" ]]; then
-  echo "Could not determine the baseline session id. Did Claude Code submit a prompt?" >&2
-  exit 1
-fi
-save_html_output "baseline" "$BASELINE_HTML"
-
-section "Configure Optional Sidecar Cost Budget"
-export AGENT_SIDECAR_BASELINE_SESSION="$BASELINE_SESSION"
-export AGENT_SIDECAR_REQUIRE_BUDGET=0
-export AGENT_SIDECAR_TARGET_SAVINGS_PCT="${AGENT_SIDECAR_TARGET_SAVINGS_PCT:-10}"
-export AGENT_SIDECAR_BUDGET_WARNING_THRESHOLD_PCT="${AGENT_SIDECAR_BUDGET_WARNING_THRESHOLD_PCT:-80}"
-export AGENT_SIDECAR_BUDGET_ENFORCEMENT="${AGENT_SIDECAR_BUDGET_ENFORCEMENT:-block}"
-echo "Sidecar run may derive a budget from baseline session $BASELINE_SESSION when measured baseline cost is available."
-echo "Target savings: ${AGENT_SIDECAR_TARGET_SAVINGS_PCT}%  Enforcement: ${AGENT_SIDECAR_BUDGET_ENFORCEMENT}"
-
-restore_html_fixture "sidecar run"
-unset AGENT_SIDECAR_PROMPT_INTERCEPT
-run_claude_session "Claude Code: Sidecar Intercepted Run" "$SIDECAR_CLAUDE_LOG" "$SIDECAR_DURATION_TXT"
-
-section "Stop Sidecar Session"
-sidecar_output="$(stop_active_session)"
-printf '%s\n' "$sidecar_output"
-SIDECAR_SESSION="$(printf '%s\n' "$sidecar_output" | tail -n 1)"
-if [[ -z "$SIDECAR_SESSION" ]]; then
-  echo "Could not determine the Sidecar session id. Did Claude Code submit a prompt?" >&2
-  exit 1
-fi
-save_html_output "sidecar" "$SIDECAR_HTML"
-assert_deterministic_and_kimi_used "$SIDECAR_SESSION"
+run_parallel_pair
+assert_deterministic_and_coding_model_used "$SIDECAR_SESSION" "$SIDECAR_WORKDIR"
 
 section "Inspect Sidecar Run"
-agent-sidecar status || true
-agent-sidecar trace show "$SIDECAR_SESSION" || true
-agent-sidecar steer --session "$SIDECAR_SESSION" || true
-agent-sidecar cost show --session "$SIDECAR_SESSION" || true
+(cd "$SIDECAR_WORKDIR" && agent-sidecar status) || true
+(cd "$SIDECAR_WORKDIR" && agent-sidecar trace show "$SIDECAR_SESSION") || true
+(cd "$SIDECAR_WORKDIR" && agent-sidecar steer --session "$SIDECAR_SESSION") || true
+(cd "$SIDECAR_WORKDIR" && agent-sidecar cost show --session "$SIDECAR_SESSION") || true
 
 section "Compare Savings From Raw Telemetry"
-raw_telemetry_compare "$BASELINE_SESSION" "$SIDECAR_SESSION"
+raw_telemetry_compare "$BASELINE_SESSION" "$SIDECAR_SESSION" "$BASELINE_WORKDIR" "$SIDECAR_WORKDIR" "$RAW_TELEMETRY_COMPARE_JSON"
 
 section "Compare Execution Time"
 compare_execution_time "$BASELINE_DURATION_TXT" "$SIDECAR_DURATION_TXT"
@@ -978,7 +1344,10 @@ compare_execution_time "$BASELINE_DURATION_TXT" "$SIDECAR_DURATION_TXT"
 evaluate_implementations_with_deepseek "$BASELINE_HTML" "$SIDECAR_HTML" "$DEEPSEEK_EVAL_JSON"
 
 section "Enforce Measured Cost Savings"
-agent-sidecar cost compare --baseline "$BASELINE_SESSION" --sidecar "$SIDECAR_SESSION" --require-savings
+enforce_raw_cost_savings "$RAW_TELEMETRY_COMPARE_JSON"
+
+section "Open HTML Outputs"
+open_saved_html_outputs
 
 cat <<EOF
 
@@ -986,6 +1355,10 @@ Done.
 
 Run artifacts:
   $ARTIFACT_DIR
+
+Workspaces:
+  $BASELINE_WORKDIR
+  $SIDECAR_WORKDIR
 
 Baseline HTML:
   $BASELINE_HTML
@@ -1005,8 +1378,8 @@ Execution timing:
   $BASELINE_DURATION_TXT
   $SIDECAR_DURATION_TXT
 
-Cleanup when you are finished:
-  agent-sidecar hooks uninstall
+Raw telemetry comparison:
+  $RAW_TELEMETRY_COMPARE_JSON
 
 boilerplate.html will be reset before exit.
 EOF

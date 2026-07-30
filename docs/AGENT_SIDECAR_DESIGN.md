@@ -4,7 +4,7 @@
 > Everything you need to start implementing from an empty repository is in this file.
 > - **Part A** contains decisions that are already made. Do not reopen them. Do not ask about them.
 > - **Part B** contains frozen contracts: schemas, interfaces, ports, file layouts. Implement them exactly as written.
-> - **Part C** specifies the two-model local ensemble (DeepSeek = reasoning, Kimi = coding) and the fine-tuning pipeline for specially trained weights.
+> - **Part C** specifies the local ensemble (Llama 3 8B for both reasoning and coding, via different local serving backends) and the fine-tuning pipeline for specially trained weights.
 > - **Part D** contains the three implementation chunks. Work through them **in order**, milestone by milestone. Each milestone has a definition of done. Do not start a milestone until the previous one's definition of done is met.
 > - **Part E** contains cross-cutting testing rules, risks, and the demo matrix.
 > When a detail is genuinely unspecified, choose the simplest option consistent with the stated principles, record the choice in `docs/decisions.md`, and continue. Do not block.
@@ -34,8 +34,8 @@ Agent Sidecar is a local runtime layer that runs beside **Claude Code** in a sep
 | D5 | CLI framework | **typer** |
 | D6 | Package name / CLI name | `agent_sidecar` / `agent-sidecar` |
 | D7 | Test framework | **pytest**; CI-gating tests run fully offline (no Claude Code, no Ollama, no network) |
-| D8 | Model serving | **Ollama** at `http://localhost:11434` as primary; **llama-server (llama.cpp)** OpenAI-compatible endpoint as secondary for models Ollama cannot serve. Both reached through the LiteLLM SDK in-process. No LiteLLM proxy, no extra daemon. |
-| D9 | Ensemble roles | **DeepSeek = reasoning role. Kimi = coding role.** See Part C. |
+| D8 | Model serving | **Local OpenAI-compatible endpoint** at `http://localhost:8080/v1` as primary for the coding role (Llama 3 8B via llama.cpp's llama-server); **Ollama** at `http://localhost:11434` as primary for the reasoning role (also Llama 3 8B). Both reached through the LiteLLM SDK in-process. No LiteLLM proxy, no extra daemon. |
+| D9 | Ensemble roles | **Llama 3 8B = reasoning role and coding role by default**, served through two different local backends (Ollama for reasoning, llama-server for coding). Chosen after live-testing candidates on real hardware for both roles — it reliably completes inside the hook's tight round-trip timeout with valid output, where larger reasoning-tuned models (reasoning role) and DeepSeek V4 Flash (coding role, never verified reachable in this environment) did not. See Part C. |
 | D10 | Remote models | Disabled by default. Allowlist = local endpoints only. Enabling remote requires explicit config (`remote_fallback: true` + allowlist entry) and every remote call is receipted in the trace. |
 | D11 | Steering never blocks | Hook scripts always exit 0. Steering warns/suggests only. |
 | D12 | Source of truth | Append-only JSONL traces. SQLite index is derived and rebuildable. |
@@ -48,7 +48,7 @@ Agent Sidecar is a local runtime layer that runs beside **Claude Code** in a sep
 - Lower cost per successful Claude Code task, before and during execution.
 - Zero-touch session capture; manual event registration exists only as a degraded fallback.
 - Measured cost wherever Claude Code emits telemetry; every figure labeled `measured | priced | approximate`.
-- Small, cheap, **locally running** models only in the runtime path: DeepSeek-R1 distills for reasoning, Kimi (Linear-48B-A3B default) for coding, both optionally with project-tuned LoRA weights.
+- Small or cost-efficient **locally running** models only in the runtime path: Llama 3 8B through Ollama for the reasoning role and through a loopback OpenAI-compatible llama-server endpoint for the coding role, both chosen after live-testing on real hardware rather than by architecture on paper, both zero marginal cost, with other routes still supported for constrained hardware or different infrastructure.
 - Deterministic fallback for every model-dependent behavior. Core correctness never depends on a model being up.
 - Local-first: traces stay on disk; all exports explicit and receipted.
 
@@ -69,7 +69,7 @@ Agent Sidecar is a local runtime layer that runs beside **Claude Code** in a sep
 | Claude Code hooks (pattern from `disler/claude-code-hooks-multi-agent-observability`) | Automatic event capture: prompts, tool calls, edits, tests, failures | Yes (hook executable ships with the package) |
 | Claude Code native OTEL telemetry + built-in OTLP/HTTP receiver (pattern from `ColeMurray/claude-code-otel`) | Measured tokens and cost | Yes (receiver in daemon) |
 | LiteLLM (SDK only) | ModelProvider implementation; unified calls to Ollama and llama-server; vendored price map for the cost engine | Yes (in-process library) |
-| Ollama / llama.cpp | Local serving of DeepSeek and Kimi (base + tuned) | Yes (external local service, user-installed) |
+| Ollama / llama.cpp | Local serving of the reasoning model (Llama 3 8B via Ollama) and the coding model (Llama 3 8B via llama.cpp's llama-server, base + tuned) | Yes (external local service, user-installed) |
 | LLaMA-Factory | Offline QLoRA training of specially trained weights | No (dev tooling) |
 | promptfoo | CI evals of refiner/steering prompts; **promotion gate for fine-tuned weights** | No (dev/CI tooling) |
 | Langfuse | Optional opt-in trace export target | No (exporter plugin; user runs their own instance) |
@@ -159,11 +159,11 @@ agent-sidecar/
 ├── tuning/                         # OFFLINE tooling — never imported by src/
 │   ├── recipes/
 │   │   ├── deepseek_reasoning_qlora.yaml     # LLaMA-Factory config
-│   │   └── kimi_coding_qlora.yaml            # LLaMA-Factory config
+│   │   └── deepseek_v4_coding_qlora.yaml     # LLaMA-Factory config
 │   ├── export_gguf.sh              # merge adapter + convert to GGUF (llama.cpp scripts)
 │   ├── modelfiles/
 │   │   ├── sidecar-deepseek-reasoning.Modelfile
-│   │   └── sidecar-kimi-coding.Modelfile
+│   │   └── sidecar-deepseek-v4-flash-coding.Modelfile
 │   └── README.md                   # step-by-step train->export->register->promote
 ├── evals/
 │   ├── refiner.promptfoo.yaml
@@ -264,7 +264,7 @@ class SessionRecord(BaseModel):
 ```python
 class ModelRole(str, Enum):
     reasoning = "reasoning"      # DeepSeek: judgments, steering decisions, quality scoring
-    coding = "coding"            # Kimi: code-aware prompt drafting, failure analysis, next-step suggestions
+    coding = "coding"            # local coding model by default: code-aware prompt drafting, failure analysis, next-step suggestions
 
 class ModelProvider(Protocol):
     def complete_json(self, role: ModelRole, task: str, prompt: str,
@@ -280,7 +280,7 @@ class ModelProvider(Protocol):
 Task-level output schemas:
 
 ```python
-class RefineDraft(BaseModel):            # produced by the CODING model (Kimi)
+class RefineDraft(BaseModel):            # produced by the CODING model
     refined_prompt: str
     acceptance_criteria: list[str]
     testing_expectations: str
@@ -308,7 +308,7 @@ class SteerResult(BaseModel):            # produced by the REASONING model (Deep
     evidence_event_ids: list[str]         # MUST be subset of detector-provided ids
     confidence: float
 
-class NextStepDraft(BaseModel):          # optional, produced by the CODING model (Kimi)
+class NextStepDraft(BaseModel):          # optional, produced by the CODING model
     next_step: str                        # concrete, code-aware suggestion
     rationale: str
 ```
@@ -348,8 +348,8 @@ class CostEstimate(BaseModel):
   },
   "models": {
     "roles": {
-      "reasoning": { "model": "sidecar-deepseek-reasoning", "fallback_base": "deepseek-r1:8b" },
-      "coding":    { "model": "sidecar-kimi-coding",        "fallback_base": "kimi-linear-48b-a3b" }
+      "reasoning": { "model": "sidecar-qwen3-reasoning",             "fallback_base": "llama3:latest",                "serving": "ollama" },
+      "coding":    { "model": "sidecar-llama3-coding",                "fallback_base": "llama3:latest",                "serving": "llama_server" }
     },
     "endpoints": {
       "ollama":       { "api_base": "http://localhost:11434", "litellm_prefix": "ollama_chat/" },
@@ -386,10 +386,10 @@ Allowlist semantics: `openai/*` entries are only valid when pinned to a loopback
   "version": 1,
   "entries": [
     {
-      "name": "sidecar-deepseek-reasoning",
+      "name": "sidecar-qwen3-reasoning",
       "role": "reasoning",
       "kind": "tuned",
-      "base": "deepseek-r1:8b",
+      "base": "llama3:latest",
       "serving": "ollama",
       "adapter_sha256": "…",
       "trained_at": "iso-8601",
@@ -398,12 +398,12 @@ Allowlist semantics: `openai/*` entries are only valid when pinned to a loopback
       "status": "active"
     },
     {
-      "name": "sidecar-kimi-coding",
+      "name": "sidecar-llama3-coding",
       "role": "coding",
       "kind": "tuned",
-      "base": "kimi-linear-48b-a3b",
+      "base": "llama3:latest",
       "serving": "llama_server",
-      "gguf_sha256": "…",
+      "adapter_sha256": "…",
       "eval": { "suite": "evals/promotion.promptfoo.yaml", "score": 0.88, "base_score": 0.83, "passed": true },
       "status": "active"
     }
@@ -457,7 +457,7 @@ agent-sidecar --version
 
 ---
 
-# PART C — The Local Model Ensemble (DeepSeek + Kimi, specially trained weights)
+# PART C — The Local Model Ensemble (Llama 3 8B for both roles, specially trained weights)
 
 ## C1. Roles and Division of Labor
 
@@ -465,46 +465,46 @@ Two small, cheap, locally running models with distinct jobs, both reached throug
 
 | Role | Model family | Used for | Why this family |
 | --- | --- | --- | --- |
-| **reasoning** | DeepSeek-R1 distill (default `deepseek-r1:8b`, minimum `deepseek-r1:7b`) | Steering decisions over detector evidence; prompt-quality judgment; approving/rejecting the coding model's refinement draft; cost-risk rationale; drift assessment | R1 distills are purpose-built small reasoning models, trivially served by Ollama, cheap on 8-16GB machines |
-| **coding** | Kimi (default **Kimi-Linear-48B-A3B-Instruct**; high tier **Kimi-Dev-72B**) | Drafting the refined prompt for code tasks (files, scope, acceptance criteria, test expectations); interpreting failure signatures; drafting the concrete "recommended next step" attached to warnings | Kimi-Linear is an MoE with only ~3B **active** parameters — cheap per token despite 48B total; Kimi-Dev-72B is Moonshot's coding-specialized model for machines that can hold it |
+| **reasoning** | Llama 3 8B via Ollama (default `llama3:latest`) | Steering decisions over detector evidence; prompt-quality judgment; approving/rejecting the coding model's refinement draft; cost-risk rationale; drift assessment | Chosen by live-testing candidates on real hardware, not by architecture on paper. Larger reasoning-tuned models (a DeepSeek-R1 distill, Qwen3-30B-A3B) were tried first: one was never actually pulled, the other returned malformed/empty responses after 11-14 seconds. Llama 3 8B was verified to answer a realistic steering judgment correctly (valid JSON, grounded evidence_event_ids) in 1.4-2.1 seconds, comfortably inside the Claude Code `UserPromptSubmit` hook's fixed few-second `/refine` round-trip budget |
+| **coding** | Llama 3 8B via llama.cpp's llama-server (default `llama3:latest`) | Drafting the refined prompt for code tasks (files, scope, acceptance criteria, test expectations); interpreting failure signatures; drafting the concrete "recommended next step" attached to warnings | Chosen by live-testing on real hardware. DeepSeek V4 Flash via vLLM/SGLang was configured previously but never verified reachable in this environment, and vLLM does not reliably support macOS/ARM. Llama 3 8B was verified live through the real `refine_coding.txt` production prompt template: valid, schema-conforming `RefineDraft` JSON every time in 2.7-4.1 seconds |
 
-**Hardware tiers** (router selects via `hardware_tier: auto` by probing available RAM/VRAM at daemon start; user can pin):
+**Hardware tiers** (`hardware_tier` is advisory; final availability comes from each local server's `/models`/`/api/tags` response):
 
 | Tier | reasoning | coding | Approx. memory for coding model |
 | --- | --- | --- | --- |
-| `small` (≤16GB) | deepseek-r1:7b | **none** — coding role degrades: reasoning model handles both, or deterministic fallback | — |
-| `medium` (24-32GB) | deepseek-r1:8b | Kimi-Linear-48B-A3B @ Q2_K–Q3 | ~16-20GB |
-| `large` (48GB+) | deepseek-r1:8b or :14b | Kimi-Linear-48B-A3B @ Q4_K_M | ~28GB |
-| `max` (96GB+) | deepseek-r1:14b | Kimi-Dev-72B @ Q4 | ~45GB+ |
+| `small` (≤16GB) | `llama3:latest` via Ollama (live-verified on 24GB; likely fine down to smaller tiers but not separately verified) | `llama3:latest` via llama-server (same caveat) | ~5GB (Q4_0) |
+| `medium` (24-32GB) | `llama3:latest` via Ollama (live-verified: 1.4-2.1s per call, valid grounded JSON, well inside the hook's timeout budget) | `llama3:latest` via llama-server (live-verified: 2.7-4.1s per call, valid `RefineDraft` JSON every time) | ~5GB (Q4_0) |
+| `large` (48GB+) | `llama3:latest` via Ollama, or a larger model **only after live-verifying it actually serves and finishes within your configured timeout on this hardware** — a 30B-class MoE model was tried on 24GB and failed outright (see decisions.md) | `llama3:latest` via llama-server, or a larger/better coding model **only after the same live verification** | model-dependent |
+| `max` (96GB+) | same caution as `large`: verify before trusting a bigger model as the default | same caution as `large` | model-dependent |
 
-**Honest constraint, encoded in the design:** there is no 7B-class Kimi. Kimi-Linear-48B-A3B is the smallest sensible Kimi and its GGUF support currently lives in llama.cpp branches rather than guaranteed Ollama mainline. Therefore the coding role supports **two serving backends** (D8): Ollama when the model is in the Ollama library or importable via Modelfile, and `llama-server` (OpenAI-compatible, loopback) otherwise. The provider/router treats both identically through LiteLLM (`ollama_chat/<name>` vs `openai/<name>` pinned to the loopback api_base). If neither backend can serve a Kimi on the user's hardware, the router reports the coding role as unavailable and every coding-role caller uses its deterministic path — the system stays fully functional.
+**Honest constraint, encoded in the design:** both roles default to `llama3:latest` — the reasoning role through Ollama on loopback, the coding role through `llama_server` (llama.cpp's llama-server) on loopback. Both roles still support either serving backend (D8) for legacy or tuned models: Ollama when the model is in the Ollama library or importable via Modelfile, and `llama-server` (OpenAI-compatible, loopback) otherwise. The provider/router treats both identically through LiteLLM (`ollama_chat/<name>` vs `openai/<name>` pinned to the loopback api_base). If no model can be served for a role on the user's hardware, the router reports that role as unavailable and every caller of that role uses its deterministic path — the system stays fully functional. Model choice for either role should be weighed on round-trip latency and output correctness against the hook's fixed timeout budget, not only on capability in isolation — a model that never finishes in time, or never produces valid output, contributes nothing.
 
 ## C2. Ensemble Call Patterns
 
 **Prompt refinement (`refine`):**
 
-1. **coding (Kimi)** → `RefineDraft`: rewrite the raw prompt into a structured coding-agent prompt with files/components, acceptance criteria, testing expectations, do-not-change list. Prompt template: `models/prompts/refine_coding.txt`.
-2. **reasoning (DeepSeek)** → `RefineJudgment`: score original quality, enumerate issues, approve or annotate the draft. Template: `refine_reasoning.txt`.
+1. **coding (Llama 3 8B)** → `RefineDraft`: rewrite the raw prompt into a structured coding-agent prompt with files/components, acceptance criteria, testing expectations, do-not-change list. Prompt template: `models/prompts/refine_coding.txt`.
+2. **reasoning (Llama 3 8B)** → `RefineJudgment`: score original quality, enumerate issues, approve or annotate the draft. Template: `refine_reasoning.txt`.
 3. Assemble `RefineResult`. `source` field records the path taken:
    - both succeeded → `ensemble`
-   - only Kimi succeeded → `coding-only` (judgment from deterministic scorer)
-   - only DeepSeek succeeded → DeepSeek judges the deterministic draft
+   - only the coding model succeeded → `coding-only` (judgment from deterministic scorer)
+   - only the reasoning model succeeded → the reasoning model judges the deterministic draft
    - neither → `deterministic` (Chunk 2's fallback scorer+refiner)
 4. Cost engine prices original vs refined token counts; refiner emits `prompt_submitted` + `prompt_refined` + `model_call_completed` events.
 
-**Kimi wrapper prompt flow (`wrap`, env-gated in the Claude hook):**
+**Wrapper prompt flow (`wrap`, env-gated in the Claude hook):**
 
 1. Deterministic prompt rules run first. If they flag the prompt, their task contract is used.
-2. If deterministic rules do not flag the prompt, **reasoning (DeepSeek)** attempts a stricter `RefineDraft`; restatements are rejected and deterministic output remains the fallback.
-3. **coding (Kimi)** receives the refined task contract and returns `KimiWrapperResult`, including `display_response`, `implementation_summary`, `validation_performed`, and `needs_claude_execution`.
+2. If deterministic rules do not flag the prompt, **reasoning (Llama 3 8B)** attempts a stricter `RefineDraft`; restatements are rejected and deterministic output remains the fallback.
+3. **coding (Llama 3 8B by default)** receives the refined task contract and returns `KimiWrapperResult`, including `display_response`, `implementation_summary`, `validation_performed`, and `needs_claude_execution`.
 4. The Claude hook sends `display_response` back through Claude Code. Default delivery is a hook `decision: block` so Claude does not spend another model call; `AGENT_SIDECAR_KIMI_WRAPPER_DELIVERY=context` injects it as additional context instead.
-5. Kimi does not get filesystem/tool execution from Claude hooks. When actual repo edits or commands are required, the wrapper result must mark `needs_claude_execution: true` and provide exact next steps or a patch proposal.
+5. The coding model does not get filesystem/tool execution from Claude hooks. When actual repo edits or commands are required, the wrapper result must mark `needs_claude_execution: true` and provide exact next steps or a patch proposal.
 
 **Runtime steering (`steer` / auto-steer):**
 
 1. Deterministic detectors produce `EvaluatorFinding[]` (never skipped — they are the evidence source and the fallback).
-2. **reasoning (DeepSeek)** → `SteerResult` over compact findings + minimal session summary. Evidence-subset validation: any `evidence_event_ids` not supplied by detectors ⇒ response rejected ⇒ deterministic ranker decides.
-3. If decision is `suggest`/`warn` and `steering.coding_next_step` is true and the coding role is available: **coding (Kimi)** → `NextStepDraft` given the failure signature + recent file edits, replacing the generic recommendation with a concrete, code-aware next step. Failure here silently keeps the reasoning/deterministic recommendation.
+2. **reasoning (Llama 3 8B)** → `SteerResult` over compact findings + minimal session summary. Evidence-subset validation: any `evidence_event_ids` not supplied by detectors ⇒ response rejected ⇒ deterministic ranker decides.
+3. If decision is `suggest`/`warn` and `steering.coding_next_step` is true and the coding role is available: **coding (Llama 3 8B by default)** → `NextStepDraft` given the failure signature + recent file edits, replacing the generic recommendation with a concrete, code-aware next step. Failure here silently keeps the reasoning/deterministic recommendation.
 4. Decision engine applies noise controls and emits `steering_recommendation`.
 
 **Budget rule:** at most one reasoning call and one coding call per steering invocation; at most one of each per `refine`. No chains, no retries beyond a single reformat retry on invalid JSON.
@@ -527,7 +527,7 @@ The runtime uses **tuned weights when they exist and have passed the eval gate**
 `--kind steer` does the same for `(findings → accepted SteerResult)` pairs. Only sessions where the refinement was actually used (subsequent `prompt_submitted` matches the refined prompt) or the warning was followed by behavior change are labeled positive; the exporter marks provenance so users can curate. The checked-in seed datasets in `evals/fixtures/datasets/` make the pipeline runnable before anyone has real traces.
 
 **Step 2 — QLoRA training (offline, checked-in recipes).**
-`tuning/recipes/deepseek_reasoning_qlora.yaml` and `kimi_coding_qlora.yaml` are complete LLaMA-Factory configs: base model HF id, dataset path, LoRA rank/alpha/dropout, 4-bit quantized training, epochs, output dir. `tuning/README.md` gives the exact commands:
+`tuning/recipes/deepseek_reasoning_qlora.yaml` and `deepseek_v4_coding_qlora.yaml` are complete LLaMA-Factory configs: base model HF id, dataset path, LoRA rank/alpha/dropout, 4-bit quantized training, epochs, output dir. `tuning/README.md` gives the exact commands:
 
 ```bash
 pip install llamafactory
@@ -535,14 +535,14 @@ llamafactory-cli train tuning/recipes/deepseek_reasoning_qlora.yaml
 ```
 
 **Step 3 — Export to servable weights.**
-`tuning/export_gguf.sh` merges the LoRA adapter into the base, converts to GGUF via llama.cpp's conversion scripts, and quantizes (Q4_K_M default). For the DeepSeek/Ollama path there are two options and the script supports both: (a) merged GGUF registered via `FROM ./model.gguf` Modelfile, or (b) base model + GGUF LoRA via the Modelfile `ADAPTER` directive. Kimi path always produces a merged GGUF for `llama-server` (or Ollama import if supported).
+`tuning/export_gguf.sh` merges the LoRA adapter into the base, converts to GGUF via llama.cpp's conversion scripts, and quantizes (Q4_K_M default). For Ollama-backed models there are two options and the script supports both: (a) merged GGUF registered via `FROM ./model.gguf` Modelfile, or (b) base model + GGUF LoRA via the Modelfile `ADAPTER` directive.
 
 ```bash
 ollama create sidecar-deepseek-reasoning -f tuning/modelfiles/sidecar-deepseek-reasoning.Modelfile
 ```
 
 **Step 4 — Eval gate (promotion).**
-`evals/promotion.promptfoo.yaml` runs the tuned model and its base side-by-side on the held-out refinement/steering suites (strict-JSON validity, schema completeness, restatement rejection, evidence-subset correctness, rubric quality). `agent-sidecar models promote sidecar-kimi-coding` runs the suite, writes scores into the registry (B8), and only sets `status: active` if `tuned_score > base_score` and JSON-validity ≥ base. `models rollback` reverts to base instantly. The router (B8 resolution order) makes promotion/rollback a pure registry flip — zero code changes.
+`evals/promotion.promptfoo.yaml` runs the tuned model and its base side-by-side on the held-out refinement/steering suites (strict-JSON validity, schema completeness, restatement rejection, evidence-subset correctness, rubric quality). `agent-sidecar models promote sidecar-llama3-coding` runs the suite, writes scores into the registry (B8), and only sets `status: active` if `tuned_score > base_score` and JSON-validity >= base. `models rollback` reverts to base instantly. The router (B8 resolution order) makes promotion/rollback a pure registry flip — zero code changes.
 
 **Boundary rules:**
 - Nothing in `src/` imports anything from `tuning/`.
@@ -615,7 +615,7 @@ agent-sidecar status && agent-sidecar trace show <id>
 
 ## Chunk 2 — Intelligence Layer: Ensemble, Refinement, Cost, Steering, Tuning Toolchain
 
-**Proves:** the DeepSeek+Kimi ensemble improves task cost before execution (refinement) and during execution (steering), grounded in measured/priced cost, with deterministic fallback everywhere and a working path to specially trained weights.
+**Proves:** the DeepSeek+coding-model ensemble improves task cost before execution (refinement) and during execution (steering), grounded in measured/priced cost, with deterministic fallback everywhere and a working path to specially trained weights.
 
 ### Milestones (in order)
 
@@ -631,7 +631,7 @@ DoD: fixture sessions report the correct tier and label end-to-end.
 Tests: golden files over the fixture vague-prompt set.
 DoD: `refine` works fully with **no models running**, `source: deterministic`.
 
-**2.4 Ensemble refiner.** `intel/refiner.py` implementing C2 (Kimi draft → DeepSeek judgment → assembly, all degradation paths), `models/prompts/*.txt` (versioned; template hash recorded in `model_call_completed`), `models/validation.py` (restatement rejection via length+similarity), lineage events, `cli/intel_cmds.py::refine`, `POST /refine`.
+**2.4 Ensemble refiner.** `intel/refiner.py` implementing C2 (coding-model draft → DeepSeek judgment → assembly, all degradation paths), `models/prompts/*.txt` (versioned; template hash recorded in `model_call_completed`), `models/validation.py` (restatement rejection via length+similarity), lineage events, `cli/intel_cmds.py::refine`, `POST /refine`.
 Tests: mocked-provider tests for **all four** source paths (`ensemble`, `coding-only`, DeepSeek-judges-deterministic, `deterministic`); restatement rejection; lineage lands in the right session.
 DoD: `refine` output states its `source`; golden files per path.
 
@@ -639,7 +639,7 @@ DoD: `refine` output states its `source`; golden files per path.
 Tests: every detector positive + negative against `evals/fixtures/traces/` (including the canonical `auth-refresh-loop.jsonl`); labeled fixtures for calibration.
 DoD: fixture replay yields exactly the expected findings, no extras.
 
-**2.6 Steering orchestration.** `intel/steering.py` per C2 (detectors → DeepSeek `SteerResult` with evidence-subset validation → optional Kimi `NextStepDraft` → `intel/ranker.py` deterministic fallback → decision engine with dedupe + `max_warnings_per_turn` + WARN evidence threshold), auto-steer on relevant event ingestion, `steer` CLI + API, priced waste via 2.2.
+**2.6 Steering orchestration.** `intel/steering.py` per C2 (detectors → DeepSeek `SteerResult` with evidence-subset validation → optional coding-model `NextStepDraft` → `intel/ranker.py` deterministic fallback → decision engine with dedupe + `max_warnings_per_turn` + WARN evidence threshold), auto-steer on relevant event ingestion, `steer` CLI + API, priced waste via 2.2.
 Tests: evidence-subset rejection; noise controls; all fallback paths; golden terminal output for the canonical WARN.
 DoD: `dev replay-fixture auth-refresh-loop.jsonl` + `steer` prints the golden WARN with evaluators, evidence ids, and `≈ $X (priced)`.
 
@@ -650,7 +650,7 @@ DoD: `docs/tuning.md` walk-through is executable top-to-bottom on a machine with
 ### Chunk 2 Acceptance Demo
 
 ```bash
-ollama pull deepseek-r1:8b            # + Kimi per hardware tier (see C1) or skip to show degradation
+llama-server -m /path/to/llama-3-8b.Q4_0.gguf --host 127.0.0.1 --port 8080 --alias llama3:latest
 agent-sidecar start
 agent-sidecar models list
 agent-sidecar refine "make the app better and fix the tests"
@@ -659,7 +659,7 @@ agent-sidecar steer --session demo
 agent-sidecar cost show --session demo
 ```
 
-**Accept when:** `refine` produces a materially better prompt and labels its source (`ensemble` with both models; correct degraded label otherwise); the fixture triggers the golden WARN with a Kimi-drafted concrete next step when the coding role is up; every number is precision-labeled; CI is green with no models and no network; remote egress is provably impossible under default config.
+**Accept when:** `refine` produces a materially better prompt and labels its source (`ensemble` with both models; correct degraded label otherwise); the fixture triggers the golden WARN with a coding-model-drafted concrete next step when the coding role is up; every number is precision-labeled; CI is green with no models and no network; remote egress is provably impossible under default config.
 
 ---
 
@@ -715,7 +715,7 @@ agent-sidecar export langfuse final     # optional, user-run Langfuse configured
 
 | Risk | Mitigation |
 | --- | --- |
-| No truly small Kimi exists; Kimi-Linear GGUF support may require llama.cpp branches / llama-server rather than Ollama | Dual serving backend behind one provider seam (D8); hardware tiers with explicit `small`-tier degradation; router reports role unavailability; deterministic fallback keeps the system whole |
+| A configured local model may not fit, or may not actually run correctly, on a given machine (proven twice: an 18-20GB reasoning candidate failed outright on 24GB; a coding-role model was configured for months without ever being verified reachable) | Hardware tiers with explicit `small`-tier degradation; router reports role unavailability; deterministic fallback keeps the system whole; live-verify a candidate's real output and latency on target hardware before trusting it as a default, not just that `/models` reports it as served |
 | Small-model JSON reliability (both families) | Strict pydantic validation, one reformat retry, evidence-subset checks, deterministic fallback as correctness baseline, promotion gate scores JSON validity explicitly |
 | Fine-tunes regress quality | Eval-gated promotion (tuned must beat base), instant `rollback`, registry keeps base entries forever |
 | Claude Code hook/telemetry drift across versions | Version-tagged fixtures, raw-field preservation (`raw_hook`/`raw_otel`), adapter_version in metadata, documented re-capture |
@@ -728,13 +728,13 @@ agent-sidecar export langfuse final     # optional, user-run Langfuse configured
 | Chunk | Demo focus | Key commands | Accept when |
 | --- | --- | --- | --- |
 | 1 | Zero-touch capture of a real Claude Code session | `start`, `hooks install`, `telemetry print-env`, run `claude`, `status`, `trace show` | Full automatic trace with measured cost; Claude Code never blocked; uninstall restores; fixtures reproduce it in CI |
-| 2 | Ensemble refinement + steering with honest cost | `models list`, `refine`, `dev replay-fixture`, `steer`, `cost show` | Kimi-drafted / DeepSeek-judged refinement with labeled source; golden WARN with evidence + priced waste + code-aware next step; CI green offline; no egress by default |
+| 2 | Ensemble refinement + steering with honest cost | `models list`, `refine`, `dev replay-fixture`, `steer`, `cost show` | Coding-model-drafted / DeepSeek-judged refinement with labeled source; golden WARN with evidence + priced waste + code-aware next step; CI green offline; no egress by default |
 | 3 | Replay, summary, export, install | `pip install` wheel, `replay`, `summary export`, `session list --has-warning`, `export langfuse` | One-screen honest summary; receipted explicit export; installed CLI passes all three demos |
 
 ## E4. Remaining Open Questions (record answers in docs/decisions.md as they resolve)
 
 1. Exact OTLP session-correlation attributes emitted by the targeted Claude Code version — confirm during fixture capture (Milestone 1.5).
-2. Whether the targeted Ollama version can import Kimi-Linear-48B-A3B GGUFs directly, or the llama-server backend is required — confirm during Milestone 2.1; the dual-backend design absorbs either answer.
+2. Whether tuned coding routes should ship as a local OpenAI-compatible server package, GGUF fallback, or Ollama Modelfile when local support matures — confirm during Milestone 2.1; the dual-backend design absorbs the answer.
 3. Default detector thresholds after running the calibration script over the labeled fixture set (Milestone 2.7).
 4. LoRA hyperparameters per role after the first real training runs — recipes ship with conservative defaults (r=16, alpha=32, 4-bit, 2-3 epochs); tune from there.
 5. Whether `.agent-sidecar/` is gitignored with a committed config template, or fully ignored (default: gitignore all except a `config.example.json`).

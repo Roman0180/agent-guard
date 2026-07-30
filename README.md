@@ -70,7 +70,7 @@ agent-sidecar dashboard
 agent-sidecar session stop --session demo-session-001
 ```
 
-Prompt refinement uses deterministic task-contract rules by default. Kimi can still be required for the coding/implementation focus after that deterministic refinement, while DeepSeek prompt refinement remains an explicit opt-in path. Steering follows the local-model-first shape: deterministic detectors produce compact evidence, local DeepSeek can make the steering call, and the detector ranking remains the fallback.
+Prompt refinement uses deterministic task-contract rules by default. Llama 3 8B (served locally through llama.cpp's llama-server) can be required for the coding/implementation focus after that deterministic refinement. Steering follows the local-model-first shape: deterministic detectors produce compact evidence, a local Llama 3 8B reasoning model served through Ollama can make the steering call, and the detector ranking remains the fallback. Llama 3 8B was chosen for both roles after live-testing candidates on real hardware, not by architecture on paper: DeepSeek V4 Flash (coding) and larger reasoning-tuned models (a DeepSeek-R1 distill, Qwen3-30B-A3B) were tried first and either were never actually reachable or returned malformed/empty responses well past the Claude Code hook's timeout budget.
 
 ## How It Works Today
 
@@ -96,9 +96,9 @@ Realtime prompt interception for terminal-launched Codex prompts is available th
 Prompt refinement has two paths:
 
 - Deterministic default: vague prompts such as `fix`, `make`, `improve`, or troubleshooting prompts such as `not working` are rewritten into a task contract with task, context, scope, constraints, acceptance criteria, PR boundaries, test expectations, validation requirements, relevant lessons, and risk notes.
-- Explicit model paths: Kimi can add a coding/implementation focus after deterministic refinement, and DeepSeek prompt refinement can still be required for experiments through the existing model-refinement flags.
+- Explicit model paths: the local coding-role model (Llama 3 8B by default) can add a coding/implementation focus after deterministic refinement through the existing model-refinement flags.
 
-For the TypeScript daemon prompt optimizer, local DeepSeek is off by default. Set `AGENT_SIDECAR_LOCAL_PROMPT_OPTIMIZER=1` to opt in to the Ollama-compatible local optimizer at `AGENT_SIDECAR_LOCAL_MODEL_URL` with model `AGENT_SIDECAR_LOCAL_MODEL`.
+For the TypeScript daemon prompt optimizer, local DeepSeek is off by default. Set `AGENT_SIDECAR_LOCAL_PROMPT_OPTIMIZER=1` to opt in to the local optimizer at `AGENT_SIDECAR_LOCAL_MODEL_URL` with model `AGENT_SIDECAR_LOCAL_MODEL`.
 
 Relevant approved lessons are selected by keyword matching against the prompt, latest error, recent command signatures, and changed or inspected files. Prompt optimizations are stored with the run and can be replayed or exported.
 
@@ -109,7 +109,7 @@ Agent Sidecar lowers the cost per successful task by reducing waste before and d
 The main savings methods are:
 
 - Prompt interception before Codex starts: terminal prompts such as `codex "fix auth refresh"` pass through Agent Sidecar first. The sidecar expands vague requests into compact task contracts with scope, constraints, acceptance criteria, and validation expectations. This reduces expensive back-and-forth caused by underspecified prompts.
-- Deterministic prompt refinement: the daemon expands vague requests without spending model calls on prompt improvement. Optional Kimi coding focus can still be used for implementation-specific guidance.
+- Deterministic prompt refinement: the daemon expands vague requests without spending model calls on prompt improvement. Optional local coding-model focus can still be used for implementation-specific guidance.
 - Context selection instead of context stuffing: the optimizer attaches lightweight repo context, recent plan snippets, approved lessons, file-tree hints, and relevant diffs instead of blindly pushing broad source context into the coding agent.
 - Avoided dead ends: detectors watch for repeated commands, repeated failed validations, repeated edits, missing validation, and task drift. Steering decisions can warn or suggest the next step before the agent spends more calls exploring the same path.
 - Baseline-derived budget guard: paired runs can attach a cost ceiling to the Sidecar session, derived from the measured baseline cost and a target savings percentage. Claude hooks add that budget to the prompt context, check spend throughout the run, and can block additional work when measured cost reaches the ceiling.
@@ -175,7 +175,7 @@ The ideal benchmark stores every pair as a replayable evaluation record: origina
 
 ### Steering Ensemble
 
-The current steering ensemble is local-first. It runs deterministic detectors for evidence, then tries the configured local DeepSeek model for the final `continue`, `suggest`, or `warn` decision. If the local model is disabled, unavailable, or returns invalid JSON, the deterministic detector ranking makes the decision.
+The current steering ensemble is local-first. It runs deterministic detectors for evidence, then tries the configured local reasoning model (Llama 3 8B via Ollama by default) for the final `continue`, `suggest`, or `warn` decision. If the local model is disabled, unavailable, or returns invalid JSON, the deterministic detector ranking makes the decision.
 
 Current detectors:
 

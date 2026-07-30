@@ -21,7 +21,72 @@
       "output": 0.0,
       "cache_read": 0.0
     },
+    "deepseek-r1:14b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "deepseek-r1:32b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "deepseek-ai/DeepSeek-V4-Flash": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "openai/deepseek-ai/DeepSeek-V4-Flash": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "deepseek-v4-flash": {
+      "input": 0.00000014,
+      "output": 0.00000028,
+      "cache_read": 0.0000000028
+    },
+    "deepseek/deepseek-v4-flash": {
+      "input": 0.00000014,
+      "output": 0.00000028,
+      "cache_read": 0.0000000028
+    },
     "kimi-linear-48b-a3b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "batiai/qwen3.6-35b:iq4": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "qwen3-coder:30b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "qwen3:30b-a3b": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "llama3:latest": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "openai/llama3:latest": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "Qwen/Qwen3-Coder-Next": {
+      "input": 0.0,
+      "output": 0.0,
+      "cache_read": 0.0
+    },
+    "openai/Qwen/Qwen3-Coder-Next": {
       "input": 0.0,
       "output": 0.0,
       "cache_read": 0.0

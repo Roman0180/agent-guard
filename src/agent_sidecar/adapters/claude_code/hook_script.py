@@ -12,6 +12,9 @@ TIMEOUT_SECONDS = 0.2
 REFINE_TIMEOUT_SECONDS = 5.0
 WRAPPER_TIMEOUT_SECONDS = 75.0
 MAX_CONTEXT_CHARS = 9500
+# Reserve room for the Checks/Validation/Boundaries sections so a long or model-drafted
+# refined_prompt cannot silently crowd them out of the final MAX_CONTEXT_CHARS truncation.
+MAX_TASK_CHARS = 4000
 
 
 def main() -> int:
@@ -137,7 +140,13 @@ def prompt_refinement_output(payload: dict, session_id: str, api_url: str, *, bu
     timeout = float(os.environ.get("AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS", REFINE_TIMEOUT_SECONDS))
     require_ensemble = truthy_env("AGENT_SIDECAR_REQUIRE_ENSEMBLE")
     require_reasoning = truthy_env("AGENT_SIDECAR_REQUIRE_DEEPSEEK_REFINEMENT")
-    require_coding = truthy_env("AGENT_SIDECAR_REQUIRE_KIMI_CODING")
+    require_coding = (
+        truthy_env("AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT")
+        or truthy_env("AGENT_SIDECAR_REQUIRE_DEEPSEEK_CODING")
+        or truthy_env("AGENT_SIDECAR_REQUIRE_KIMI_CODING")
+    )
+    allow_fallback = truthy_env("AGENT_SIDECAR_ALLOW_REFINEMENT_FALLBACK")
+    fallback_refinement = False
     request_body = {"session_id": session_id, "prompt": prompt, "record_prompt_submitted": False}
     if require_ensemble:
         request_body["require_model_ensemble"] = True
@@ -148,27 +157,44 @@ def prompt_refinement_output(payload: dict, session_id: str, api_url: str, *, bu
     try:
         result = post_json(f"{api_url}/refine", request_body, timeout=timeout)
     except urllib.error.HTTPError as error:
-        if require_ensemble or require_reasoning or require_coding:
-            if require_ensemble:
-                required = "model ensemble"
-            elif require_reasoning and require_coding:
-                required = "DeepSeek prompt and Kimi coding"
-            elif require_reasoning:
-                required = "DeepSeek prompt"
+        if allow_fallback and (require_ensemble or require_reasoning or require_coding):
+            fallback_refinement = True
+            try:
+                result = post_json(f"{api_url}/refine", {"session_id": session_id, "prompt": prompt, "record_prompt_submitted": False}, timeout=timeout)
+            except urllib.error.HTTPError:
+                result = None
+            if result and isinstance(result.get("refined_prompt"), str):
+                pass
             else:
-                required = "Kimi coding"
-            return block_output(f"Agent Sidecar requires {required} refinement, but /refine failed: {http_error_detail(error)}")
-        raise
+                return block_output(f"Agent Sidecar model refinement failed and deterministic fallback failed: {http_error_detail(error)}")
+        else:
+            result = None
+        if require_ensemble or require_reasoning or require_coding:
+            if fallback_refinement:
+                pass
+            else:
+                if require_ensemble:
+                    required = "model ensemble"
+                elif require_reasoning and require_coding:
+                    required = "DeepSeek prompt and coding-model"
+                elif require_reasoning:
+                    required = "DeepSeek prompt"
+                else:
+                    required = "coding-model"
+                return block_output(f"Agent Sidecar requires {required} refinement, but /refine failed: {http_error_detail(error)}")
+        elif not fallback_refinement:
+            raise
     if not result or not isinstance(result.get("refined_prompt"), str):
         return None
-    if require_ensemble and result.get("source") != "ensemble":
-        return block_output(f"Agent Sidecar requires model ensemble refinement, but /refine returned source={result.get('source')!r}.")
-    if require_reasoning and require_coding and result.get("source") != "reasoning-then-coding":
-        return block_output(f"Agent Sidecar requires DeepSeek prompt plus Kimi coding refinement, but /refine returned source={result.get('source')!r}.")
-    if require_reasoning and not require_coding and result.get("source") != "reasoning-only":
-        return block_output(f"Agent Sidecar requires DeepSeek prompt refinement, but /refine returned source={result.get('source')!r}.")
-    if require_coding and result.get("source") not in {"deterministic-then-coding", "reasoning-then-coding", "ensemble", "coding-only"}:
-        return block_output(f"Agent Sidecar requires Kimi coding refinement, but /refine returned source={result.get('source')!r}.")
+    if not fallback_refinement:
+        if require_ensemble and result.get("source") != "ensemble":
+            return block_output(f"Agent Sidecar requires model ensemble refinement, but /refine returned source={result.get('source')!r}.")
+        if require_reasoning and require_coding and result.get("source") != "reasoning-then-coding":
+            return block_output(f"Agent Sidecar requires DeepSeek prompt plus coding-model refinement, but /refine returned source={result.get('source')!r}.")
+        if require_reasoning and not require_coding and result.get("source") != "reasoning-only":
+            return block_output(f"Agent Sidecar requires DeepSeek prompt refinement, but /refine returned source={result.get('source')!r}.")
+        if require_coding and result.get("source") not in {"deterministic-then-coding", "reasoning-then-coding", "ensemble", "coding-only"}:
+            return block_output(f"Agent Sidecar requires coding-model refinement, but /refine returned source={result.get('source')!r}.")
     context = format_refinement_context(result, budget_status=budget_status)
     if not context:
         return None
@@ -194,9 +220,9 @@ def kimi_wrapper_output(payload: dict, session_id: str, api_url: str, *, budget_
     try:
         result = post_json(f"{api_url}/wrap", request_body, timeout=timeout)
     except urllib.error.HTTPError as error:
-        return block_output(f"Agent Sidecar Kimi wrapper failed: {http_error_detail(error)}")
+        return block_output(f"Agent Sidecar coding wrapper failed: {http_error_detail(error)}")
     if not result or not isinstance(result.get("display_response"), str):
-        return block_output("Agent Sidecar Kimi wrapper failed: /wrap did not return a display response.")
+        return block_output("Agent Sidecar coding wrapper failed: /wrap did not return a display response.")
     return wrapper_delivery_output(result, budget_status=budget_status)
 
 
@@ -245,7 +271,7 @@ def format_wrapper_display(result: dict, *, budget_status: dict | None = None) -
     refinement_source = str(result.get("refinement_source") or "unknown")
     files = result.get("files_changed") if isinstance(result.get("files_changed"), list) else []
     lines = [
-        "Agent Sidecar Kimi wrapper result.",
+        "Agent Sidecar coding wrapper result.",
         f"Refinement source: {refinement_source}.",
     ]
     budget_context = format_budget_context(budget_status)
@@ -269,26 +295,27 @@ def format_refinement_context(result: dict, *, budget_status: dict | None = None
     refined = str(result.get("refined_prompt") or "").strip()
     if not refined:
         return ""
+    if len(refined) > MAX_TASK_CHARS:
+        refined = refined[: MAX_TASK_CHARS - 3].rstrip() + "..."
     acceptance = result.get("acceptance_criteria") if isinstance(result.get("acceptance_criteria"), list) else []
     do_not_change = result.get("do_not_change") if isinstance(result.get("do_not_change"), list) else []
     testing = str(result.get("testing_expectations") or "").strip()
     source = str(result.get("source") or "unknown")
-    quality = str(result.get("quality") or "unknown")
     lines = [
-        "Agent Sidecar prompt refinement for this turn.",
-        f"Source: {source}; quality: {quality}.",
+        "Sidecar task contract.",
+        f"Source: {source}.",
     ]
     budget_context = format_budget_context(budget_status)
     if budget_context:
         lines.extend(["Cost guard:", budget_context])
-    lines.extend(["Derived task contract:", refined])
+    lines.extend(["Task:", refined])
     if acceptance:
-        lines.append("Acceptance criteria:")
+        lines.append("Checks:")
         lines.extend(f"- {item}" for item in acceptance if isinstance(item, str))
     if testing:
-        lines.extend(["Validation expectation:", testing])
+        lines.extend(["Validation:", testing])
     if do_not_change:
-        lines.append("Scope boundaries:")
+        lines.append("Boundaries:")
         lines.extend(f"- Do not change {item}" for item in do_not_change if isinstance(item, str))
     return "\n".join(lines)
 

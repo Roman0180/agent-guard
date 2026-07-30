@@ -114,6 +114,10 @@ class LiteLLMModelProvider:
         extra: dict[str, object] = {"max_tokens": self._max_tokens()}
         if route.serving == "llama_server":
             extra["api_key"] = os.environ.get("AGENT_SIDECAR_LLAMA_SERVER_API_KEY", "local")
+        elif route.serving == "deepseek":
+            api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("AGENT_SIDECAR_DEEPSEEK_API_KEY")
+            if api_key:
+                extra["api_key"] = api_key
 
         response = litellm.completion(
             model=route.litellm_model,
@@ -184,7 +188,7 @@ def _endpoint_reachable(api_base: str) -> bool:
     if not host:
         return False
     try:
-        with socket.create_connection((host, port), timeout=0.1):
+        with socket.create_connection((host, port), timeout=1.0):
             return True
     except OSError:
         return False

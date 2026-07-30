@@ -22,7 +22,7 @@ class ModelRegistryEntry(BaseModel):
     role: ModelRole
     kind: Literal["base", "tuned"] = "tuned"
     base: str
-    serving: Literal["ollama", "llama_server"] = "ollama"
+    serving: Literal["ollama", "llama_server", "deepseek"] = "ollama"
     adapter_sha256: str | None = None
     gguf_sha256: str | None = None
     trained_at: str | None = None

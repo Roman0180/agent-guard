@@ -2,19 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEEPSEEK_MODEL="${DEEPSEEK_MODEL:-deepseek-r1:8b}"
-KIMI_MODEL="${KIMI_MODEL:-kimi-linear-48b-a3b}"
-KIMI_MODEL_DIR="${KIMI_MODEL_DIR:-$ROOT_DIR/.agent-sidecar/models/$KIMI_MODEL}"
-KIMI_GGUF_PATH="${KIMI_GGUF_PATH:-}"
-KIMI_HOST="${KIMI_HOST:-127.0.0.1}"
-KIMI_PORT="${KIMI_PORT:-8080}"
-KIMI_CTX_SIZE="${KIMI_CTX_SIZE:-512}"
+REASONING_MODEL="${REASONING_MODEL:-${DEEPSEEK_MODEL:-llama3:latest}}"
+CODING_MODEL="${CODING_MODEL:-${DEEPSEEK_V4_MODEL:-llama3:latest}}"
+LOCAL_OPENAI_BASE_URL="${LOCAL_OPENAI_BASE_URL:-http://127.0.0.1:8080/v1}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
-KIMI_BASE_URL="${KIMI_BASE_URL:-http://$KIMI_HOST:$KIMI_PORT/v1}"
 AGENT_SIDECAR_MODEL_TIMEOUT_MS="${AGENT_SIDECAR_MODEL_TIMEOUT_MS:-60000}"
 AGENT_SIDECAR_MODEL_MAX_TOKENS="${AGENT_SIDECAR_MODEL_MAX_TOKENS:-768}"
 REFINEMENT_SMOKE_PROMPT="${REFINEMENT_SMOKE_PROMPT:-Update boilerplate.html into a small accessible static demo. Do not touch other files.}"
-START_DEEPSEEK="${START_DEEPSEEK:-0}"
+START_REASONING="${START_REASONING:-${START_DEEPSEEK:-1}}"
+START_CODING="${START_CODING:-${START_KIMI:-1}}"
 
 section() {
   printf '\n== %s ==\n' "$1"
@@ -43,7 +39,8 @@ PY
 }
 
 ollama_has_model() {
-  python3 - "$OLLAMA_BASE_URL" "$DEEPSEEK_MODEL" <<'PY'
+  local model="${1:?model required}"
+  python3 - "$OLLAMA_BASE_URL" "$model" <<'PY'
 from __future__ import annotations
 
 import json
@@ -67,28 +64,35 @@ raise SystemExit(0 if model in models or (":" not in model and f"{model}:latest"
 PY
 }
 
-kimi_is_served() {
-  python3 - "$KIMI_BASE_URL" "$KIMI_MODEL" <<'PY'
+openai_server_has_model() {
+  local model="${1:?model required}"
+  python3 - "$LOCAL_OPENAI_BASE_URL" "$model" <<'PY'
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.request
 
 base_url = sys.argv[1].rstrip("/")
 model = sys.argv[2]
+headers = {}
+api_key = os.environ.get("AGENT_SIDECAR_LLAMA_SERVER_API_KEY")
+if api_key:
+    headers["Authorization"] = f"Bearer {api_key}"
+request = urllib.request.Request(f"{base_url}/models", headers=headers)
 try:
-    with urllib.request.urlopen(f"{base_url}/models", timeout=3) as response:
+    with urllib.request.urlopen(request, timeout=3) as response:
         payload = json.loads(response.read().decode("utf-8"))
 except Exception:
     raise SystemExit(1)
 
-models = {
+ids = {
     item.get("id")
     for item in payload.get("data", [])
     if isinstance(item, dict)
 }
-raise SystemExit(0 if model in models else 1)
+raise SystemExit(0 if model in ids else 1)
 PY
 }
 
@@ -108,22 +112,8 @@ wait_for_url() {
   return 1
 }
 
-resolve_kimi_gguf() {
-  if [[ -n "$KIMI_GGUF_PATH" ]]; then
-    printf '%s\n' "$KIMI_GGUF_PATH"
-    return 0
-  fi
-  local found
-  found="$(find "$KIMI_MODEL_DIR" -maxdepth 1 -type f -name '*.gguf' 2>/dev/null | head -n 1 || true)"
-  if [[ -n "$found" ]]; then
-    printf '%s\n' "$found"
-    return 0
-  fi
-  return 1
-}
-
 start_ollama_if_needed() {
-  section "Ollama / DeepSeek"
+  section "Ollama"
   require_command ollama
   if http_ok "$OLLAMA_BASE_URL/api/tags"; then
     echo "Ollama is already reachable at $OLLAMA_BASE_URL."
@@ -134,49 +124,52 @@ start_ollama_if_needed() {
     echo "$!" > "$ROOT_DIR/.agent-sidecar/models/ollama.pid"
     wait_for_url "Ollama" "$OLLAMA_BASE_URL/api/tags" 30
   fi
+}
 
-  if ollama_has_model; then
-    echo "DeepSeek is already installed: $DEEPSEEK_MODEL"
+pull_ollama_model_if_needed() {
+  local label="$1"
+  local model="$2"
+  if ollama_has_model "$model"; then
+    echo "$label is already installed: $model"
   else
-    echo "Pulling DeepSeek model: $DEEPSEEK_MODEL"
-    ollama pull "$DEEPSEEK_MODEL"
+    echo "Pulling $label: $model"
+    ollama pull "$model"
   fi
 }
 
-start_kimi_if_needed() {
-  section "Kimi llama-server"
-  if kimi_is_served; then
-    echo "Kimi is already served at $KIMI_BASE_URL as $KIMI_MODEL."
-    return 0
+assert_local_coding_model_served() {
+  section "Coding Model Local Server"
+  if openai_server_has_model "$CODING_MODEL"; then
+    echo "Local OpenAI-compatible server is serving $CODING_MODEL at $LOCAL_OPENAI_BASE_URL."
+    return
   fi
 
-  require_command llama-server
-  local gguf_path
-  if ! gguf_path="$(resolve_kimi_gguf)"; then
-    echo "Could not find a Kimi GGUF file." >&2
-    echo "Set KIMI_GGUF_PATH=/path/to/kimi.gguf or place a .gguf under $KIMI_MODEL_DIR." >&2
-    exit 1
-  fi
+  cat >&2 <<EOF
+$CODING_MODEL is not served at $LOCAL_OPENAI_BASE_URL.
 
-  mkdir -p "$KIMI_MODEL_DIR"
-  echo "Starting llama-server for $KIMI_MODEL."
-  echo "Model: $gguf_path"
-  nohup llama-server \
-    --model "$gguf_path" \
-    --alias "$KIMI_MODEL" \
-    --ctx-size "$KIMI_CTX_SIZE" \
-    --host "$KIMI_HOST" \
-    --port "$KIMI_PORT" \
-    > "$KIMI_MODEL_DIR/llama-server.log" 2>&1 &
-  echo "$!" > "$KIMI_MODEL_DIR/llama-server.pid"
+The coding role defaults to Llama 3 8B served through llama.cpp's llama-server
+(OpenAI-compatible), verified live on this hardware: DeepSeek V4 Flash via
+vLLM/SGLang was configured previously but never actually verified reachable
+here, and vLLM does not reliably support macOS/ARM anyway. Start llama-server
+before running this helper, with --alias set to match CODING_MODEL. For
+example, pulling a GGUF directly from Hugging Face:
 
-  wait_for_url "Kimi llama-server" "$KIMI_BASE_URL/models" 45
-  if ! kimi_is_served; then
-    echo "llama-server is reachable, but $KIMI_MODEL is not listed at $KIMI_BASE_URL/models." >&2
-    echo "See $KIMI_MODEL_DIR/llama-server.log" >&2
-    exit 1
-  fi
-  echo "Kimi is served at $KIMI_BASE_URL as $KIMI_MODEL."
+  brew install llama.cpp
+  llama-server -hf bartowski/Meta-Llama-3-8B-Instruct-GGUF:Q4_0 \\
+    --host 127.0.0.1 --port 8080 --alias "$CODING_MODEL"
+
+Or, if you already have the model pulled through Ollama, reuse that GGUF
+directly instead of downloading it again:
+
+  GGUF_PATH="\$(ollama show llama3:latest --modelfile | awk '/^FROM /{print \$2}')"
+  llama-server -m "\$GGUF_PATH" --host 127.0.0.1 --port 8080 --alias "$CODING_MODEL"
+
+Set CODING_MODEL and LOCAL_OPENAI_BASE_URL to point at a different model or
+server if you have real DeepSeek V4 Flash infrastructure elsewhere; verify it
+actually serves valid output within your configured timeout before trusting
+it, the same way this default was verified.
+EOF
+  exit 1
 }
 
 python_for_sidecar() {
@@ -188,7 +181,7 @@ python_for_sidecar() {
 }
 
 run_refinement_smoke_test() {
-  section "Deterministic + Kimi Refinement Smoke Test"
+  section "Deterministic + Coding-Model Refinement Smoke Test"
   local python_bin
   python_bin="$(python_for_sidecar)"
   AGENT_SIDECAR_MODEL_TIMEOUT_MS="$AGENT_SIDECAR_MODEL_TIMEOUT_MS" \
@@ -213,7 +206,7 @@ root = Path(sys.argv[1])
 prompt = sys.argv[2]
 provider = LiteLLMModelProvider(root)
 started = time.monotonic()
-print("Running deterministic refinement with Kimi coding focus. This can take 15-60s.", flush=True)
+print("Running deterministic refinement with coding-model focus. This can take 15-60s.", flush=True)
 try:
     result, _events = refine_prompt(
         prompt,
@@ -240,10 +233,15 @@ PY
 }
 
 cd "$ROOT_DIR"
-if [[ "$START_DEEPSEEK" == "1" ]]; then
+if [[ "$START_REASONING" == "1" ]]; then
   start_ollama_if_needed
 fi
-start_kimi_if_needed
+if [[ "$START_REASONING" == "1" ]]; then
+  pull_ollama_model_if_needed "Reasoning model" "$REASONING_MODEL"
+fi
+if [[ "$START_CODING" == "1" ]]; then
+  assert_local_coding_model_served
+fi
 run_refinement_smoke_test
 
 section "Model Routes"
@@ -255,16 +253,40 @@ fi
 
 cat <<EOF
 
-Local models are ready.
+Model routes are ready.
 
 Run the demo without restarting models:
   ./scripts/e2e_claude_code.sh
 
-DeepSeek prompt refinement is not used by default. The paired e2e script still
-requires DeepSeek for post-run implementation evaluation; rerun this helper with
-START_DEEPSEEK=1 if you are preparing for that flow.
+The coding role (prompt-refinement implementation focus) uses Llama 3 8B
+through a local OpenAI-compatible endpoint (llama.cpp's llama-server).
+DeepSeek V4 Flash via vLLM/SGLang was configured previously but never verified
+reachable on this hardware; Llama 3 8B was verified live through the real
+production prompt template (2.7-4.1s per call, valid schema-conforming output
+every time).
+Default CODING_MODEL is llama3:latest. DEEPSEEK_V4_MODEL remains supported as
+a compatibility alias.
+Default LOCAL_OPENAI_BASE_URL is http://127.0.0.1:8080/v1.
+
+The reasoning role (steering judgments, refinement approval) uses Llama 3 8B
+served through Ollama by default. Larger reasoning-tuned local models
+(a DeepSeek-R1 distill, Qwen3-30B-A3B) were tried and measured on real
+hardware: both either were never actually pulled/served or returned
+malformed/empty responses after 11-14 seconds per call, well past the 5-second
+budget the Claude Code UserPromptSubmit hook gives the whole /refine round
+trip. Llama 3 8B was verified live on the same machine to answer a realistic
+steering judgment correctly (valid JSON, grounded evidence_event_ids, no
+hallucinated ids) in 1.4-2.1 seconds. A model that never finishes in time is
+worth exactly nothing here, however capable it is on paper — verify a
+candidate actually serves correctly and finishes within budget on your
+hardware before trusting it as the default.
+Default REASONING_MODEL is llama3:latest. Set REASONING_MODEL to a larger
+model only after confirming it actually serves within your configured
+AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS on your own hardware. Set
+START_REASONING=0 to skip pulling and starting Ollama, for example when the
+reasoning role is already served elsewhere. DEEPSEEK_MODEL and START_DEEPSEEK
+remain supported as aliases for REASONING_MODEL and START_REASONING.
 
 Logs:
-  $ROOT_DIR/.agent-sidecar/models/ollama.log (only when START_DEEPSEEK=1)
-  $KIMI_MODEL_DIR/llama-server.log
+  $ROOT_DIR/.agent-sidecar/models/ollama.log (when Ollama is started by this helper)
 EOF

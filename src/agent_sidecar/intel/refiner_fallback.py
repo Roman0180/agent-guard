@@ -5,10 +5,17 @@ from agent_sidecar.schema.model_io import RefineResult
 
 VAGUE_TERMS = {"fix", "make", "improve", "better", "broken", "not working", "tests"}
 
+# Echoing the raw prompt verbatim into the task contract is unbounded: a long issue body
+# (or oracle test-list content embedded in it) gets faithfully amplified into the contract
+# and can push Claude toward doing much more work than the original prompt asked for, for
+# no quality gain. Cap what gets echoed so acceptance criteria/validation/boundaries always
+# reach Claude intact instead of being crowded out or invisibly copied wholesale.
+MAX_ECHOED_TASK_CHARS = 700
+
 
 def refine_deterministically(prompt: str) -> RefineResult:
     issues = detect_issues(prompt)
-    task = prompt.strip() or "Complete the requested coding task"
+    task = _truncate(prompt.strip(), MAX_ECHOED_TASK_CHARS) or "Complete the requested coding task"
     acceptance = [
         "Identify the smallest relevant code path before editing.",
         "Preserve unrelated behavior and avoid broad refactors.",
@@ -57,3 +64,8 @@ def detect_issues(prompt: str) -> list[str]:
     if not any(token in text for token in ["/", ".py", ".ts", ".tsx", "file", "component", "module", "auth", "api"]):
         issues.append("no likely files or components named")
     return issues
+
+
+def _truncate(text: str, limit: int) -> str:
+    compact = " ".join(text.split())
+    return compact if len(compact) <= limit else compact[: max(0, limit - 3)].rstrip() + "..."

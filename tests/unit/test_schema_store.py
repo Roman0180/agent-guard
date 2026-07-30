@@ -14,6 +14,9 @@ def test_config_created_with_defaults(tmp_path: Path) -> None:
 
     assert config.version == 3
     assert config.daemon.api_port == 7433
+    assert config.models.roles["coding"].fallback_base == "llama3:latest"
+    assert config.models.roles["coding"].serving == "llama_server"
+    assert config.models.remote_fallback is False
     assert (tmp_path / ".agent-sidecar" / "config.json").exists()
 
 

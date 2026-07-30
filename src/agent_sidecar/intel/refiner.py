@@ -18,7 +18,7 @@ class ReasoningRefinementRequiredError(RuntimeError):
 
 
 class CodingRefinementRequiredError(RuntimeError):
-    """Raised when Kimi coding refinement is required but unavailable."""
+    """Raised when coding-model refinement is required but unavailable."""
 
 
 def refine_prompt(
@@ -46,11 +46,11 @@ def refine_prompt(
         if require_coding_refinement:
             coding_draft = provider.complete_json(ModelRole.coding, _coding_followup_task(), _coding_followup_prompt(prompt, draft), NextStepDraft) if provider else None
             if not isinstance(coding_draft, NextStepDraft):
-                raise CodingRefinementRequiredError("Kimi did not produce a valid coding next step")
+                raise CodingRefinementRequiredError("coding model did not produce a valid coding next step")
             result = RefineResult(
                 quality="medium",
                 issues=[],
-                refined_prompt=f"{draft.refined_prompt}\n\nKimi coding focus: {coding_draft.next_step}",
+                refined_prompt=f"{draft.refined_prompt}\n\nFocus: {coding_draft.next_step}",
                 acceptance_criteria=draft.acceptance_criteria,
                 testing_expectations=draft.testing_expectations,
                 do_not_change=draft.do_not_change,
@@ -84,10 +84,10 @@ def refine_prompt(
     if require_coding_refinement and not require_model_ensemble:
         coding_draft = provider.complete_json(ModelRole.coding, _coding_followup_task(), _coding_followup_prompt(prompt, deterministic), NextStepDraft) if provider else None
         if not isinstance(coding_draft, NextStepDraft):
-            raise CodingRefinementRequiredError("Kimi did not produce a valid coding next step")
+            raise CodingRefinementRequiredError("coding model did not produce a valid coding next step")
         result = deterministic.model_copy(
             update={
-                "refined_prompt": f"{deterministic.refined_prompt}\n\nKimi implementation focus: {coding_draft.next_step}",
+                "refined_prompt": f"{deterministic.refined_prompt}\n\nFocus: {coding_draft.next_step}",
                 "source": "deterministic-then-coding",
             }
         )
@@ -221,12 +221,13 @@ def _reasoning_refinement_task() -> str:
     return """Return compact, task-specific JSON only.
 
 Fields:
-- refined_prompt: one concise coding-agent instruction that preserves the user's requested files, sections, interactions, and scope.
-- acceptance_criteria: 2 or 3 short, specific success checks.
-- testing_expectations: one short validation sentence.
-- do_not_change: 1 or 2 concrete scope boundaries.
+- refined_prompt: one concise coding-agent instruction under 80 words that preserves the user's requested files, sections, interactions, and scope.
+- acceptance_criteria: 2 or 3 short, specific success checks, each under 12 words.
+- testing_expectations: one short validation sentence under 18 words.
+- do_not_change: 1 or 2 concrete scope boundaries, each under 10 words.
 - files_or_components: exact file or component names.
 
+Optimize for fewer Claude Code tokens. Remove repetition, examples, background, and obvious restatements.
 Do not add explanation, markdown, placeholder text, or requirements the user did not ask for."""
 
 
