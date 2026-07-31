@@ -23,7 +23,11 @@ def main() -> int:
         payload = json.loads(raw or "{}")
         session_id = ensure_session_id(str(payload.get("session_id") or payload.get("sessionId") or "unknown"))
         api_url = os.environ.get("AGENT_SIDECAR_API_URL", DEFAULT_API_URL).rstrip("/")
-        post_json(f"{api_url}/sessions/{session_id}/events", payload, timeout=TIMEOUT_SECONDS)
+        ingest = post_json(f"{api_url}/sessions/{session_id}/events", payload, timeout=TIMEOUT_SECONDS)
+        steering = steering_context_output(payload, ingest)
+        if steering:
+            sys.stdout.write(json.dumps(steering, separators=(",", ":")))
+            return 0
         budget_status = ensure_budget_status(session_id, api_url)
         guard = budget_guard_output(budget_status)
         if guard:
@@ -126,6 +130,26 @@ def budget_block_status(reason: str) -> dict:
         "current_cost_usd": 0.0,
         "budget_usd": 0.0,
         "remaining_usd": 0.0,
+    }
+
+
+def steering_context_output(payload: dict, ingest: dict | None) -> dict | None:
+    if hook_name(payload) != "PostToolUse":
+        return None
+    if not isinstance(ingest, dict):
+        return None
+    measurement = ingest.get("measurement")
+    if not isinstance(measurement, dict):
+        return None
+    context = measurement.get("steering_context")
+    if not isinstance(context, str) or not context.strip():
+        return None
+    return {
+        "suppressOutput": True,
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": context[:MAX_CONTEXT_CHARS],
+        },
     }
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import typer
 
 from agent_sidecar import __version__
-from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, models_cmds, session_cmds, telemetry_cmds
+from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, measurement_cmds, models_cmds, session_cmds, telemetry_cmds
 
 
 app = typer.Typer(no_args_is_help=True, invoke_without_command=True)
@@ -66,4 +66,9 @@ app.add_typer(models_app, name="models")
 dev_app.command("replay-fixture")(dev_cmds.replay_fixture)
 dev_app.command("export-dataset")(dev_cmds.export_dataset)
 dev_app.command("calibrate-detectors")(dev_cmds.calibrate_detectors)
+dev_app.command("calibrate-k")(dev_cmds.calibrate_k_cmd)
 app.add_typer(dev_app, name="dev")
+
+measurement_app = typer.Typer(no_args_is_help=True)
+measurement_app.command("report")(measurement_cmds.report)
+app.add_typer(measurement_app, name="measurement")

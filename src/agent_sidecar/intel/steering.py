@@ -5,6 +5,7 @@ from importlib import resources
 
 from agent_sidecar.intel import ranker
 from agent_sidecar.intel.detectors import failed_test_loop, missing_validation, repeated_command, repeated_edit, task_drift
+from agent_sidecar.intel.k_store import load_k_calibration
 from agent_sidecar.intel.rules import apply_rule_gates
 from agent_sidecar.models.validation import evidence_subset
 from agent_sidecar.schema.config import SidecarConfig
@@ -55,12 +56,27 @@ def steer(
             "evaluators_fired": [finding.evaluator_id for finding in findings],
             "evidence_event_ids": result.evidence_event_ids,
             "confidence": result.confidence,
-            "estimated_avoided_waste": {"cost_usd": 0.0, "precision": "approximate"},
+            "estimated_avoided_waste": estimated_avoided_waste(findings, repo_path),
             "source": "model_assisted" if model_result else "deterministic",
         },
         metadata=EventMeta(repo_path=str(repo_path)),
     )
     return result, findings, event
+
+
+def estimated_avoided_waste(findings: list[EvaluatorFinding], repo_path: Path) -> dict:
+    """k-calibrated estimate of the waste this intervention likely avoided.
+
+    Iteration counts come from measured shadow-mode (control arm) outcomes when
+    calibration data exists, seed values otherwise. Always labeled approximate:
+    a per-event counterfactual is an estimate by nature; only the arm-level
+    comparison is a measurement.
+    """
+    if not findings:
+        return {"iterations": 0.0, "cost_usd": 0.0, "precision": "approximate", "basis": "k-calibration"}
+    calibration = load_k_calibration(repo_path)
+    iterations = max(calibration.get(finding.evaluator_id, 0.0) for finding in findings)
+    return {"iterations": iterations, "cost_usd": 0.0, "precision": "approximate", "basis": "k-calibration"}
 
 
 def finding_events(findings: list[EvaluatorFinding], *, session_id: str, repo_path: Path) -> list[SidecarEvent]:

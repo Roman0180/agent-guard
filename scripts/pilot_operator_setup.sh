@@ -68,14 +68,37 @@ else
 fi
 
 say
-say "== tailscale serve: tailnet :11434 -> localhost:11434 =="
-if "$TS" serve status 2>/dev/null | grep -q "11434"; then
-  ok "serve rule for 11434 already present"
+say "== Receipt proxy (independent usage receipts for tailnet traffic) =="
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if curl -s -m 2 "http://127.0.0.1:11435/api/tags" >/dev/null; then
+  ok "receipt proxy running on 127.0.0.1:11435"
 elif [[ "$CHECK_ONLY" -eq 1 ]]; then
-  bad "no serve rule for 11434 (would run: $TS serve --bg --tcp=11434 tcp://localhost:11434)"
+  bad "receipt proxy not running (would start scripts/receipt_proxy.py)"
 else
-  "$TS" serve --bg --tcp=11434 tcp://localhost:11434
-  ok "serve rule added"
+  mkdir -p "$REPO_ROOT/.agent-sidecar/receipts"
+  nohup python3 "$REPO_ROOT/scripts/receipt_proxy.py" >> "$REPO_ROOT/.agent-sidecar/receipts/proxy.log" 2>&1 &
+  started=0
+  for _ in 1 2 3 4 5 6; do
+    sleep 0.5
+    curl -s -m 2 "http://127.0.0.1:11435/api/tags" >/dev/null && { started=1; break; }
+  done
+  if [[ "$started" -eq 1 ]]; then
+    ok "receipt proxy started (receipts: .agent-sidecar/receipts/receipts.jsonl)"
+  else
+    bad "receipt proxy failed to start; see .agent-sidecar/receipts/proxy.log"
+  fi
+fi
+
+say
+say "== tailscale serve: tailnet :11434 -> receipt proxy :11435 -> Ollama :11434 =="
+if "$TS" serve status 2>/dev/null | grep -q "tcp://localhost:11435"; then
+  ok "serve rule targets the receipt proxy"
+elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+  bad "serve rule missing or bypasses the proxy (would retarget to tcp://localhost:11435)"
+else
+  "$TS" serve --tcp=11434 off 2>/dev/null || true
+  "$TS" serve --bg --tcp=11434 tcp://localhost:11435
+  ok "serve rule targets the receipt proxy"
 fi
 
 say

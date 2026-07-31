@@ -83,6 +83,15 @@ class RulesConfig(BaseModel):
     warn_on_out_of_scope_edits: bool = True
 
 
+class MeasurementConfig(BaseModel):
+    # Fraction of sessions randomly assigned to the control arm (no refinement or
+    # steering delivered; capture and shadow detection continue). 0 disables arms.
+    control_fraction: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Run detectors on event ingest: assist sessions get steering context delivered
+    # through the hook response; control sessions get silent shadow_detection events.
+    steer_on_ingest: bool = False
+
+
 class LangfuseExporterConfig(BaseModel):
     enabled: bool = False
     base_url: str | None = None
@@ -105,6 +114,7 @@ class SidecarConfig(BaseModel):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     steering: SteeringConfig = Field(default_factory=SteeringConfig)
     rules: RulesConfig = Field(default_factory=RulesConfig)
+    measurement: MeasurementConfig = Field(default_factory=MeasurementConfig)
     exporters: ExportersConfig = Field(default_factory=ExportersConfig)
 
 

@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 from agent_sidecar.adapters.claude_code.hooks_adapter import events_from_hook
 from agent_sidecar.intel.cost import price_map_metadata, session_cost
 from agent_sidecar.intel.refiner import CodingRefinementRequiredError, ModelEnsembleRequiredError, ReasoningRefinementRequiredError, refine_prompt
+from agent_sidecar.intel.measurement import assigned_arm, measure_on_ingest, measurement_report
 from agent_sidecar.intel.steering import finding_events, steer
 from agent_sidecar.intel.wrapper import KimiWrapperRequiredError, wrap_prompt_with_kimi
 from agent_sidecar.models.provider import LiteLLMModelProvider
@@ -62,7 +63,10 @@ def create_api_router(manager_dependency) -> APIRouter:
     def add_event(session_id: str, body: dict[str, Any], manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
         events = parse_events(session_id, body, manager)
         records = [manager.add_event(event).model_dump(mode="json") for event in events]
-        return {"accepted": len(events), "session": records[-1] if records else None, "events": [event.model_dump(mode="json") for event in events]}
+        response: dict[str, Any] = {"accepted": len(events), "session": records[-1] if records else None, "events": [event.model_dump(mode="json") for event in events]}
+        if events and manager.config.measurement.steer_on_ingest:
+            response["measurement"] = measure_on_ingest(manager, events[-1].session_id)
+        return response
 
     @router.post("/sessions/{session_id}/stop")
     def stop_session(session_id: str, manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
@@ -81,6 +85,16 @@ def create_api_router(manager_dependency) -> APIRouter:
         if not prompt:
             raise HTTPException(status_code=400, detail="prompt is required")
         session_id = body.get("session_id") or body.get("session")
+        if session_id and manager.config.measurement.control_fraction > 0 and assigned_arm(str(session_id), manager.config) == "control":
+            suppressed = SidecarEvent(
+                session_id=str(session_id),
+                event_type="refinement_suppressed",
+                source=EventSource.detector,
+                payload={"reason": "control_arm", "prompt_chars": len(prompt)},
+                metadata=EventMeta(repo_path=str(manager.repo_path)),
+            )
+            manager.add_event(suppressed)
+            return {"suppressed": True, "arm": "control", "session_id": suppressed.session_id}
         require_model_ensemble = bool(body.get("require_model_ensemble", False))
         require_reasoning_refinement = bool(body.get("require_reasoning_refinement", False))
         require_coding_refinement = bool(body.get("require_coding_refinement", False))
@@ -169,6 +183,10 @@ def create_api_router(manager_dependency) -> APIRouter:
     @router.get("/sessions/{session_id}/recommendations")
     def recommendations(session_id: str, manager: SessionManager = Depends(manager_dependency)) -> list[dict[str, Any]]:
         return [event.model_dump(mode="json") for event in manager.events(session_id) if event.event_type == "steering_recommendation"]
+
+    @router.get("/measurement/report")
+    def measurement(manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
+        return measurement_report(manager)
 
     @router.get("/sessions/{session_id}/cost")
     def cost(session_id: str, manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:

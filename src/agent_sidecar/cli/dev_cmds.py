@@ -100,3 +100,18 @@ def _steer_rows(events: list[SidecarEvent], path: Path) -> list[dict]:
             "provenance": {"trace": str(path), "event_id": event.event_id},
         })
     return rows
+
+
+def calibrate_k_cmd() -> None:
+    from agent_sidecar.intel.k_store import k_calibration_path
+    from agent_sidecar.intel.measurement import calibrate_k
+    from agent_sidecar.store.sessions import SessionManager
+
+    manager = SessionManager(Path.cwd())
+    evaluators = calibrate_k(manager)
+    if not evaluators:
+        typer.echo("No shadow detections found in control-arm sessions; calibration unchanged (seed values apply).")
+        return
+    typer.echo(f"Wrote {k_calibration_path(Path.cwd())}")
+    for evaluator_id, entry in sorted(evaluators.items()):
+        typer.echo(f"  {evaluator_id}: median {entry['median_extra_iterations']:g} extra iterations ({entry['samples']} samples)")

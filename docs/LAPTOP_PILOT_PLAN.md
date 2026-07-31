@@ -62,11 +62,29 @@ The point: exercise the *identical* remote path the pilot uses, on one machine. 
 4. One live smoke test together (screen share): vague prompt → model-assisted contract; operator kills Ollama → deterministic fallback; restore.
 5. Disclose explicitly: pilot prompts (not code, not traces) transit to the operator's laptop for refinement; traces stay on the pilot's machine.
 
-## Phase 5 — Measurement
+## Phase 5 — Measurement (randomized arms + shadow k calibration)
 
-- Every refinement records its `source` and every model call records latency and `failure_reason`, so normal pilot usage produces a natural A/B: model-assisted refinements when the operator laptop is up, deterministic when it isn't.
-- Weekly: pull the pilot's session summaries (`agent-sidecar summary export`) and compare cost-per-successful-task and steps-per-task between model-assisted and deterministic sessions.
-- Success criterion for the pilot (same bar as the benchmark): model-assisted sessions are non-inferior on outcome quality and better on measured cost. If deterministic ties or wins, the paid tier isn't earning its latency — that's a product finding, not a deployment failure.
+- **Randomized arms**: `measurement.control_fraction` (pilot config: 0.3) assigns each session
+  deterministically (sha256 of the session id) to `assist` or `control`. Control sessions get
+  full capture but no refinement (`refinement_suppressed` events) and no steering delivery.
+  The arm is derivable from the session id alone, so claims are independently auditable —
+  including against the operator-side receipt log, where control sessions must show no traffic.
+- **Steering delivery** (`measurement.steer_on_ingest`): assist sessions run deterministic
+  detectors on every hook ingest and deliver steering context through the PostToolUse hook
+  response, throttled to once per evaluator per session. Control sessions record silent
+  `shadow_detection` events instead.
+- **k calibration**: `agent-sidecar dev calibrate-k` measures what actually followed each
+  shadow detection in control sessions and writes per-detector medians to
+  `.agent-sidecar/calibration/steering_k.json`. Steering recommendations embed
+  `estimated_avoided_waste` (iterations, labeled approximate) from those medians — seed
+  values until real shadow data accumulates.
+- **Weekly readout**: `agent-sidecar measurement report [--json]` aggregates per-arm sessions,
+  tokens, measured cost, refinements delivered/suppressed, steering recommendations, and
+  shadow detections. The arm comparison is the measured savings number; per-event
+  avoided-waste figures are estimates and must stay labeled as such.
+- Success criterion (same bar as the benchmark): assist sessions non-inferior on outcome
+  quality and better on measured cost than control sessions. If control ties or wins, the
+  paid tier isn't earning its latency — a product finding, not a deployment failure.
 
 ## Risks
 

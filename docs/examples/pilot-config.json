@@ -30,5 +30,9 @@
     "remote_fallback": true,
     "timeout_ms": 9000,
     "max_tokens": 256
+  },
+  "measurement": {
+    "control_fraction": 0.3,
+    "steer_on_ingest": true
   }
 }

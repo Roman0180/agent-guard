@@ -39,6 +39,8 @@ REGISTERED_EVENT_TYPES = {
     "validation_missing",
     "task_drift_detected",
     "steering_recommendation",
+    "shadow_detection",
+    "refinement_suppressed",
     "model_call_completed",
     "summary_exported",
 }
@@ -116,6 +118,7 @@ def validate_event_payload(event_type: str, payload: dict[str, Any]) -> None:
         "validation_missing": {"evidence_event_ids"},
         "task_drift_detected": {"evidence_event_ids"},
         "steering_recommendation": {"decision", "recommendation", "evidence_event_ids", "confidence"},
+        "shadow_detection": {"evaluator_id", "evidence_event_ids"},
         "model_call_completed": {"role", "model_id", "latency_ms", "valid_json", "fallback_used"},
         "summary_exported": {"destination", "counts", "duration_ms"},
     }
