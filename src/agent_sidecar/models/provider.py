@@ -103,7 +103,7 @@ class LiteLLMModelProvider:
                 return int(configured)
             except ValueError:
                 pass
-        return 768
+        return self.config.models.max_tokens
 
     def _completion(self, route: ModelRoute, task: str, prompt: str, timeout_s: float) -> str:
         if route.serving == "ollama":
@@ -145,6 +145,7 @@ class LiteLLMModelProvider:
                 "stream": False,
                 "format": "json",
                 "think": False,
+                "keep_alive": self.config.models.ollama_keep_alive,
                 "options": {"temperature": 0, "num_predict": self._max_tokens()},
             },
             timeout=timeout_s,

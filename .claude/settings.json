@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script",
+            "command": "AGENT_SIDECAR_HOOK=1 AGENT_SIDECAR_API_URL=http://127.0.0.1:7433 AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS=10 /Users/roman/Desktop/agent-guard/.venv/bin/python -m agent_sidecar.adapters.claude_code.hook_script",
             "timeout": 30
           }
         ]

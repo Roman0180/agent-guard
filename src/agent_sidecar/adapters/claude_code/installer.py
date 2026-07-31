@@ -21,7 +21,10 @@ def backup_path(repo_path: Path) -> Path:
     return repo_path / ".claude" / "settings.json.agent-sidecar.bak"
 
 
-def install_hooks(repo_path: Path, *, api_url: str | None = None) -> dict[str, Any]:
+DEFAULT_REFINE_TIMEOUT_SECONDS = 10.0
+
+
+def install_hooks(repo_path: Path, *, api_url: str | None = None, refine_timeout_seconds: float = DEFAULT_REFINE_TIMEOUT_SECONDS) -> dict[str, Any]:
     path = settings_path(repo_path)
     original_bytes = path.read_bytes() if path.exists() else b"{}"
     settings = json.loads(original_bytes.decode("utf-8") or "{}")
@@ -32,7 +35,7 @@ def install_hooks(repo_path: Path, *, api_url: str | None = None) -> dict[str, A
     if not backup.exists():
         backup.write_bytes(original_bytes)
     hooks = settings.setdefault("hooks", {})
-    command = hook_command(api_url)
+    command = hook_command(api_url, refine_timeout_seconds=refine_timeout_seconds)
     changed = False
     for event in HOOK_EVENTS:
         entries = hooks.setdefault(event, [])
@@ -74,10 +77,12 @@ def hooks_status(repo_path: Path) -> dict[str, Any]:
     return {"path": str(path), "installed": len(events) == len(HOOK_EVENTS), "events": events}
 
 
-def hook_command(api_url: str | None = None) -> str:
+def hook_command(api_url: str | None = None, *, refine_timeout_seconds: float | None = DEFAULT_REFINE_TIMEOUT_SECONDS) -> str:
     env = f"{SIDEcar_MARKER} "
     if api_url:
         env += f"AGENT_SIDECAR_API_URL={shlex.quote(api_url)} "
+    if refine_timeout_seconds is not None:
+        env += f"AGENT_SIDECAR_REFINE_TIMEOUT_SECONDS={refine_timeout_seconds:g} "
     return env + f"{shlex.quote(sys.executable)} -m agent_sidecar.adapters.claude_code.hook_script"
 
 

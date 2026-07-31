@@ -1,0 +1,32 @@
+// Least-privilege Tailscale ACL for the laptop pilot.
+// Paste into https://login.tailscale.com/admin/acls after replacing:
+//   PILOT-GITHUB-USERNAME@github -> the pilot's Tailscale identity. This tailnet
+//     uses GitHub sign-in, so identities look like "octocat@github" rather than
+//     an email. Confirm the exact string on the admin console's Users/Machines
+//     page after the pilot accepts the invite (an invited user on a different
+//     provider shows up as their email instead).
+//
+// Effect: your own devices keep full access to each other; the pilot's devices
+// can reach ONLY this laptop, and only on 11434 (models) and 8000 (wheel
+// download). Everything else is denied by default once an ACL file exists.
+{
+  "hosts": {
+    "operator-laptop": "100.98.101.5/32", // romans-macbook-pro.tailb0db46.ts.net
+  },
+
+  "acls": [
+    // Owner devices: unrestricted within the tailnet (the pre-ACL default, scoped to you).
+    {
+      "action": "accept",
+      "src":    ["autogroup:owner"],
+      "dst":    ["*:*"],
+    },
+
+    // Pilot: model endpoint + wheel download on the operator laptop, nothing else.
+    {
+      "action": "accept",
+      "src":    ["PILOT-GITHUB-USERNAME@github"],
+      "dst":    ["operator-laptop:11434", "operator-laptop:8000"],
+    },
+  ],
+}

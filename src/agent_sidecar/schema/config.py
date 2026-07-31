@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -52,6 +53,11 @@ class ModelsConfig(BaseModel):
     ])
     remote_fallback: bool = False
     timeout_ms: int = 12000
+    max_tokens: int = 768
+    # Ollama keep_alive sent with every request; -1 pins the model resident so
+    # interactive calls never pay the multi-second cold load. Set e.g. "5m" to
+    # let the serving host reclaim memory between sessions.
+    ollama_keep_alive: int | str = -1
     hardware_tier: str = "auto"
 
 
@@ -113,11 +119,20 @@ def config_path(repo_path: Path) -> Path:
 def load_config(repo_path: Path, *, create: bool = True) -> SidecarConfig:
     path = config_path(repo_path)
     if path.exists():
-        return SidecarConfig.model_validate_json(path.read_text(encoding="utf-8"))
+        return _apply_env_overrides(SidecarConfig.model_validate_json(path.read_text(encoding="utf-8")))
     config = SidecarConfig()
     if create:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(config.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8")
+    return _apply_env_overrides(config)
+
+
+def _apply_env_overrides(config: SidecarConfig) -> SidecarConfig:
+    ollama_api_base = os.environ.get("AGENT_SIDECAR_OLLAMA_API_BASE", "").strip()
+    if ollama_api_base and "ollama" in config.models.endpoints:
+        config.models.endpoints["ollama"] = config.models.endpoints["ollama"].model_copy(
+            update={"api_base": ollama_api_base.rstrip("/")}
+        )
     return config
 
 
