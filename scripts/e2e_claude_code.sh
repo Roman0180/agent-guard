@@ -35,7 +35,7 @@ SINGLE_RUN=0
 AUTO_SUBMIT=1
 HTML_OUTPUTS_OPENED=0
 
-DEFAULT_EXAMPLE_PROMPT='Replace boilerplate.html with a compact Agent Sidecar savings card for a fast smoke demo. Keep it dependency-free in one file with semantic HTML and inline CSS only. Include a header, one status pill, three metric tiles for Baseline $0.60, Sidecar $0.51, and Savings 15%, plus a three-step workflow list. No JavaScript, external assets, tests, extra files, or final file reread. Keep the HTML under 120 lines. Briefly summarize the change.'
+DEFAULT_EXAMPLE_PROMPT='Replace boilerplate.html with a single-file dynamic Agent Sidecar demo page. Keep it dependency-free: one HTML file with semantic HTML, inline CSS, and inline JavaScript only — no external assets, fonts, or libraries. Include a header with an inline-SVG or emoji logo icon, a grid of at least six feature cards each with a distinct icon and label, and at least four working buttons: a light/dark theme toggle, a counter with increment and reset, a show/hide toggle for a details panel, and a button that cycles a status pill through Idle, Running, and Done. Wire every button with plain JavaScript and make the current state visibly change on the page. Keep the HTML under 250 lines. No tests, extra files, or final file reread. Briefly summarize the change.'
 EXAMPLE_PROMPT="${AGENT_SIDECAR_E2E_PROMPT:-$DEFAULT_EXAMPLE_PROMPT}"
 
 usage() {
@@ -82,8 +82,10 @@ Environment:
   AGENT_SIDECAR_E2E_OPEN_HTML
                          Open saved HTML artifacts before exit. Default: 1
   AGENT_SIDECAR_E2E_PROMPT
-                         Override the compact default prompt. The built-in prompt is
-                         intentionally scoped for an approximately 45 second Claude phase.
+                         Override the default prompt. The built-in prompt asks for a
+                         dynamic single-file page with icons, buttons, and JavaScript
+                         interactivity, so expect a longer Claude phase than the old
+                         static-card smoke prompt.
   AGENT_SIDECAR_REQUIRE_CODING_REFINEMENT
                          Set by this script; requires coding-model focus after deterministic refinement.
 EOF
@@ -278,6 +280,11 @@ prepare_run_workspace() {
 }
 
 reset_html_on_exit() {
+  # Only single mode edits the tracked root boilerplate.html; parallel runs
+  # stay inside gitignored workspaces, so leave the tracked file alone there.
+  if [[ "$SINGLE_RUN" -ne 1 ]]; then
+    return 0
+  fi
   if [[ -f "$START_HTML" ]]; then
     cp "$START_HTML" "$TARGET_HTML"
     echo "Reset boilerplate.html after script run."
@@ -785,9 +792,11 @@ Return exactly one strict JSON object with these keys and JSON types:
 
 Judge each implementation independently against the original task. Do not prefer either
 run because of its label. Mark good=true only if it satisfies the core request:
-dependency-free single HTML file, semantic header/status/workflow/cost sections,
-accessible labels, responsive styling, a working button that toggles Baseline and
-Sidecar cost examples, no unrelated file assumptions, and no obvious syntax problems.
+a dependency-free single HTML file with inline CSS and inline JavaScript only,
+a header with a logo icon, a grid of feature cards with distinct icons and labels,
+and working buttons wired with plain JavaScript covering a theme toggle, a counter
+with increment and reset, a show/hide details panel, and a cycling status pill,
+with no external assets, no unrelated file assumptions, and no obvious syntax problems.
 Set quality_preserved=true only when both implementations are good and the Sidecar
 implementation is not materially worse than the baseline on the original task.
 Do not include markdown fences, comments, prose, analysis, or chain-of-thought."""
@@ -1381,5 +1390,7 @@ Execution timing:
 Raw telemetry comparison:
   $RAW_TELEMETRY_COMPARE_JSON
 
-boilerplate.html will be reset before exit.
+Both generated pages were opened in the browser and left on disk for manual
+cleanup. They live under .agent-sidecar/, which is gitignored, so git will not
+track them. The tracked root boilerplate.html was not modified.
 EOF

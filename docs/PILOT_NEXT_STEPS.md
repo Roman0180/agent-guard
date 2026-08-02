@@ -45,7 +45,8 @@ Known values (already decided/verified — do not change casually):
 - [ ] **5. Onboarding day.**
       - [ ] Run `./scripts/pilot_distribute.sh` and leave it serving — the setup doc has the
             pilot download both the wheel and `pilot-config.json` from it during steps 1–2
-      - [ ] Send `dist/pilot/PILOT_SETUP.md` (the only file you send)
+      - [ ] Send `dist/pilot/PILOT_SETUP.md` (required) and `dist/pilot/PILOT_DESIGN_OVERVIEW.md`
+            (optional but recommended — answers "what is this actually doing" before they ask)
       - [ ] Joint smoke test: their `curl http://100.98.101.5:11434/api/tags`;
             `agent-sidecar models list` shows both roles available; one live prompt;
             one fallback drill (quit Ollama, prompt again, restart)
