@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from importlib import resources
 
@@ -33,6 +34,7 @@ def refine_prompt(
     require_coding_refinement: bool = False,
 ) -> tuple[RefineResult, list[SidecarEvent]]:
     deterministic = refine_deterministically(prompt)
+    validation_opt_out = deterministic.validation_opt_out
     coding_task = _prompt_template("refine_coding.txt")
     reasoning_task = _prompt_template("refine_reasoning.txt")
 
@@ -50,11 +52,12 @@ def refine_prompt(
             result = RefineResult(
                 quality="medium",
                 issues=[],
-                refined_prompt=f"{draft.refined_prompt}\n\nFocus: {coding_draft.next_step}",
+                refined_prompt=_with_focus(draft.refined_prompt, coding_draft.next_step, prompt),
                 acceptance_criteria=draft.acceptance_criteria,
                 testing_expectations=draft.testing_expectations,
                 do_not_change=draft.do_not_change,
                 source="reasoning-then-coding",
+                validation_opt_out=validation_opt_out,
             )
             return result, _refinement_events(
                 result,
@@ -72,6 +75,7 @@ def refine_prompt(
             testing_expectations=draft.testing_expectations,
             do_not_change=draft.do_not_change,
             source="reasoning-only",
+            validation_opt_out=validation_opt_out,
         )
         return result, _refinement_events(
             result,
@@ -87,7 +91,7 @@ def refine_prompt(
             raise CodingRefinementRequiredError("coding model did not produce a valid coding next step")
         result = deterministic.model_copy(
             update={
-                "refined_prompt": f"{deterministic.refined_prompt}\n\nFocus: {coding_draft.next_step}",
+                "refined_prompt": _with_focus(deterministic.refined_prompt, coding_draft.next_step, prompt),
                 "source": "deterministic-then-coding",
             }
         )
@@ -121,6 +125,7 @@ def refine_prompt(
                 testing_expectations=draft.testing_expectations,
                 do_not_change=draft.do_not_change,
                 source="ensemble",
+                validation_opt_out=validation_opt_out,
             )
         else:
             result = RefineResult(
@@ -131,6 +136,7 @@ def refine_prompt(
                 testing_expectations=draft.testing_expectations,
                 do_not_change=draft.do_not_change,
                 source="coding-only",
+                validation_opt_out=validation_opt_out,
             )
     else:
         result = deterministic
@@ -189,6 +195,32 @@ def _ensemble_failure_reason(prompt: str, draft: RefineDraft | None, judgment: R
     elif not judgment.approved:
         reasons.append("reasoning model rejected the coding draft")
     return "; ".join(reasons) or "model ensemble did not produce an approved refinement"
+
+
+_WORD_PATTERN = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]{2,}")
+
+# The Focus line only earns its Claude input tokens when it adds information the
+# contract does not already carry. Local drafting is free, so the model is always
+# consulted; what gets gated is the injected text.
+MIN_NOVEL_WORD_RATIO = 0.2
+
+
+def _with_focus(refined: str, next_step: str, prompt: str) -> str:
+    focus = " ".join(next_step.split())
+    if not focus:
+        return refined
+    focus_words = _content_words(focus)
+    if not focus_words:
+        return refined
+    known_words = _content_words(refined) | _content_words(prompt)
+    novel = focus_words - known_words
+    if len(novel) / len(focus_words) < MIN_NOVEL_WORD_RATIO:
+        return refined
+    return f"{refined}\n\nFocus: {focus}"
+
+
+def _content_words(text: str) -> set[str]:
+    return {word.lower() for word in _WORD_PATTERN.findall(text)}
 
 
 def _coding_followup_prompt(prompt: str, draft: RefineDraft | RefineResult) -> str:

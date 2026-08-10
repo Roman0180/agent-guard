@@ -681,3 +681,49 @@ def test_user_prompt_hook_falls_back_when_required_model_refinement_fails() -> N
     assert refine_requests[0]["require_coding_refinement"] is True
     assert "require_reasoning_refinement" not in refine_requests[1]
     assert "require_coding_refinement" not in refine_requests[1]
+
+
+def test_refinement_context_skips_task_block_when_it_echoes_the_prompt() -> None:
+    from agent_sidecar.adapters.claude_code.hook_script import format_refinement_context
+
+    prompt = "Replace the page header with a new logo. No tests, extra files, or final file reread."
+    result = {
+        "source": "deterministic",
+        "refined_prompt": f"Task: {prompt}",
+        "acceptance_criteria": [],
+        "testing_expectations": "The user asked for no test or validation runs; do not run them.",
+        "do_not_change": ["unrelated files"],
+    }
+    context = format_refinement_context(result, prompt=prompt)
+
+    assert "Replace the page header" not in context
+    assert "no test or validation runs" in context
+    assert "Do not change unrelated files" in context
+
+
+def test_refinement_context_keeps_task_block_when_refinement_adds_information() -> None:
+    from agent_sidecar.adapters.claude_code.hook_script import format_refinement_context
+
+    result = {
+        "source": "ensemble",
+        "refined_prompt": "Task: fix auth refresh in packages/auth/src/refresh.ts and run pnpm test.",
+        "acceptance_criteria": ["auth refresh succeeds"],
+        "testing_expectations": "Run pnpm test.",
+        "do_not_change": ["unrelated auth behavior"],
+    }
+    context = format_refinement_context(result, prompt="fix auth refresh")
+
+    assert "Task: fix auth refresh in packages/auth/src/refresh.ts" in context
+    assert context.count("Task:") == 1
+
+
+def test_refinement_context_echo_detection_survives_middle_truncation() -> None:
+    from agent_sidecar.adapters.claude_code.hook_script import MAX_TASK_CHARS, format_refinement_context
+
+    prompt = ("Update the dashboard page. " * 200).strip() + " No tests, extra files, or final file reread."
+    refined = f"Task: {prompt}"
+    assert len(refined) > MAX_TASK_CHARS
+    context = format_refinement_context({"source": "deterministic", "refined_prompt": refined, "do_not_change": ["unrelated files"]}, prompt=prompt)
+
+    assert "Update the dashboard page" not in context
+    assert "Do not change unrelated files" in context

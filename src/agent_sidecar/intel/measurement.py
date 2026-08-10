@@ -13,14 +13,17 @@ Design (docs/LAPTOP_PILOT_PLAN.md, measurement):
 from __future__ import annotations
 
 import hashlib
+import json
 import statistics
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Literal
 
 from agent_sidecar.intel.k_store import load_k_calibration, save_k_calibration
 from agent_sidecar.intel.steering import collect_findings, steer
 from agent_sidecar.schema.config import SidecarConfig
-from agent_sidecar.schema.events import EventMeta, EventSource, SidecarEvent, ensure_session_id
+from agent_sidecar.schema.events import EventMeta, EventSource, SidecarEvent, ensure_session_id, utc_now
 from agent_sidecar.store.sessions import SessionManager
 
 
@@ -191,6 +194,35 @@ def measurement_report(manager: SessionManager) -> dict[str, Any]:
         "k_calibration": load_k_calibration(manager.repo_path),
         "note": "Arm comparison is measured; per-event avoided-waste figures are approximate k-calibrated estimates.",
     }
+
+
+def push_measurement_report(manager: SessionManager) -> bool:
+    """POST the aggregate measurement report to the configured operator endpoint.
+
+    Sends only the aggregates `measurement report --json` prints — arm totals,
+    token counts, costs, k calibration — never prompt text, code, or per-event
+    traces. Failures are swallowed by design: an unreachable operator endpoint
+    must never affect the pilot's session or block a stop.
+    """
+    url = manager.config.measurement.report_push_url
+    if not url:
+        return False
+    payload = {
+        "kind": "measurement_report",
+        "generated_at": utc_now().isoformat(),
+        "report": measurement_report(manager),
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return 200 <= response.status < 300
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return False
 
 
 def _empty_arm() -> dict[str, Any]:

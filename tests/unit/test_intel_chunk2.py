@@ -10,8 +10,9 @@ import httpx
 
 from agent_sidecar.intel.calibration import calibrate
 from agent_sidecar.intel.cost import load_price_map, price_map_metadata, price_tokens, refresh_price_map
+from agent_sidecar.intel.detectors import missing_validation
 from agent_sidecar.intel.refiner import CodingRefinementRequiredError, ModelEnsembleRequiredError, ReasoningRefinementRequiredError, refine_prompt
-from agent_sidecar.intel.refiner_fallback import refine_deterministically
+from agent_sidecar.intel.refiner_fallback import detect_issues, refine_deterministically
 from agent_sidecar.intel.steering import collect_findings, steer
 from agent_sidecar.intel.wrapper import KimiWrapperRequiredError, wrap_prompt_with_kimi
 from agent_sidecar.models.evals import parse_promotion_result, run_promotion_eval
@@ -19,7 +20,7 @@ from agent_sidecar.models.local_services import list_ollama_models, list_openai_
 from agent_sidecar.models.registry import ModelRegistry, ModelRegistryEntry, RegistryEval, load_registry, promote, rollback, save_registry
 from agent_sidecar.models.router import ModelRoute, ModelRouter, infer_serving, is_loopback_url, validate_route_allowed
 from agent_sidecar.schema.config import SidecarConfig
-from agent_sidecar.schema.events import SidecarEvent
+from agent_sidecar.schema.events import EventMeta, EventSource, SidecarEvent
 from agent_sidecar.schema.model_io import KimiWrapperResult, ModelRole, NextStepDraft, RefineDraft, RefineJudgment, SteerResult
 from agent_sidecar.models.provider import LiteLLMModelProvider
 from agent_sidecar.models.validation import validate_json_text
@@ -210,12 +211,103 @@ def test_promptfoo_stats_result_parser_requires_no_failures() -> None:
     assert result.passed is True
 
 
+WELL_SPECIFIED_PROMPT = (
+    "Replace boilerplate.html with a single-file dynamic Agent Sidecar demo page. "
+    "Keep it dependency-free: one HTML file with semantic HTML, inline CSS, and inline JavaScript only. "
+    "Include a header with an inline-SVG logo, a grid of at least six feature cards each with a distinct icon and label, "
+    "and at least four working buttons: a light/dark theme toggle, a counter with increment and reset, "
+    "a show/hide toggle for a details panel, and a button that cycles a status pill through Idle, Running, and Done. "
+    "Wire every button with plain JavaScript and make the current state visibly change on the page. Keep the HTML under 250 lines. "
+    "No tests, extra files, or final file reread. Briefly summarize the change."
+)
+
+
 def test_deterministic_refiner_labels_source() -> None:
     result = refine_deterministically("make the app better")
 
     assert result.source == "deterministic"
     assert "prompt is underspecified" in result.issues
     assert "Acceptance criteria:" in result.refined_prompt
+
+
+def test_detect_issues_uses_word_boundaries_not_substrings() -> None:
+    issues = detect_issues("Update the header component file and make the counter state visibly change on the page")
+
+    assert "prompt is underspecified" not in issues
+
+
+def test_deterministic_refiner_emits_lean_contract_for_well_specified_prompt() -> None:
+    result = refine_deterministically(WELL_SPECIFIED_PROMPT)
+
+    assert result.issues == []
+    assert result.quality == "medium"
+    assert result.validation_opt_out is True
+    assert "Acceptance criteria:" not in result.refined_prompt
+    assert "Run the relevant test" not in result.refined_prompt
+    assert "no test or validation runs" in result.testing_expectations
+    # The prompt exceeds the echo cap; truncation must keep the trailing constraints.
+    assert "Briefly summarize the change." in result.refined_prompt
+
+
+def test_deterministic_refiner_drops_validation_instructions_on_opt_out() -> None:
+    result = refine_deterministically("fix the counter bug, no tests please")
+
+    assert result.validation_opt_out is True
+    assert "prompt is underspecified" in result.issues
+    assert "Do not run tests or validation commands" in result.refined_prompt
+    assert "Run the relevant test/lint/build command" not in result.refined_prompt
+    assert all("validation" not in item.lower() for item in result.acceptance_criteria)
+
+
+def _detector_event(event_type: str, payload: dict) -> SidecarEvent:
+    return SidecarEvent(
+        session_id="cc-detector-test",
+        event_type=event_type,
+        source=EventSource.manual,
+        payload=payload,
+        metadata=EventMeta(repo_path="/tmp/repo"),
+    )
+
+
+def test_missing_validation_respects_prompt_opt_out() -> None:
+    events = [
+        _detector_event("prompt_refined", {"refined_prompt": "Task: x", "validation_opt_out": True}),
+        _detector_event("file_edit_observed", {"path": "boilerplate.html"}),
+    ]
+
+    assert missing_validation.detect(events) == []
+
+
+def test_missing_validation_still_fires_without_opt_out() -> None:
+    events = [
+        _detector_event("prompt_submitted", {"prompt": "update the page layout"}),
+        _detector_event("file_edit_observed", {"path": "page.py"}),
+    ]
+    findings = missing_validation.detect(events)
+
+    assert findings and findings[0].evaluator_id == "missing_validation"
+
+
+def test_coding_focus_dropped_when_it_restates_the_prompt(tmp_path: Path) -> None:
+    provider = StubProvider(
+        {
+            ModelRole.coding: NextStepDraft(
+                next_step="Replace boilerplate.html with a single-file page using inline CSS and inline JavaScript",
+                rationale="restates the task",
+            )
+        }
+    )
+    result, _ = refine_prompt(
+        WELL_SPECIFIED_PROMPT,
+        repo_path=tmp_path,
+        session_id="demo",
+        provider=provider,
+        require_coding_refinement=True,
+    )
+
+    assert result.source == "deterministic-then-coding"
+    assert "Focus:" not in result.refined_prompt
+    assert result.validation_opt_out is True
 
 
 def test_cost_engine_prices_known_model(tmp_path: Path) -> None:

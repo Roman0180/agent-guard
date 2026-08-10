@@ -11,9 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from agent_sidecar.adapters.claude_code.hooks_adapter import events_from_hook
-from agent_sidecar.intel.cost import price_map_metadata, session_cost
+from agent_sidecar.intel.cost import _measured_from_api_requests, price_map_metadata, session_cost
 from agent_sidecar.intel.refiner import CodingRefinementRequiredError, ModelEnsembleRequiredError, ReasoningRefinementRequiredError, refine_prompt
-from agent_sidecar.intel.measurement import assigned_arm, measure_on_ingest, measurement_report
+from agent_sidecar.intel.billing import detect_billing
+from agent_sidecar.intel.k_store import k_calibration_path
+from agent_sidecar.intel.measurement import assigned_arm, measure_on_ingest, measurement_report, push_measurement_report
 from agent_sidecar.intel.steering import finding_events, steer
 from agent_sidecar.intel.wrapper import KimiWrapperRequiredError, wrap_prompt_with_kimi
 from agent_sidecar.models.provider import LiteLLMModelProvider
@@ -70,7 +72,9 @@ def create_api_router(manager_dependency) -> APIRouter:
 
     @router.post("/sessions/{session_id}/stop")
     def stop_session(session_id: str, manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
-        return manager.stop_session(session_id).model_dump(mode="json")
+        record = manager.stop_session(session_id).model_dump(mode="json")
+        push_measurement_report(manager)
+        return record
 
     @router.get("/sessions/{session_id}/trace")
     def trace(session_id: str, manager: SessionManager = Depends(manager_dependency)) -> Response:
@@ -232,6 +236,15 @@ def create_api_router(manager_dependency) -> APIRouter:
     @router.post("/api/dashboard/reset")
     def reset_dashboard(manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
         return {**_reset_dashboard_data(manager), "metrics": _dashboard_metrics(manager)}
+
+    @router.get("/api/dashboard/pilot")
+    def pilot_dashboard_metrics(manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
+        return _pilot_dashboard_metrics(manager)
+
+    @router.post("/api/dashboard/pilot/reset")
+    def reset_pilot_dashboard(manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
+        sessions_removed = manager.clear_sessions()
+        return {"ok": True, "sessionsRemoved": sessions_removed, "metrics": _pilot_dashboard_metrics(manager)}
 
     @router.post("/sessions/{session_id}/budget")
     def configure_budget(session_id: str, body: dict[str, Any], manager: SessionManager = Depends(manager_dependency)) -> dict[str, Any]:
@@ -445,6 +458,215 @@ def _session_dashboard_runs(manager: SessionManager) -> list[dict[str, Any]]:
             "promptHashCount": _prompt_hash_count(events),
         })
     return rows
+
+
+# One "iteration" for pilot default-cost purposes is any observed unit of agent
+# work — the same event universe shadow k calibration counts as follow-up waste.
+PILOT_ITERATION_EVENT_TYPES = {
+    "agent_tool_observed",
+    "file_edit_observed",
+    "test_run_observed",
+    "test_failure_observed",
+}
+
+
+PROMPT_TEXT_LIMIT = 240
+
+
+def _pilot_dashboard_metrics(manager: SessionManager) -> dict[str, Any]:
+    """Pilot view payload: arm comparison plus k-estimated default cost.
+
+    One row per submitted prompt: each session's events are split at
+    prompt_submitted boundaries and cost/activity are attributed to the segment
+    they occurred in. Default cost per row = measured cost + (k-calibrated
+    avoided iterations x that segment's measured cost per iteration). Prompt
+    text stays in this local payload only — the operator push (measurement
+    report) never includes it.
+    """
+    report = measurement_report(manager)
+    rows: list[dict[str, Any]] = []
+    for record in manager.list_sessions():
+        events = manager.events(record.session_id)
+        prompt_indices = [index for index, event in enumerate(events) if event.event_type == "prompt_submitted"]
+        if not prompt_indices:
+            # Telemetry-only sessions (cost but no hook-captured prompt) keep
+            # one row; stub sessions with neither prompt nor spend are skipped.
+            whole = session_cost(record, events, manager.config, manager.repo_path)
+            if _float_value((whole.get("cost_usd") or {}).get("value")) <= 0:
+                continue
+            rows.append(_pilot_prompt_row(record, manager, events, segment=events, prompt_number=None, prompt_text=None, is_last_segment=True))
+            continue
+        for number, start in enumerate(prompt_indices, start=1):
+            end = prompt_indices[number] if number < len(prompt_indices) else len(events)
+            # Leading pre-prompt events (session_started, stray telemetry)
+            # belong to the first prompt's segment.
+            segment = events[0:end] if number == 1 else events[start:end]
+            prompt_text = str(events[start].payload.get("prompt") or "")
+            rows.append(_pilot_prompt_row(
+                record, manager, events, segment=segment, prompt_number=number,
+                prompt_text=prompt_text, is_last_segment=number == len(prompt_indices),
+            ))
+
+    default_total = sum(_float_value(row.get("estimatedDefaultCostUsd")) for row in rows)
+    sidecar_total = sum(_float_value(row.get("sidecarCostUsd")) for row in rows)
+    savings_total = default_total - sidecar_total
+    tokens_used_total = sum(_int_value(row.get("tokensUsed")) for row in rows)
+    avoided_tokens_total = sum(_int_value(row.get("estimatedAvoidedTokens")) for row in rows)
+    default_tokens_total = tokens_used_total + avoided_tokens_total
+    plan_multiplier = round(default_tokens_total / tokens_used_total, 3) if tokens_used_total > 0 else 1.0
+    billing = detect_billing(manager.config)
+    plan_monthly = billing.get("planMonthlyUsd")
+    effective_plan_value = round(float(plan_monthly) * plan_multiplier, 2) if isinstance(plan_monthly, (int, float)) else None
+    arms = report.get("arms") or {}
+    assist = arms.get("assist") or {}
+    control = arms.get("control") or {}
+    return {
+        "generatedAt": _iso(utc_now()),
+        "billing": billing,
+        "totals": {
+            "promptCount": len(rows),
+            "sessionCount": len({row.get("sessionId") for row in rows}),
+            "estimatedDefaultCostUsd": round(default_total, 6),
+            "sidecarCostUsd": round(sidecar_total, 6),
+            "estimatedSavingsUsd": round(savings_total, 6),
+            "estimatedSavingsPercent": _fraction(savings_total, default_total),
+            "tokensUsed": tokens_used_total,
+            "estimatedAvoidedTokens": avoided_tokens_total,
+            "estimatedDefaultTokens": default_tokens_total,
+            "planMultiplier": plan_multiplier,
+            "apiEquivalentUsd": round(sidecar_total, 6),
+            "effectivePlanValueUsd": effective_plan_value,
+            "assistSessions": _int_value(assist.get("sessions")),
+            "controlSessions": _int_value(control.get("sessions")),
+            "refinementsDelivered": _int_value(assist.get("refinements_delivered")) + _int_value(control.get("refinements_delivered")),
+            "refinementsSuppressed": _int_value(assist.get("refinements_suppressed")) + _int_value(control.get("refinements_suppressed")),
+            "steeringRecommendations": _int_value(assist.get("steering_recommendations")) + _int_value(control.get("steering_recommendations")),
+            "shadowDetections": _int_value(assist.get("shadow_detections")) + _int_value(control.get("shadow_detections")),
+        },
+        "defaultCostAlgorithm": {
+            "basis": "k-calibration",
+            "description": "estimated default cost = measured sidecar cost + k-estimated avoided iterations x measured cost per iteration",
+            "kCalibrated": k_calibration_path(manager.repo_path).exists(),
+            "kValues": report.get("k_calibration") or {},
+        },
+        "measurement": report,
+        "prompts": rows,
+        "history": _pilot_history(rows),
+    }
+
+
+def _pilot_prompt_row(
+    record: SessionRecord,
+    manager: SessionManager,
+    events: list[SidecarEvent],
+    *,
+    segment: list[SidecarEvent],
+    prompt_number: int | None,
+    prompt_text: str | None,
+    is_last_segment: bool,
+) -> dict[str, Any]:
+    measured = _measured_from_api_requests(segment)
+    if measured is not None:
+        cost_info = measured.get("cost_usd") or {}
+        model = measured.get("model")
+        tokens_info = measured.get("tokens") or {}
+    else:
+        whole = session_cost(record, events, manager.config, manager.repo_path)
+        cost_info = (whole.get("cost_usd") or {}) if prompt_number is None else {}
+        model = whole.get("model") if prompt_number is None else None
+        tokens_info = (whole.get("tokens") or {}) if prompt_number is None else {}
+    sidecar_cost = _float_value(cost_info.get("value"))
+    tokens_used = _int_value(tokens_info.get("input")) + _int_value(tokens_info.get("output"))
+    avoided_iterations = 0.0
+    observed_iterations = 0
+    refinements_delivered = 0
+    refinements_suppressed = 0
+    steering_recommendations = 0
+    shadow_detections = 0
+    for event in segment:
+        if event.event_type in PILOT_ITERATION_EVENT_TYPES:
+            observed_iterations += 1
+        elif event.event_type == "prompt_refined":
+            refinements_delivered += 1
+        elif event.event_type == "refinement_suppressed":
+            refinements_suppressed += 1
+        elif event.event_type == "steering_recommendation":
+            steering_recommendations += 1
+            waste = event.payload.get("estimated_avoided_waste") or {}
+            iterations = waste.get("iterations")
+            if isinstance(iterations, (int, float)) and iterations > 0:
+                avoided_iterations += float(iterations)
+        elif event.event_type == "shadow_detection":
+            shadow_detections += 1
+    cost_per_iteration = sidecar_cost / observed_iterations if observed_iterations > 0 else 0.0
+    avoided_cost = round(avoided_iterations * cost_per_iteration, 6)
+    default_cost = round(sidecar_cost + avoided_cost, 6)
+    tokens_per_iteration = tokens_used / observed_iterations if observed_iterations > 0 else 0.0
+    avoided_tokens = int(round(avoided_iterations * tokens_per_iteration))
+    started_at = segment[0].timestamp if segment else record.started_at
+    updated_at = segment[-1].timestamp if segment else record.stopped_at or record.started_at
+    truncated_prompt = None
+    if prompt_text:
+        truncated_prompt = prompt_text if len(prompt_text) <= PROMPT_TEXT_LIMIT else prompt_text[: PROMPT_TEXT_LIMIT - 1].rstrip() + "…"
+    label = f"Prompt {prompt_number}" if prompt_number is not None else "Telemetry only"
+    return _drop_none({
+        "id": f"{record.session_id}:p{prompt_number}" if prompt_number is not None else record.session_id,
+        "sessionId": record.session_id,
+        "label": label,
+        "promptText": truncated_prompt,
+        "arm": assigned_arm(record.session_id, manager.config),
+        "status": "active" if record.status == "active" and is_last_segment else "completed",
+        "startedAt": _iso(started_at),
+        "updatedAt": _iso(updated_at),
+        "completedAt": _iso(record.stopped_at) if record.stopped_at and is_last_segment else None,
+        "estimatedDefaultCostUsd": default_cost,
+        "sidecarCostUsd": round(sidecar_cost, 6),
+        "estimatedAvoidedCostUsd": avoided_cost,
+        "tokensUsed": tokens_used,
+        "estimatedAvoidedTokens": avoided_tokens,
+        "estimatedDefaultTokens": tokens_used + avoided_tokens,
+        "avoidedIterations": round(avoided_iterations, 2),
+        "observedIterations": observed_iterations,
+        "costPrecision": str(cost_info.get("precision") or Precision.approximate.value),
+        "promptsSubmitted": 1 if prompt_number is not None else 0,
+        "refinementsDelivered": refinements_delivered,
+        "refinementsSuppressed": refinements_suppressed,
+        "steeringRecommendations": steering_recommendations,
+        "shadowDetections": shadow_detections,
+        "modelRoute": str(model or record.model or "") or None,
+        "taskType": _task_type(segment),
+        "promptHashCount": _prompt_hash_count(segment),
+    })
+
+
+def _pilot_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Daily rollup of the prompt rows, oldest day first."""
+    days: dict[str, dict[str, Any]] = {}
+    day_sessions: dict[str, set[str]] = {}
+    for row in rows:
+        day = str(row.get("startedAt") or "")[:10]
+        if not day:
+            continue
+        bucket = days.setdefault(day, {
+            "day": day,
+            "sessions": 0,
+            "promptsSubmitted": 0,
+            "estimatedDefaultCostUsd": 0.0,
+            "sidecarCostUsd": 0.0,
+            "estimatedSavingsUsd": 0.0,
+            "tokensUsed": 0,
+            "estimatedAvoidedTokens": 0,
+        })
+        day_sessions.setdefault(day, set()).add(str(row.get("sessionId")))
+        bucket["promptsSubmitted"] += _int_value(row.get("promptsSubmitted"))
+        bucket["tokensUsed"] += _int_value(row.get("tokensUsed"))
+        bucket["estimatedAvoidedTokens"] += _int_value(row.get("estimatedAvoidedTokens"))
+        bucket["estimatedDefaultCostUsd"] = round(bucket["estimatedDefaultCostUsd"] + _float_value(row.get("estimatedDefaultCostUsd")), 6)
+        bucket["sidecarCostUsd"] = round(bucket["sidecarCostUsd"] + _float_value(row.get("sidecarCostUsd")), 6)
+        bucket["estimatedSavingsUsd"] = round(bucket["estimatedDefaultCostUsd"] - bucket["sidecarCostUsd"], 6)
+    for day, bucket in days.items():
+        bucket["sessions"] = len(day_sessions.get(day, set()))
+    return [days[day] for day in sorted(days)]
 
 
 def _dashboard_totals(runs: list[dict[str, Any]]) -> dict[str, Any]:

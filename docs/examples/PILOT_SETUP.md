@@ -70,23 +70,21 @@ Use Claude Code exactly as you normally would. That's the whole point.
 │  automatically:                    │ ◄── task   │   "task contract" (text) │
 │   • your code and files            │  contract  │                          │
 │   • your session traces            │            │                          │
-│   • cost/usage data                │            │                          │
 │   • everything Claude does         │            │                          │
 └────────────────────────────────────┘            └──────────────────────────┘
          └── private encrypted tunnel (Tailscale) — not on the public internet ──┘
 ```
 
-The only data that leaves your machine automatically is the prompt text you type into Claude
-Code, sent to the operator's machine for refinement over the encrypted tailnet. Your code,
-files, session traces, and everything Claude Code reads or writes stay local. If the
-operator's machine is unreachable, nothing is sent at all and refinement runs in local
-deterministic mode.
+Two kinds of data leave your machine automatically, both over the encrypted tailnet: the
+prompt text you type into Claude Code, sent to the operator's machine for refinement; and,
+when a session ends, an aggregate usage summary — token counts, costs, and session tallies
+per measurement arm; no code, no prompts, no file names. Your code, files, session traces,
+and everything Claude Code reads or writes stay local. If the operator's machine is
+unreachable, nothing is sent at all and refinement runs in local deterministic mode.
 
-The one thing you share by hand: about once a week, you run
-`agent-sidecar measurement report --json`, which prints an aggregate usage summary — token
-counts, costs, session tallies per measurement arm; no code, no prompts, no file names —
-look it over, and send it to the operator. That's the data the pilot exists to collect, and
-you see every byte of it before it goes.
+You can see exactly what the automatic summary contains, any time, by running
+`agent-sidecar measurement report --json` — the push is that payload and nothing more.
+That aggregate comparison is the data the pilot exists to collect.
 
 One more thing to know: to measure honestly, a random ~30% of sessions run in "control mode"
 where the sidecar only observes and does not assist (no refinement pause, no steering).
@@ -95,7 +93,7 @@ the two groups is how real savings get measured instead of guessed.
 
 For transparency: the operator's machine keeps its own receipt log of the refinement requests
 it serves — timestamps, sizes, and token counts, not your prompt text (only a hash of it).
-This is how your weekly summaries are cross-checked, in both directions.
+This is how your pushed summaries are cross-checked, in both directions.
 
 ## What to expect
 

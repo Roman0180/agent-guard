@@ -33,6 +33,7 @@
   },
   "measurement": {
     "control_fraction": 0.3,
-    "steer_on_ingest": true
+    "steer_on_ingest": true,
+    "report_push_url": "http://OPERATOR-TAILSCALE-IP:11434/reports"
   }
 }

@@ -9,6 +9,10 @@ localhost:11434 traffic never passes through. Receipts are append-only JSONL at
 .agent-sidecar/receipts/receipts.jsonl and store NO prompt text — only hashes,
 sizes, token counts, and timing — so the receipt file itself is low-sensitivity.
 
+POST /reports is handled by the proxy itself (never forwarded): pilot sidecars
+push their aggregate measurement report here on session stop, appended to
+.agent-sidecar/receipts/reports.jsonl.
+
 Usage:
     python3 scripts/receipt_proxy.py            # run the proxy (foreground)
     python3 scripts/receipt_proxy.py --summary  # aggregate receipts by day
@@ -29,7 +33,9 @@ from pathlib import Path
 LISTEN = ("127.0.0.1", 11435)
 TARGET = "http://127.0.0.1:11434"
 RECEIPTS = Path(__file__).resolve().parent.parent / ".agent-sidecar" / "receipts" / "receipts.jsonl"
+REPORTS = RECEIPTS.parent / "reports.jsonl"
 HOP_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
+MAX_REPORT_BYTES = 1_000_000
 
 
 def write_receipt(record: dict) -> None:
@@ -68,6 +74,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def _forward(self) -> None:
+        if self.command == "POST" and self.path == "/reports":
+            self._receive_report()
+            return
         length = int(self.headers.get("content-length") or 0)
         request_body = self.rfile.read(length) if length else None
         headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
@@ -94,6 +103,33 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
         self.send_response(status)
         self.send_header("content-type", content_type)
+        self.send_header("content-length", str(len(response_body)))
+        self.end_headers()
+        self.wfile.write(response_body)
+
+    def _receive_report(self) -> None:
+        # Pushed aggregate measurement reports from pilot sidecars. Handled
+        # here, never forwarded to Ollama. Append-only, like receipts.
+        length = int(self.headers.get("content-length") or 0)
+        if length <= 0 or length > MAX_REPORT_BYTES:
+            self.send_error(413 if length > MAX_REPORT_BYTES else 400, "invalid report size")
+            return
+        body = self.rfile.read(length)
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeDecodeError):
+            self.send_error(400, "report must be JSON")
+            return
+        REPORTS.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "payload": payload,
+        }
+        with REPORTS.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        response_body = b'{"ok":true}'
+        self.send_response(200)
+        self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(response_body)))
         self.end_headers()
         self.wfile.write(response_body)

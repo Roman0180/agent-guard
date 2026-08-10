@@ -20,6 +20,10 @@ from agent_sidecar.schema.model_io import ModelRole
 
 EventSink = Callable[[SidecarEvent], None]
 
+# Servings that run on the user's own hardware: their calls cost $0, so only latency
+# ever counts against them in cost accounting.
+LOCAL_SERVINGS = {"ollama", "llama_server"}
+
 
 class LiteLLMModelProvider:
     def __init__(
@@ -80,7 +84,7 @@ class LiteLLMModelProvider:
             failure_reason = "model_call_failed"
             return None
         finally:
-            self._emit_model_call(role, route.model_id or "unavailable", started, valid_json, fallback_used, failure_reason=failure_reason)
+            self._emit_model_call(role, route.model_id or "unavailable", started, valid_json, fallback_used, failure_reason=failure_reason, serving=route.serving)
 
     def health(self) -> dict:
         return {"roles": self.router.table()}
@@ -162,9 +166,10 @@ class LiteLLMModelProvider:
                 return reasoning
         return ""
 
-    def _emit_model_call(self, role: ModelRole, model_id: str, started: float, valid_json: bool, fallback_used: bool, *, failure_reason: str | None = None) -> None:
+    def _emit_model_call(self, role: ModelRole, model_id: str, started: float, valid_json: bool, fallback_used: bool, *, failure_reason: str | None = None, serving: str | None = None) -> None:
         if not self.event_sink or not self.session_id:
             return
+        local = serving in LOCAL_SERVINGS
         event = SidecarEvent(
             session_id=self.session_id,
             event_type="model_call_completed",
@@ -176,6 +181,9 @@ class LiteLLMModelProvider:
                 "valid_json": valid_json,
                 "fallback_used": fallback_used,
                 "failure_reason": failure_reason,
+                "serving": serving,
+                "local": local,
+                "cost_usd": 0.0 if local else None,
             },
             metadata=EventMeta(repo_path=str(self.repo_path)),
         )

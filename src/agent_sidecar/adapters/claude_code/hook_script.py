@@ -15,6 +15,9 @@ MAX_CONTEXT_CHARS = 9500
 # Reserve room for the Checks/Validation/Boundaries sections so a long or model-drafted
 # refined_prompt cannot silently crowd them out of the final MAX_CONTEXT_CHARS truncation.
 MAX_TASK_CHARS = 4000
+# Users state scope constraints at the end of prompts ("No tests", "Briefly summarize"),
+# so truncation keeps the tail instead of cutting it.
+TRUNCATED_TASK_TAIL_CHARS = 400
 
 
 def main() -> int:
@@ -219,7 +222,7 @@ def prompt_refinement_output(payload: dict, session_id: str, api_url: str, *, bu
             return block_output(f"Agent Sidecar requires DeepSeek prompt refinement, but /refine returned source={result.get('source')!r}.")
         if require_coding and result.get("source") not in {"deterministic-then-coding", "reasoning-then-coding", "ensemble", "coding-only"}:
             return block_output(f"Agent Sidecar requires coding-model refinement, but /refine returned source={result.get('source')!r}.")
-    context = format_refinement_context(result, budget_status=budget_status)
+    context = format_refinement_context(result, budget_status=budget_status, prompt=prompt)
     if not context:
         return None
     return {
@@ -315,12 +318,18 @@ def format_wrapper_display(result: dict, *, budget_status: dict | None = None) -
     return "\n".join(lines)
 
 
-def format_refinement_context(result: dict, *, budget_status: dict | None = None) -> str:
+def format_refinement_context(result: dict, *, budget_status: dict | None = None, prompt: str = "") -> str:
     refined = str(result.get("refined_prompt") or "").strip()
     if not refined:
         return ""
     if len(refined) > MAX_TASK_CHARS:
-        refined = refined[: MAX_TASK_CHARS - 3].rstrip() + "..."
+        head = refined[: MAX_TASK_CHARS - TRUNCATED_TASK_TAIL_CHARS - 5].rstrip()
+        tail = refined[-TRUNCATED_TASK_TAIL_CHARS:].lstrip()
+        refined = f"{head} ... {tail}"
+    # Claude already has the user's prompt; re-echoing it verbatim only buys cache-creation
+    # tokens. Drop the Task block when it adds nothing beyond the prompt itself.
+    if is_prompt_echo(refined, prompt):
+        refined = ""
     acceptance = result.get("acceptance_criteria") if isinstance(result.get("acceptance_criteria"), list) else []
     do_not_change = result.get("do_not_change") if isinstance(result.get("do_not_change"), list) else []
     testing = str(result.get("testing_expectations") or "").strip()
@@ -332,7 +341,11 @@ def format_refinement_context(result: dict, *, budget_status: dict | None = None
     budget_context = format_budget_context(budget_status)
     if budget_context:
         lines.extend(["Cost guard:", budget_context])
-    lines.extend(["Task:", refined])
+    if refined:
+        if refined.lower().startswith("task:"):
+            lines.append(refined)
+        else:
+            lines.extend(["Task:", refined])
     if acceptance:
         lines.append("Checks:")
         lines.extend(f"- {item}" for item in acceptance if isinstance(item, str))
@@ -342,6 +355,17 @@ def format_refinement_context(result: dict, *, budget_status: dict | None = None
         lines.append("Boundaries:")
         lines.extend(f"- Do not change {item}" for item in do_not_change if isinstance(item, str))
     return "\n".join(lines)
+
+
+def is_prompt_echo(refined: str, prompt: str) -> bool:
+    compact_prompt = " ".join(prompt.split())
+    if not compact_prompt:
+        return False
+    body = refined[5:].strip() if refined.lower().startswith("task:") else refined
+    if body == compact_prompt:
+        return True
+    head, sep, tail = body.partition(" ... ")
+    return bool(sep) and compact_prompt.startswith(head) and compact_prompt.endswith(tail)
 
 
 def format_budget_context(status: dict | None) -> str:

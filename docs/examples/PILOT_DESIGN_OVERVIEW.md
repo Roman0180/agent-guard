@@ -72,8 +72,11 @@ Any tool can claim it saves money. The only credible way to know is to compare:
 
 Control-mode sessions behave exactly like stock Claude Code. You won't be told which
 sessions are which — knowing would bias the comparison — but nothing is ever withheld
-except the sidecar's own suggestions. The weekly report is generated on your machine, by
-you, and you review it before sharing it.
+except the sidecar's own suggestions. Whenever a session ends, the sidecar automatically
+pushes the aggregate numbers — token counts, costs, and session tallies per arm; never
+code, prompts, or file names — to the operator over the tailnet. You can inspect exactly
+what gets sent, any time, with `agent-sidecar measurement report --json`: the push
+contains that payload and nothing more.
 
 ## Data boundaries
 
@@ -81,9 +84,9 @@ you, and you review it before sharing it.
 | --- | --- | --- |
 | Your code and files | your machine only | you |
 | Session history (tools, edits, tests) | your machine only | you |
-| Claude token counts and cost | your machine only | you (shared only via the weekly report you run and review) |
+| Claude token counts and cost | your machine; aggregate totals pushed to the operator at session end | you, and the operator (aggregates only — inspect the exact payload with `agent-sidecar measurement report --json`) |
 | Prompt text you type | sent to the operator's machine for improvement | the operator's service; not stored in the receipts |
-| Usage receipts (timestamps, counts, sizes) | operator's machine | operator — used to sanity-check the weekly reports |
+| Usage receipts (timestamps, counts, sizes) | operator's machine | operator — used to sanity-check the pushed reports |
 | Weekly aggregate report | generated on your machine, by you | you first, then the operator |
 
 Two-way honesty: you can see everything that leaves your machine, and the operator can

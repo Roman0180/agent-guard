@@ -215,6 +215,9 @@ export default function MetricsDashboardPage() {
             <a href="/" className="rounded-lg border border-white/10 px-3 py-2 text-sm text-neutral-300 transition hover:border-white/20 hover:text-white">
               Website
             </a>
+            <a href="/dashboard" className="rounded-lg border border-white/10 px-3 py-2 text-sm text-neutral-300 transition hover:border-white/20 hover:text-white">
+              Pilot
+            </a>
             <button
               type="button"
               aria-label="Refresh dashboard metrics"
@@ -240,7 +243,7 @@ export default function MetricsDashboardPage() {
       <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <p className="font-mono text-xs uppercase tracking-[0.22em] text-[#67e8f9]">Cost dashboard</p>
+            <p className="font-mono text-xs uppercase tracking-[0.22em] text-[#67e8f9]">SWE-bench dashboard</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-normal sm:text-4xl">Default vs Sidecar economics</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
               This view uses run IDs, prompt-hash counts, cost evidence, timing, and quality verdicts. Exact prompt text is not part of the dashboard payload.
