@@ -3,7 +3,7 @@ from __future__ import annotations
 import typer
 
 from agent_sidecar import __version__
-from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, measurement_cmds, models_cmds, session_cmds, telemetry_cmds
+from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, measurement_cmds, models_cmds, report_cmds, session_cmds, telemetry_cmds
 
 
 app = typer.Typer(no_args_is_help=True, invoke_without_command=True)
@@ -50,6 +50,8 @@ app.add_typer(event_app, name="event")
 
 app.command("refine")(intel_cmds.refine)
 app.command("steer")(intel_cmds.steer)
+app.command("report")(report_cmds.report)
+app.command("gateway")(report_cmds.gateway)
 
 cost_app.command("show")(intel_cmds.cost_show)
 cost_app.command("compare")(intel_cmds.cost_compare)

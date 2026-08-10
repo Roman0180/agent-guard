@@ -106,6 +106,50 @@ class BillingConfig(BaseModel):
     monthly_usd: float | None = None
 
 
+class TraceCaptureConfig(BaseModel):
+    trace_path: str = ".agent-sidecar/traces/traces.jsonl"
+    # Privacy-sensitive customers: keep hashes, sizes, tokens, and timing but never
+    # message or response content.
+    redact_content: bool = False
+    # A request whose normalized message hash matches a prior request in the same
+    # session within this window is flagged as a retry.
+    retry_window_seconds: float = Field(default=600.0, gt=0.0)
+    # Optional mirror: "s3://bucket/prefix". Local JSONL is always written; S3 is
+    # best-effort and requires boto3.
+    s3_url: str | None = None
+
+
+class RetrySuppressionPolicyConfig(BaseModel):
+    mode: Literal["shadow", "enforce"] = "shadow"
+    # Retries of the same normalized request allowed before the policy fires.
+    max_retries: int = Field(default=2, ge=0)
+
+
+class ContextCompactionPolicyConfig(BaseModel):
+    # Enforcement (actual compaction) is not implemented yet; enforce behaves as shadow.
+    mode: Literal["shadow", "enforce"] = "shadow"
+    context_token_threshold: int = Field(default=60000, gt=0)
+
+
+class TokenCapPolicyConfig(BaseModel):
+    mode: Literal["shadow", "enforce"] = "shadow"
+    max_output_tokens: int = Field(default=2048, gt=0)
+
+
+class GatewayPoliciesConfig(BaseModel):
+    retry_suppression: RetrySuppressionPolicyConfig = Field(default_factory=RetrySuppressionPolicyConfig)
+    context_compaction: ContextCompactionPolicyConfig = Field(default_factory=ContextCompactionPolicyConfig)
+    token_caps: TokenCapPolicyConfig = Field(default_factory=TokenCapPolicyConfig)
+
+
+class GatewayConfig(BaseModel):
+    listen_host: str = "127.0.0.1"
+    listen_port: int = 7455
+    target_base: str = "http://127.0.0.1:11434"
+    capture: TraceCaptureConfig = Field(default_factory=TraceCaptureConfig)
+    policies: GatewayPoliciesConfig = Field(default_factory=GatewayPoliciesConfig)
+
+
 class LangfuseExporterConfig(BaseModel):
     enabled: bool = False
     base_url: str | None = None
@@ -130,6 +174,7 @@ class SidecarConfig(BaseModel):
     rules: RulesConfig = Field(default_factory=RulesConfig)
     measurement: MeasurementConfig = Field(default_factory=MeasurementConfig)
     billing: BillingConfig = Field(default_factory=BillingConfig)
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     exporters: ExportersConfig = Field(default_factory=ExportersConfig)
 
 
