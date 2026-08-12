@@ -67,6 +67,14 @@ export type PilotBilling = {
   extraUsageEnabled: boolean;
 };
 
+export type PilotPlanCapacity = {
+  estimatedPlanTokens: number | null;
+  planMonthlyUsd: number;
+  planAssumed: boolean;
+  basis: "config-override" | "api-equivalent-estimate";
+  precision: "approximate";
+};
+
 export type PilotMetrics = {
   generatedAt: string;
   billing: PilotBilling;
@@ -83,6 +91,8 @@ export type PilotMetrics = {
     planMultiplier: number;
     apiEquivalentUsd: number;
     effectivePlanValueUsd?: number | null;
+    planCapacity?: PilotPlanCapacity | null;
+    avoidedTokensPlanPercent?: number | null;
     assistSessions: number;
     controlSessions: number;
     refinementsDelivered: number;

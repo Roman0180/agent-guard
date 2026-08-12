@@ -854,6 +854,7 @@ raw_telemetry_compare() {
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -1002,10 +1003,67 @@ delta_tokens = (
 percent = (delta_cost / baseline["cost"] * 100) if baseline["cost"] > 0 else 0.0
 print()
 if delta_cost >= 0:
-    print(f"Savings: ${delta_cost:.6f} ({percent:.1f}%)")
+    print(f"Cost savings: ${delta_cost:.6f} ({percent:.1f}%)")
 else:
-    print(f"Increase: ${abs(delta_cost):.6f} ({abs(percent):.1f}%)")
-print(f"Token delta excluding cache creation: {delta_tokens:+d}")
+    print(f"Cost increase: ${abs(delta_cost):.6f} ({abs(percent):.1f}%)")
+
+TOKEN_METRICS = ("input", "output", "cache_read", "cache_create")
+
+
+def token_savings_rows(base: dict[str, Any], side: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    for metric in TOKEN_METRICS:
+        rows[metric] = _savings_row(base[metric], side[metric])
+    rows["total"] = _savings_row(
+        sum(base[metric] for metric in TOKEN_METRICS),
+        sum(side[metric] for metric in TOKEN_METRICS),
+    )
+    return rows
+
+
+def _savings_row(base_value: int, side_value: int) -> dict[str, Any]:
+    saved = base_value - side_value
+    return {
+        "baseline": base_value,
+        "sidecar": side_value,
+        "saved": saved,
+        "savings_pct": round(saved / base_value * 100, 2) if base_value > 0 else 0.0,
+    }
+
+
+token_savings = token_savings_rows(baseline, sidecar)
+print()
+print("Token savings (baseline - sidecar; positive = Sidecar used fewer):")
+print(f"  {'Metric':<13} {'Baseline':>10} {'Sidecar':>10} {'Saved':>10} {'Savings':>9}")
+for metric in (*TOKEN_METRICS, "total"):
+    row = token_savings[metric]
+    print(
+        f"  {metric:<13} {row['baseline']:>10} {row['sidecar']:>10} "
+        f"{row['saved']:>+10} {row['savings_pct']:>8.1f}%"
+    )
+total_row = token_savings["total"]
+if total_row["saved"] >= 0:
+    print(f"Total token savings: {total_row['saved']} ({total_row['savings_pct']:.1f}%)")
+else:
+    print(f"Total token increase: {abs(total_row['saved'])} ({abs(total_row['savings_pct']):.1f}%)")
+
+# Plans publish no token quota, so the monthly capacity denominator is estimated
+# from plan price at this run's blended API-equivalent $/token. Pro unless overridden.
+plan_monthly_usd = float(os.environ.get("SIDECAR_PLAN_MONTHLY_USD", "20"))
+plan_label = "Pro" if "SIDECAR_PLAN_MONTHLY_USD" not in os.environ else f"${plan_monthly_usd:.0f}/mo"
+run_tokens = baseline["input"] + baseline["output"] + baseline["cache_read"] + baseline["cache_create"] + (
+    sidecar["input"] + sidecar["output"] + sidecar["cache_read"] + sidecar["cache_create"]
+)
+run_cost = baseline["cost"] + sidecar["cost"]
+plan_percent = None
+estimated_plan_tokens = None
+if run_tokens > 0 and run_cost > 0:
+    estimated_plan_tokens = int(plan_monthly_usd / (run_cost / run_tokens))
+    plan_percent = total_row["saved"] / estimated_plan_tokens * 100
+    print(
+        f"Plan capacity: saved tokens = {plan_percent:+.3f}% of an estimated {plan_label} plan month "
+        f"(~{estimated_plan_tokens} tokens at this run's blended API-equivalent rate; approximate)"
+    )
 
 print()
 for label, _repo_dir, _session_id, total in summaries:
@@ -1078,6 +1136,14 @@ if output_json is not None:
                 "delta_cost_usd": round(delta_cost, 6),
                 "delta_tokens_excluding_cache_creation": delta_tokens,
                 "cost_savings_pct": round(percent, 3),
+                "token_savings": token_savings,
+                "total_token_savings_pct": token_savings["total"]["savings_pct"],
+                "plan_capacity": {
+                    "plan_monthly_usd": plan_monthly_usd,
+                    "estimated_plan_tokens": estimated_plan_tokens,
+                    "saved_plan_percent": round(plan_percent, 4) if plan_percent is not None else None,
+                    "precision": "approximate",
+                },
             },
             indent=2,
             sort_keys=True,

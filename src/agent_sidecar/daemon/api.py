@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from agent_sidecar.adapters.claude_code.hooks_adapter import events_from_hook
 from agent_sidecar.intel.cost import _measured_from_api_requests, price_map_metadata, session_cost
 from agent_sidecar.intel.refiner import CodingRefinementRequiredError, ModelEnsembleRequiredError, ReasoningRefinementRequiredError, refine_prompt
-from agent_sidecar.intel.billing import detect_billing
+from agent_sidecar.intel.billing import detect_billing, plan_token_capacity
 from agent_sidecar.intel.k_store import k_calibration_path
 from agent_sidecar.intel.measurement import assigned_arm, measure_on_ingest, measurement_report, push_measurement_report
 from agent_sidecar.intel.steering import finding_events, steer
@@ -517,6 +517,10 @@ def _pilot_dashboard_metrics(manager: SessionManager) -> dict[str, Any]:
     billing = detect_billing(manager.config)
     plan_monthly = billing.get("planMonthlyUsd")
     effective_plan_value = round(float(plan_monthly) * plan_multiplier, 2) if isinstance(plan_monthly, (int, float)) else None
+    blended_usd_per_token = (sidecar_total / tokens_used_total) if tokens_used_total > 0 and sidecar_total > 0 else None
+    plan_capacity = plan_token_capacity(billing, manager.config, blended_usd_per_token=blended_usd_per_token)
+    plan_tokens = plan_capacity.get("estimatedPlanTokens")
+    avoided_plan_percent = _fraction(float(avoided_tokens_total), float(plan_tokens)) if plan_tokens else None
     arms = report.get("arms") or {}
     assist = arms.get("assist") or {}
     control = arms.get("control") or {}
@@ -536,6 +540,8 @@ def _pilot_dashboard_metrics(manager: SessionManager) -> dict[str, Any]:
             "planMultiplier": plan_multiplier,
             "apiEquivalentUsd": round(sidecar_total, 6),
             "effectivePlanValueUsd": effective_plan_value,
+            "planCapacity": plan_capacity,
+            "avoidedTokensPlanPercent": avoided_plan_percent,
             "assistSessions": _int_value(assist.get("sessions")),
             "controlSessions": _int_value(control.get("sessions")),
             "refinementsDelivered": _int_value(assist.get("refinements_delivered")) + _int_value(control.get("refinements_delivered")),

@@ -76,3 +76,46 @@ def test_missing_or_malformed_state_falls_back_to_credits(tmp_path: Path) -> Non
     no_oauth = detect_billing(SidecarConfig(), claude_state_path=_state_file(tmp_path, None))
     assert no_oauth["mode"] == "credits"
     assert no_oauth["source"] == "fallback"
+
+
+def test_plan_token_capacity_estimates_from_blended_rate() -> None:
+    from agent_sidecar.intel.billing import plan_token_capacity
+
+    billing = {"mode": "plan", "planMonthlyUsd": 100.0}
+    capacity = plan_token_capacity(billing, SidecarConfig(), blended_usd_per_token=0.00002)
+
+    assert capacity["estimatedPlanTokens"] == 5_000_000
+    assert capacity["planAssumed"] is False
+    assert capacity["basis"] == "api-equivalent-estimate"
+    assert capacity["precision"] == "approximate"
+
+
+def test_plan_token_capacity_assumes_pro_when_plan_unknown() -> None:
+    from agent_sidecar.intel.billing import plan_token_capacity
+
+    billing = {"mode": "credits", "planMonthlyUsd": None}
+    capacity = plan_token_capacity(billing, SidecarConfig(), blended_usd_per_token=0.00002)
+
+    assert capacity["planMonthlyUsd"] == 20.0
+    assert capacity["planAssumed"] is True
+    assert capacity["estimatedPlanTokens"] == 1_000_000
+
+
+def test_plan_token_capacity_prefers_config_override() -> None:
+    from agent_sidecar.intel.billing import plan_token_capacity
+
+    config = SidecarConfig()
+    config.billing.plan_token_allowance = 9_000_000
+    capacity = plan_token_capacity({"planMonthlyUsd": 100.0}, config, blended_usd_per_token=0.00002)
+
+    assert capacity["estimatedPlanTokens"] == 9_000_000
+    assert capacity["basis"] == "config-override"
+
+
+def test_plan_token_capacity_without_measured_rate_has_no_token_estimate() -> None:
+    from agent_sidecar.intel.billing import plan_token_capacity
+
+    capacity = plan_token_capacity({"planMonthlyUsd": 20.0}, SidecarConfig(), blended_usd_per_token=None)
+
+    assert capacity["estimatedPlanTokens"] is None
+    assert capacity["precision"] == "approximate"

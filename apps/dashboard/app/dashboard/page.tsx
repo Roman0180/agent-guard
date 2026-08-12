@@ -51,6 +51,14 @@ const examplePilotMetrics: PilotMetrics = {
     planMultiplier: 1.363,
     apiEquivalentUsd: 3.61,
     effectivePlanValueUsd: 136.3,
+    planCapacity: {
+      estimatedPlanTokens: 5_034_600,
+      planMonthlyUsd: 100,
+      planAssumed: false,
+      basis: "api-equivalent-estimate",
+      precision: "approximate"
+    },
+    avoidedTokensPlanPercent: 0.0131,
     assistSessions: 2,
     controlSessions: 1,
     refinementsDelivered: 4,
@@ -386,9 +394,18 @@ export default function PilotDashboardPage() {
               />
               <MetricCard
                 icon={<CircleDollarSign size={18} />}
-                label="Tokens used"
-                value={formatTokens(activeMetrics.totals.tokensUsed)}
-                detail={`~${formatTokens(activeMetrics.totals.estimatedAvoidedTokens)} waste avoided`}
+                label="Tokens saved"
+                value={formatTokens(activeMetrics.totals.estimatedAvoidedTokens)}
+                detail={
+                  activeMetrics.totals.avoidedTokensPlanPercent != null && activeMetrics.totals.planCapacity?.estimatedPlanTokens
+                    ? `≈${formatPercent(activeMetrics.totals.avoidedTokensPlanPercent)} of est. ${
+                        activeMetrics.totals.planCapacity.planAssumed ? "Pro" : "plan"
+                      } month (~${formatTokens(activeMetrics.totals.planCapacity.estimatedPlanTokens)} tokens) · ${formatTokens(
+                        activeMetrics.totals.tokensUsed
+                      )} used`
+                    : `${formatTokens(activeMetrics.totals.tokensUsed)} tokens used`
+                }
+                tone="good"
               />
               <MetricCard
                 icon={<ShieldCheck size={18} />}

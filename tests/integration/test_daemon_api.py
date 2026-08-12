@@ -407,6 +407,15 @@ def test_pilot_dashboard_route_estimates_default_cost_from_k_and_reports_arms(tm
     assert pilot["history"][0]["sidecarCostUsd"] == 0.03
     assert pilot["history"][0]["day"] == pilot["prompts"][0]["startedAt"][:10]
 
+    # Plan capacity: tokens saved as a share of an estimated plan-month token
+    # allowance (Pro assumed when no plan is detected; always approximate).
+    capacity = pilot["totals"]["planCapacity"]
+    assert capacity["precision"] == "approximate"
+    assert capacity["planMonthlyUsd"] > 0
+    if capacity["estimatedPlanTokens"]:
+        expected = round(pilot["totals"]["estimatedAvoidedTokens"] / capacity["estimatedPlanTokens"], 6)
+        assert pilot["totals"]["avoidedTokensPlanPercent"] == expected
+
     first, second, third = pilot["prompts"]
     assert first["promptText"] == "fix the failing auth test"
     assert second["promptText"] == "now add a regression test"

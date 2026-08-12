@@ -104,6 +104,10 @@ class BillingConfig(BaseModel):
     # Plan tier/price overrides for when detection is unavailable or wrong.
     tier: str | None = None
     monthly_usd: float | None = None
+    # Explicit monthly plan token allowance. Plans publish no token quota, so when
+    # unset the capacity denominator is estimated from plan price at the user's
+    # own blended API-equivalent $/token.
+    plan_token_allowance: int | None = None
 
 
 class TraceCaptureConfig(BaseModel):
