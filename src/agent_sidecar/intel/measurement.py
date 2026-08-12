@@ -20,6 +20,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Literal
 
+from agent_sidecar.cloud.credentials import load_cloud_credentials
 from agent_sidecar.intel.k_store import load_k_calibration, save_k_calibration
 from agent_sidecar.intel.steering import collect_findings, steer
 from agent_sidecar.schema.config import SidecarConfig
@@ -196,26 +197,70 @@ def measurement_report(manager: SessionManager) -> dict[str, Any]:
     }
 
 
-def push_measurement_report(manager: SessionManager) -> bool:
-    """POST the aggregate measurement report to the configured operator endpoint.
+def cloud_snapshot(manager: SessionManager) -> dict[str, Any]:
+    """The minimal numeric aggregate the hosted savings dashboard stores.
 
-    Sends only the aggregates `measurement report --json` prints — arm totals,
-    token counts, costs, k calibration — never prompt text, code, or per-event
-    traces. Failures are swallowed by design: an unreachable operator endpoint
-    must never affect the pilot's session or block a stop.
+    Derived from the arm totals `measurement_report` already computes — token
+    counts, measured cost, intervention counts. Deliberately small: no prompt
+    text, no per-session detail, no per-prompt rows. The cloud ingest endpoint
+    re-applies its own allowlist, so this is the sender-side half of a
+    two-sided data-minimization contract.
     """
+    report = measurement_report(manager)
+    arms = report.get("arms") or {}
+    assist = arms.get("assist") or {}
+    control = arms.get("control") or {}
+
+    def _summed(key: str) -> int:
+        return int(assist.get(key, 0)) + int(control.get(key, 0))
+
+    tokens_used = _summed("tokens_input") + _summed("tokens_output")
+    measured_cost = round(float(assist.get("measured_cost_usd", 0.0)) + float(control.get("measured_cost_usd", 0.0)), 6)
+    return {
+        "tokensUsed": tokens_used,
+        "measuredCostUsd": measured_cost,
+        "apiEquivalentUsd": measured_cost,
+        "sessions": _summed("sessions"),
+        "refinementsDelivered": _summed("refinements_delivered"),
+        "steeringRecommendations": _summed("steering_recommendations"),
+        "shadowDetections": _summed("shadow_detections"),
+        "generatedAt": utc_now().isoformat(),
+    }
+
+
+def push_measurement_report(manager: SessionManager) -> bool:
+    """POST the aggregate savings snapshot to the hosted dashboard, or to the
+    configured operator endpoint.
+
+    Sends only aggregates — token counts, costs, intervention counts — never
+    prompt text, code, or per-event traces. If the user has linked this machine
+    to a cloud account (`agent-sidecar link`), the push goes to their ingest URL
+    with a Bearer device token. Otherwise it falls back to the unauthenticated
+    `measurement.report_push_url` operator endpoint (unchanged behavior).
+    Failures are swallowed by design: an unreachable endpoint must never affect
+    the pilot's session or block a stop.
+    """
+    credentials = load_cloud_credentials()
+    if credentials is not None:
+        return _post_json(
+            credentials.ingest_url,
+            {"kind": "savings_snapshot", "snapshot": cloud_snapshot(manager)},
+            headers={"authorization": f"Bearer {credentials.device_token}"},
+        )
     url = manager.config.measurement.report_push_url
     if not url:
         return False
-    payload = {
-        "kind": "measurement_report",
-        "generated_at": utc_now().isoformat(),
-        "report": measurement_report(manager),
-    }
+    return _post_json(
+        url,
+        {"kind": "measurement_report", "generated_at": utc_now().isoformat(), "report": measurement_report(manager)},
+    )
+
+
+def _post_json(url: str, payload: dict[str, Any], *, headers: dict[str, str] | None = None) -> bool:
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers={"content-type": "application/json", **(headers or {})},
         method="POST",
     )
     try:

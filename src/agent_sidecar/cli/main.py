@@ -3,7 +3,7 @@ from __future__ import annotations
 import typer
 
 from agent_sidecar import __version__
-from agent_sidecar.cli import daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, measurement_cmds, models_cmds, report_cmds, session_cmds, telemetry_cmds
+from agent_sidecar.cli import cloud_cmds, daemon_cmds, dev_cmds, hooks_cmds, intel_cmds, measurement_cmds, models_cmds, report_cmds, session_cmds, telemetry_cmds
 
 
 app = typer.Typer(no_args_is_help=True, invoke_without_command=True)
@@ -52,6 +52,12 @@ app.command("refine")(intel_cmds.refine)
 app.command("steer")(intel_cmds.steer)
 app.command("report")(report_cmds.report)
 app.command("gateway")(report_cmds.gateway)
+app.command("link")(cloud_cmds.link)
+app.command("unlink")(cloud_cmds.unlink)
+
+link_app = typer.Typer(no_args_is_help=True)
+link_app.command("status")(cloud_cmds.link_status)
+app.add_typer(link_app, name="link-info")
 
 cost_app.command("show")(intel_cmds.cost_show)
 cost_app.command("compare")(intel_cmds.cost_compare)
