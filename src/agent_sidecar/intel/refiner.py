@@ -86,6 +86,18 @@ def refine_prompt(
         )
 
     if require_coding_refinement and not require_model_ensemble:
+        # Well-specified prompt: the deterministic pass found nothing to improve, so the
+        # coding model can only restate it — and its Focus line is discarded by the novelty
+        # gate anyway. Skip the blocking local call entirely (measured ~13s of pure latency
+        # for a thrown-away result). Coding refinement is consulted only when it can help.
+        if not deterministic.issues:
+            return deterministic, _refinement_events(
+                deterministic,
+                prompt,
+                repo_path=repo_path,
+                session_id=session_id,
+                record_prompt_submitted=record_prompt_submitted,
+            )
         coding_draft = provider.complete_json(ModelRole.coding, _coding_followup_task(), _coding_followup_prompt(prompt, deterministic), NextStepDraft) if provider else None
         if not isinstance(coding_draft, NextStepDraft):
             raise CodingRefinementRequiredError("coding model did not produce a valid coding next step")

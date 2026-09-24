@@ -10,3 +10,7 @@ __pycache__/
 .DS_Store
 *.log
 .agent-sidecar/
+# Build artifacts, decks, and scratch files — keep out of the repo
+*.zip
+*.pptx
+*_tmp.html

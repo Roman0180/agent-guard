@@ -3,9 +3,15 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 from urllib.parse import urlparse
 
+from agent_sidecar.cloud.credentials import (
+    FREE_TIER,
+    CloudCredentials,
+    entitled_tier,
+    load_cloud_credentials,
+)
 from agent_sidecar.models.local_services import ServingBackend, model_is_served
 from agent_sidecar.models.registry import ModelRegistryEntry, load_registry
 from agent_sidecar.schema.config import SidecarConfig, load_config
@@ -124,10 +130,19 @@ def infer_serving(role: ModelRole, model_id: str) -> ServingBackend:
     return "llama_server"
 
 
-def validate_route_allowed(route: ModelRoute, config: SidecarConfig) -> bool:
+def validate_route_allowed(
+    route: ModelRoute,
+    config: SidecarConfig,
+    *,
+    load_credentials: Callable[[], CloudCredentials | None] = load_cloud_credentials,
+) -> bool:
     if not route.available:
         return False
     if not config.models.remote_fallback and not is_loopback_url(route.api_base):
+        return False
+    # Metered hosted endpoints require a valid paid entitlement; without one the
+    # route is disallowed and the caller degrades to deterministic (fail-open).
+    if _route_requires_entitlement(route, config) and entitled_tier(load_credentials()) == FREE_TIER:
         return False
     for pattern in config.models.allowlist:
         model_pattern, _, api_base = pattern.partition("@")
@@ -137,6 +152,14 @@ def validate_route_allowed(route: ModelRoute, config: SidecarConfig) -> bool:
             continue
         if _model_matches(model_pattern, route.litellm_model):
             return True
+    return False
+
+
+def _route_requires_entitlement(route: ModelRoute, config: SidecarConfig) -> bool:
+    target = route.api_base.rstrip("/")
+    for endpoint in config.models.endpoints.values():
+        if endpoint.api_base.rstrip("/") == target:
+            return endpoint.requires_entitlement
     return False
 
 

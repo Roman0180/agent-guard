@@ -288,7 +288,9 @@ def test_missing_validation_still_fires_without_opt_out() -> None:
     assert findings and findings[0].evaluator_id == "missing_validation"
 
 
-def test_coding_focus_dropped_when_it_restates_the_prompt(tmp_path: Path) -> None:
+def test_require_coding_skips_model_for_well_specified_prompt(tmp_path: Path) -> None:
+    # A well-specified prompt has no issues, so the coding model can only restate it.
+    # We must not pay the blocking local call at all — it is skipped entirely.
     provider = StubProvider(
         {
             ModelRole.coding: NextStepDraft(
@@ -305,7 +307,8 @@ def test_coding_focus_dropped_when_it_restates_the_prompt(tmp_path: Path) -> Non
         require_coding_refinement=True,
     )
 
-    assert result.source == "deterministic-then-coding"
+    assert result.source == "deterministic"
+    assert ModelRole.coding not in provider.calls  # the blocking call never happened
     assert "Focus:" not in result.refined_prompt
     assert result.validation_opt_out is True
 

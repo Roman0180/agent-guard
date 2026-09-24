@@ -27,6 +27,10 @@ class ModelRoleConfig(BaseModel):
 class ModelEndpointConfig(BaseModel):
     api_base: str
     litellm_prefix: str
+    # Metered hosted endpoints (the vendor APIs we bill) require a valid paid
+    # entitlement to route to. Local and self-hosted remote endpoints leave this
+    # false and stay free — so no existing config changes behavior.
+    requires_entitlement: bool = False
 
 
 class ModelsConfig(BaseModel):

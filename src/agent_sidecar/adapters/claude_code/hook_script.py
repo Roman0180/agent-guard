@@ -220,7 +220,11 @@ def prompt_refinement_output(payload: dict, session_id: str, api_url: str, *, bu
             return block_output(f"Agent Sidecar requires DeepSeek prompt plus coding-model refinement, but /refine returned source={result.get('source')!r}.")
         if require_reasoning and not require_coding and result.get("source") != "reasoning-only":
             return block_output(f"Agent Sidecar requires DeepSeek prompt refinement, but /refine returned source={result.get('source')!r}.")
-        if require_coding and result.get("source") not in {"deterministic-then-coding", "reasoning-then-coding", "ensemble", "coding-only"}:
+        clean_skip = result.get("source") == "deterministic" and not result.get("issues")
+        if require_coding and not clean_skip and result.get("source") not in {"deterministic-then-coding", "reasoning-then-coding", "ensemble", "coding-only"}:
+            # A well-specified prompt (no detected issues) legitimately skips the coding
+            # model — there is nothing for it to improve. Only treat a missing coding
+            # refinement as a failure when the prompt actually needed one.
             return block_output(f"Agent Sidecar requires coding-model refinement, but /refine returned source={result.get('source')!r}.")
     context = format_refinement_context(result, budget_status=budget_status, prompt=prompt)
     if not context:

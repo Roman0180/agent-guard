@@ -10,6 +10,8 @@ from agent_sidecar.cloud.credentials import (
     CloudCredentials,
     clear_cloud_credentials,
     credentials_path,
+    entitlement_from_payload,
+    entitled_tier,
     load_cloud_credentials,
     save_cloud_credentials,
 )
@@ -49,8 +51,14 @@ def link(
         typer.echo("Link failed: server response missing ingest_url or device_token.", err=True)
         raise typer.Exit(code=1)
 
-    path = save_cloud_credentials(CloudCredentials(ingest_url=ingest_url, device_token=device_token))
+    entitlement = entitlement_from_payload(body.get("entitlement"))
+    path = save_cloud_credentials(
+        CloudCredentials(ingest_url=ingest_url, device_token=device_token, entitlement=entitlement)
+    )
     typer.echo(f"Linked. Aggregate savings will push to {ingest_url}.")
+    if entitlement is not None:
+        expiry = f" (until {entitlement.expires_at})" if entitlement.expires_at else ""
+        typer.echo(f"Entitlement: {entitlement.tier}{expiry}.")
     typer.echo(f"Credentials stored at {path} (0600).")
 
 
@@ -61,6 +69,12 @@ def link_status() -> None:
         typer.echo("Not linked. Run `agent-sidecar link --code <code>` from the dashboard's Link page.")
         raise typer.Exit(code=1)
     typer.echo(f"Linked to {credentials.ingest_url}")
+    tier = entitled_tier(credentials)
+    if credentials.entitlement is not None and tier == "free":
+        typer.echo(f"Entitlement: {credentials.entitlement.tier} (expired {credentials.entitlement.expires_at}); using free tier.")
+    else:
+        expiry = f" (until {credentials.entitlement.expires_at})" if credentials.entitlement and credentials.entitlement.expires_at else ""
+        typer.echo(f"Tier: {tier}{expiry}")
     typer.echo(f"Credentials: {credentials_path()}")
 
 
