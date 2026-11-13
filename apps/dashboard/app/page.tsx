@@ -1,300 +1,441 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { Check, Minus, Pause, Play, RotateCcw } from "lucide-react";
+
 import {
-  Bot,
-  Code2,
-  Menu,
-  Pause,
-  Play,
-  RotateCcw,
-  X
-} from "lucide-react";
-
-const navItems = [
-  ["Demo", "#demo"],
-  ["Privacy", "#privacy"],
-  ["How to use", "#how-to-use"]
-] as const;
-
-const workflow = [
-  "Install the sidecar package with pip",
-  "Start the daemon from your terminal",
-  "Code in Codex like normal while Agent Sidecar runs in the background",
-  "Sidecar optimizes prompts, context, model routing, and telemetry behind the scenes",
-  "Review original prompts, optimized prompts, cost evidence, result quality, decisions, and evidence-labeled analytics"
-];
+  Badge,
+  CtaButtons,
+  Footer,
+  MockupCaption,
+  Navbar,
+  Section,
+  sourceFootnotes
+} from "./components/site";
 
 export default function HomePage() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
   return (
     <main className="website-shell min-h-screen overflow-x-hidden bg-[#07070b] text-white">
-      <Navbar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
+      <Navbar />
       <Hero />
-      <DemoSection />
+      <ProblemSection />
+      <WhyNowSection />
+      <WhatItIsSection />
+      <HowItWorksSection />
+      <GettingStartedSection />
+      <RunSection />
+      <DashboardSection />
       <PrivacySection />
-      <HowToUse />
+      <CostToRunSection />
+      <CompareSection />
+      <PricingSection />
+      <WhoItsForSection />
+      <ClosingSection />
+      <Footer />
     </main>
   );
 }
 
-function Navbar({
-  mobileOpen,
-  setMobileOpen
-}: {
-  mobileOpen: boolean;
-  setMobileOpen: (open: boolean) => void;
-}) {
-  return (
-    <header className="sticky top-0 z-50 border-b border-white/10 bg-[#07070b]/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-7 lg:px-10">
-        <a href="#" className="flex items-center gap-3">
-          <LogoMark />
-          <span className="text-sm font-semibold tracking-wide">Agent Sidecar</span>
-        </a>
-        <nav className="hidden items-center gap-6 text-sm text-neutral-300 lg:flex">
-          {navItems.map(([label, href]) => (
-            <a key={label} href={href} className="transition hover:text-white">
-              {label}
-            </a>
-          ))}
-        </nav>
-        <button
-          type="button"
-          aria-label="Toggle navigation"
-          aria-expanded={mobileOpen}
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="grid size-10 place-items-center rounded-lg border border-white/10 lg:hidden"
-        >
-          {mobileOpen ? <X size={19} /> : <Menu size={19} />}
-        </button>
-      </div>
-      {mobileOpen ? (
-        <div className="border-t border-white/10 bg-[#07070b]/95 px-5 py-4 lg:hidden">
-          <div className="grid gap-2">
-            {navItems.map(([label, href]) => (
-              <a
-                key={label}
-                href={href}
-                onClick={() => setMobileOpen(false)}
-                className="rounded-lg border border-white/10 px-4 py-3 text-sm text-neutral-200"
-              >
-                {label}
-              </a>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </header>
-  );
-}
+/* 1. Hero */
+
+const heroTerminalLines: Array<[string, string]> = [
+  ["watching 3 workflows", ""],
+  ["calls checked", "4,812"],
+  ["blocked by rule", "17"],
+  ["repaired, not retried", "41"],
+  ["paused for approval", "3"],
+  ["cost vs default", "-51%"]
+];
 
 function Hero() {
   return (
     <section className="mx-auto flex min-w-0 max-w-7xl flex-col items-center overflow-hidden px-3 pb-16 pt-14 text-center sm:px-7 sm:pt-16 lg:px-10 lg:pb-20 lg:pt-20">
       <div className="flex w-full min-w-0 max-w-7xl flex-col items-center">
         <h1 className="hero-headline max-w-full break-words text-3xl font-semibold leading-[1.08] tracking-normal sm:max-w-5xl sm:text-5xl sm:leading-[1.02] lg:text-6xl">
-          Stop Tokenmaxxing. Start Proving Savings.
+          Governance and cost controls for your team&apos;s AI agents.
         </h1>
         <p className="hero-subcopy mt-6 max-w-2xl break-words text-base leading-7 text-neutral-300 sm:max-w-3xl sm:text-xl sm:leading-9">
-          Agent Sidecar lowers Codex and Claude Code costs by turning every run into measurable, validated task economics.
+          Agent Sidecar runs inside your own cloud. It works with the models and frameworks you
+          already use, and nothing leaves your environment.
         </p>
-        <div className="mt-8 w-full min-w-0 max-w-6xl overflow-hidden">
-          <HeroComparisonCard />
+        <div className="mt-8">
+          <CtaButtons center />
+        </div>
+        <div className="mt-10 w-full min-w-0 max-w-2xl overflow-hidden">
+          <HeroTerminalCard />
+          <MockupCaption />
         </div>
       </div>
     </section>
   );
 }
 
-function HowToUse() {
+function HeroTerminalCard() {
   return (
-    <Section id="how-to-use" eyebrow="How to use" title="Run normally, review everything">
-      <div className="mt-10 grid gap-6 lg:grid-cols-[0.72fr_1.28fr]">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <p className="text-lg leading-8 text-neutral-300">
-            The dashboard is the separate control plane and replay UI. Developers keep coding in Codex while Agent Sidecar optimizes prompt context, routing, and telemetry in the background, then measures whether those optimizations improve cost per successful task.
-          </p>
-          <div className="mt-5 grid gap-3">
-            {workflow.map((item, index) => (
-              <div key={item} className="grid grid-cols-[42px_1fr] items-center gap-3 rounded-xl border border-white/10 bg-[#050509] p-4">
-                <span className="grid size-8 place-items-center rounded-lg bg-white/[0.04] font-mono text-xs text-neutral-400">
-                  {index + 1}
-                </span>
-                <span className="text-sm text-neutral-200">{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <DashboardPreview />
+    <div className="reason-terminal min-w-0 overflow-hidden rounded-2xl border border-white/12 bg-[#08080d] text-left shadow-[0_24px_70px_rgba(34,211,238,0.08)]">
+      <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+        <span className="size-2 rounded-full bg-red-400/80" />
+        <span className="size-2 rounded-full bg-amber-300/80" />
+        <span className="size-2 rounded-full bg-emerald-300/80" />
+        <span className="ml-3 font-mono text-xs text-neutral-500">sidecar</span>
       </div>
-    </Section>
-  );
-}
-
-function DashboardPreview() {
-  const nav = ["Traces", "Decisions", "Policies", "Lessons", "Analytics"];
-
-  return (
-    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <span className="size-2 rounded-full bg-red-400/80" />
-            <span className="size-2 rounded-full bg-amber-300/80" />
-            <span className="size-2 rounded-full bg-emerald-300/80" />
-          </div>
-          <span className="font-mono text-xs text-neutral-500">Acme account dashboard</span>
-        </div>
-
-        <div className="dashboard-preview-bg grid min-h-[520px] md:grid-cols-[190px_1fr]">
-          <aside className="border-b border-white/10 p-4 md:border-b-0 md:border-r">
-            <div className="flex items-center gap-3">
-              <LogoMark />
-              <div>
-                <p className="text-sm font-semibold">Agent Sidecar</p>
-                <p className="font-mono text-[11px] text-neutral-500">Acme workspace</p>
-              </div>
-            </div>
-            <div className="mt-7 grid gap-2">
-              {nav.map((item, index) => (
-                <div
-                  key={item}
-                  className={`rounded-xl px-3 py-2 text-sm ${
-                    index === 0 ? "border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-white" : "text-neutral-500"
-                  }`}
-                >
-                  {item}
-                </div>
-              ))}
-            </div>
-          </aside>
-
-          <div className="p-4 sm:p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Live runs</p>
-                <h3 className="mt-2 text-2xl font-semibold">Runtime control plane</h3>
-              </div>
-              <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200">
-                daemon connected
-              </span>
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              {[
-                ["guarded runs", "18"],
-                ["decisions", "43"],
-                ["saved lessons", "9"]
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">{label}</p>
-                  <p className="mt-2 text-2xl font-semibold">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.065] p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-emerald-200">validated cost reduction</p>
-                  <p className="mt-2 text-3xl font-semibold text-emerald-100">$4,820</p>
-                </div>
-                <p className="max-w-xs text-sm leading-6 text-emerald-50/70">
-                  Estimated from successful traces, observed cost movement, and current model pricing.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 lg:grid-cols-3">
-              {[
-                ["prompt contract", "scope and validation extracted before Codex runs"],
-                ["model route", "narrow edits stay on the cheaper viable path"],
-                ["validated delta", "cost movement counted after the task succeeds"]
-              ].map(([label, copy]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-[#22d3ee]">{label}</p>
-                  <p className="mt-3 text-sm leading-6 text-neutral-300">{copy}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+      <div className="grid gap-1.5 p-5 font-mono text-sm leading-6">
+        <p className="text-neutral-100">
+          <span className="text-[#67e8f9]">$</span> sidecar supervise --cloud aws
+        </p>
+        {heroTerminalLines.map(([label, value]) => (
+          <p key={label} className="flex justify-between text-neutral-300">
+            <span>{label}</span>
+            {value ? (
+              <span className={value === "-51%" ? "text-emerald-300" : "text-neutral-100"}>{value}</span>
+            ) : null}
+          </p>
+        ))}
+        <p className="text-neutral-100">
+          <span className="reason-cursor ml-0.5 inline-block h-4 w-2 translate-y-0.5 bg-[#22d3ee]" />
+        </p>
       </div>
     </div>
   );
 }
 
-function DemoSection() {
+/* 2. The problem */
+
+const problemStats: Array<[string, string, string]> = [
+  [
+    "21%",
+    "of 3,235 IT and business leaders say their organization has a mature governance model for agentic AI.",
+    "Deloitte, State of AI in the Enterprise 2026 [1]"
+  ],
+  [
+    "98%",
+    "of FinOps teams now manage AI spend, up from 31% two years earlier.",
+    "FinOps Foundation, State of FinOps 2026 (n = 1,192) [2]"
+  ],
+  [
+    "Dec 2027",
+    "EU AI Act high-risk obligations (credit scoring, hiring, critical infrastructure) now land 2 Dec 2027 after the July 2026 Omnibus delay. A fixed date, and bank procurement cycles are long.",
+    "Regulation (EU) 2024/1689, as amended [3]"
+  ]
+];
+
+function ProblemSection() {
+  return (
+    <section id="problem" className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
+      <div className="max-w-3xl">
+        <Badge>The problem</Badge>
+        <p className="mt-6 text-2xl font-semibold leading-snug text-neutral-100 sm:text-3xl">
+          AI agents are acting on real systems faster than teams can govern them or control what
+          they cost.
+        </p>
+        <h2 className="mt-8 text-3xl font-semibold leading-tight sm:text-5xl">
+          Governance and cost control are lagging adoption
+        </h2>
+        <p className="mt-4 text-base leading-7 text-neutral-300 sm:text-lg">
+          Two questions block every rollout in healthcare and finance: what is this agent allowed
+          to do, and what did it cost?
+        </p>
+      </div>
+
+      <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        {problemStats.map(([stat, body, source]) => (
+          <div key={stat} className="flex flex-col rounded-2xl border border-white/10 bg-white/[0.035] p-6">
+            <p className="text-4xl font-semibold text-[#22d3ee]">{stat}</p>
+            <p className="mt-4 flex-1 text-sm leading-6 text-neutral-200">{body}</p>
+            <p className="mt-4 font-mono text-[11px] leading-5 text-neutral-500">{source}</p>
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-8 max-w-3xl text-base leading-7 text-neutral-300">
+        What buyers do today: set spend caps and ban tools. That stops the bill, not the waste,
+        and it stops the agents too. A prior-auth or claims agent that nobody can bound or audit
+        never clears compliance. The gap is a layer that lets cheap models do real work safely,
+        with proof.
+      </p>
+
+      <div className="mt-8 grid gap-1.5 border-t border-white/10 pt-5">
+        {sourceFootnotes.map((note) => (
+          <p key={note} className="text-xs leading-5 text-neutral-500">
+            {note}
+          </p>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* 3. Why now */
+
+const whyNowCards: Array<[string, string]> = [
+  [
+    "Agents act",
+    "Tool-calling agents are in production workflows: claims, prior auth, deployments. A mistake is now a transaction, not a wrong answer."
+  ],
+  [
+    "Rules arrived",
+    "EU AI Act high-risk rules land Dec 2027, and credit scoring is on the list; sector guidance in healthcare and finance. Governance is a procurement checkbox."
+  ],
+  [
+    "Spend is visible",
+    "Enterprise agent seats bill per token. 98% of FinOps teams now track AI spend, so there's an owner for the line."
+  ],
+  [
+    "In-cloud is enough",
+    "Small open models, and an open-weight frontier model (Muse Spark Open) that runs inside Bedrock, Vertex or Azure, make “nothing leaves your environment” real."
+  ]
+];
+
+function WhyNowSection() {
+  return (
+    <Section
+      id="why-now"
+      eyebrow="Why now"
+      title="Four shifts, one window"
+      sub="All four happened in the last 18 months; together they make an in-cloud supervisor both necessary and possible."
+    >
+      <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {whyNowCards.map(([title, body]) => (
+          <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+            <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{title}</p>
+            <p className="mt-3 text-sm leading-6 text-neutral-300">{body}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-8 max-w-3xl text-base leading-7 text-neutral-300">
+        Two years ago this couldn&apos;t be built. Two years from now the gateways will have copied
+        it. The window is 12&ndash;18 months.
+      </p>
+    </Section>
+  );
+}
+
+/* 4. What Agent Sidecar is */
+
+const pillars: Array<[string, string]> = [
+  [
+    "Governs",
+    "You set the rules: which tools, which data, how much budget, when a human must approve. Sidecar enforces them on every step."
+  ],
+  [
+    "Controls cost",
+    "Each step runs on the smallest model that can do it. Loops and blind retries are stopped before they're billed."
+  ],
+  [
+    "Proves it",
+    "Every decision is logged: who, what, which rule, which model, what it cost. The audit trail compliance asks for."
+  ]
+];
+
+function WhatItIsSection() {
+  return (
+    <Section
+      id="product"
+      eyebrow="Product"
+      title="What Agent Sidecar is"
+      sub="A platform that provides governance and cost controls for your team's AI agents, running inside your own cloud."
+    >
+      <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        {pillars.map(([title, body]) => (
+          <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">
+            <p className="text-xl font-semibold text-white">{title}</p>
+            <p className="mt-3 text-sm leading-6 text-neutral-300">{body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 rounded-2xl border border-[#22d3ee]/20 bg-[#22d3ee]/[0.05] p-5">
+        <p className="text-sm leading-6 text-neutral-200">
+          Not just for developers: for anyone at the company using agentic tools who needs
+          governance and cost controls. Works with the models and frameworks you already use;
+          nothing leaves your environment.
+        </p>
+      </div>
+    </Section>
+  );
+}
+
+/* 5. How it works */
+
+const components: Array<[string, string]> = [
+  [
+    "Router",
+    "Reads each step and picks who handles it: the workflow's own model, or Muse Spark Open."
+  ],
+  [
+    "Ensemble",
+    "One small model per workflow, fine-tuned on your own traffic. Day one, everything goes to Muse Spark Open."
+  ],
+  [
+    "Governance model",
+    "Watches every call and tool use. Enforces your rules; blocks, pauses, or repairs; writes the log."
+  ]
+];
+
+function HowItWorksSection() {
+  return (
+    <Section
+      id="how-it-works"
+      eyebrow="How it works"
+      title="In the loop on every step, not on the sidelines"
+      sub="A router, an ensemble learned from your workflows, and a governance model over it all."
+    >
+      <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3">
+        <div className="rounded-2xl border border-white/10 bg-[#050509] p-5 sm:p-6">
+          <p className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-xs text-[#22d3ee]">
+            Your cloud account
+          </p>
+          <div className="mt-5 grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+            {components.map(([title, body], index) => (
+              <div key={title} className="contents">
+                {index > 0 ? (
+                  <div className="grid place-items-center font-mono text-lg text-neutral-500">
+                    <span className="hidden lg:block">&rarr;</span>
+                    <span className="lg:hidden">&darr;</span>
+                  </div>
+                ) : null}
+                <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+                  <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{title}</p>
+                  <p className="mt-3 text-sm leading-6 text-neutral-300">{body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* 6. Getting started */
+
+const gettingStartedSteps: Array<[string, string]> = [
+  [
+    "Sign up, book a call",
+    "Sign up on the site and pick a time. We deploy Sidecar in your account with you on the call."
+  ],
+  [
+    "Set rules",
+    "One YAML per workflow: allowed tools, what needs a human, budget per run. Your security team can read it."
+  ],
+  [
+    "Hydrate",
+    "Day one runs on Muse Spark Open. Each workflow then earns its own small model from your traffic."
+  ]
+];
+
+const rulesFileLines: Array<[string, string]> = [
+  ["workflow: claims-intake", "text-neutral-100"],
+  ["allowed_tools:", "text-neutral-300"],
+  ["  - read_claim", "text-emerald-200"],
+  ["  - verify_coverage", "text-emerald-200"],
+  ["  - draft_letter", "text-emerald-200"],
+  ["needs_approval:", "text-neutral-300"],
+  ["  - issue_payment   # over $500", "text-amber-200"],
+  ["never_allowed:", "text-neutral-300"],
+  ["  - export_csv", "text-red-200"],
+  ["budget_per_run: $2.00", "text-neutral-100"]
+];
+
+const hydrationProgress: Array<[string, number]> = [
+  ["Day 1", 0],
+  ["Day 6", 24],
+  ["Day 12", 52],
+  ["Day 18", 71]
+];
+
+function GettingStartedSection() {
+  return (
+    <Section
+      id="getting-started"
+      eyebrow="Getting started"
+      title="Install, then hydrate"
+      sub="One setup call to install. Then Sidecar learns your workflows from your own traffic and takes over the routine steps."
+    >
+      <div className="mt-10 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="grid content-start gap-3">
+          {gettingStartedSteps.map(([title, body], index) => (
+            <div
+              key={title}
+              className="grid grid-cols-[42px_1fr] items-start gap-3 rounded-xl border border-white/10 bg-[#050509] p-4"
+            >
+              <span className="grid size-8 place-items-center rounded-lg bg-white/[0.04] font-mono text-xs text-neutral-400">
+                {index + 1}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-white">{title}</p>
+                <p className="mt-1 text-sm leading-6 text-neutral-300">{body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
+              <div className="border-b border-white/10 px-4 py-3">
+                <p className="font-mono text-xs text-neutral-500">claims-intake.rules.yml</p>
+              </div>
+              <div className="grid gap-1 p-4 font-mono text-xs leading-5">
+                {rulesFileLines.map(([line, color]) => (
+                  <p key={line} className={`whitespace-pre ${color}`}>
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-[#050509] p-4">
+              <p className="font-mono text-xs text-neutral-500">Hydration &middot; claims-intake</p>
+              <p className="mt-3 text-sm leading-6 text-neutral-300">
+                Share of steps on the workflow&apos;s own model
+              </p>
+              <div className="mt-4 grid gap-3">
+                {hydrationProgress.map(([label, pct]) => (
+                  <div key={label} className="grid grid-cols-[52px_1fr_38px] items-center gap-3">
+                    <span className="font-mono text-[11px] text-neutral-500">{label}</span>
+                    <span className="block h-2 overflow-hidden rounded-full bg-white/10">
+                      <span
+                        className="block h-full rounded-full bg-[#22d3ee]"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </span>
+                    <span className="text-right font-mono text-[11px] text-neutral-300">{pct}%</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 text-xs leading-5 text-neutral-500">
+                71% of claims-intake steps on its own model by day 18.
+              </p>
+            </div>
+          </div>
+          <MockupCaption />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* 7. A run, end to end */
+
+const runSteps: Array<[string, string]> = [
+  [
+    "Prompt",
+    "The user types what they always type. Same chat, same tools; Sidecar shows up only when a rule fires."
+  ],
+  [
+    "Route",
+    "The router sends each step to the workflow's own model, or to Muse Spark Open when confidence is low."
+  ],
+  [
+    "Govern and log",
+    "The governance model allows, blocks, or pauses every call. Each step is logged with rule, model, and cost."
+  ]
+];
+
+function RunSection() {
   const demoDuration = 25;
   const [demoPaused, setDemoPaused] = useState(true);
   const [demoRunId, setDemoRunId] = useState(0);
   const [demoTime, setDemoTime] = useState(0);
   const progressRef = useRef<any>(null);
-  const files = ["src/auth/session.ts", "src/auth/tokens.ts", "tests/auth-refresh.test.ts", "agent-sidecar.yml"];
-  const preEditCodeLines: Array<[string, string, string]> = [
-    ["01", "import { cookies } from \"next/headers\"", "text-neutral-500"],
-    ["02", "import { redirect } from \"next/navigation\"", "text-neutral-500"],
-    ["03", "import { refreshToken, readSession } from \"./tokens\"", "text-neutral-500"],
-    ["04", "import { saveSession, clearSession } from \"./store\"", "text-neutral-500"],
-    ["05", "import { validateSessionCookie } from \"./validation\"", "text-neutral-500"],
-    ["06", "", "text-neutral-700"],
-    ["07", "type User = {", "text-neutral-400"],
-    ["08", "  id: string", "text-neutral-400"],
-    ["09", "  email: string", "text-neutral-400"],
-    ["10", "  session: string", "text-neutral-400"],
-    ["11", "}", "text-neutral-400"],
-    ["12", "", "text-neutral-700"],
-    ["13", "export async function loadCurrentUser() {", "text-neutral-300"],
-    ["14", "  const session = cookies().get(\"sid\")?.value", "text-neutral-300"],
-    ["15", "  if (!session) return null", "text-neutral-300"],
-    ["16", "  return readSession(session)", "text-neutral-300"],
-    ["17", "}", "text-neutral-300"],
-    ["18", "", "text-neutral-700"],
-    ["19", "export async function refreshSession(user: User) {", "text-neutral-300"],
-    ["20", "  const token = await refreshToken(user.session)", "text-neutral-300"],
-    ["21", "  saveSession(user.id, token)", "text-red-200"],
-    ["22", "  return redirectAfterLogin(user)", "text-neutral-300"],
-    ["23", "}", "text-neutral-300"],
-    ["24", "", "text-neutral-700"],
-    ["25", "function redirectAfterLogin(user: User) {", "text-neutral-300"],
-    ["26", "  return redirect(`/account/${user.id}`)", "text-neutral-300"],
-    ["27", "}", "text-neutral-300"],
-    ["28", "", "text-neutral-700"],
-    ["29", "export async function signOut() {", "text-neutral-400"],
-    ["30", "  await clearSession()", "text-neutral-400"],
-    ["31", "}", "text-neutral-400"]
-  ];
-  const codeLines: Array<[string, string, string]> = [
-    ["18", "export async function refreshSession(user: User) {", "text-neutral-300"],
-    ["19", "  const token = await refreshToken(user.session)", "text-neutral-300"],
-    ["20", "- saveSession(user.id, token)", "text-red-200"],
-    ["20", "+ await saveSession(user.id, token)", "text-emerald-200"],
-    ["21", "+ await validateSessionCookie(user.id)", "text-emerald-200"],
-    ["22", "  return redirectAfterLogin(user)", "text-neutral-300"],
-    ["23", "}", "text-neutral-300"]
-  ];
-  const capabilityEvents: Array<[string, string]> = [
-    ["Prompt", "Send refined task contract into Codex"],
-    ["Repo memory", "Reuse auth-refresh plan instead of rereading files"],
-    ["Model route", "Use cheaper model for narrow edit step"],
-    ["Validation", "Reserve stronger model for failure analysis"]
-  ];
-  const optimizedPromptLines = [
-    "Task: Fix auth refresh so users stay signed in after token renewal",
-    "Constraints: Keep the change narrow and follow AGENTS.md",
-    "Acceptance: Token renewal persists before redirect",
-    "PR boundary: No unrelated auth refactors",
-    "Tests: Run targeted auth refresh and login flow checks"
-  ];
-  const messyPromptLines = [
-    "Full chat history pasted into next call",
-    "Repeated session.ts and tokens.ts reads",
-    "Verbose reasoning from earlier attempts",
-    "Generic request: figure it out and fix anything"
-  ];
   const restartDemo = () => {
     setDemoPaused(false);
     setDemoTime(0);
@@ -317,10 +458,10 @@ function DemoSection() {
   };
   const sceneClass = (start: number, end: number) =>
     demoTime >= start && demoTime < end ? "grid opacity-100" : "hidden opacity-0";
-  const finalSceneClass = demoTime >= 19 ? "grid opacity-100" : "hidden opacity-0";
+  const finalSceneClass = demoTime >= 18 ? "grid opacity-100" : "hidden opacity-0";
   const showAt = (time: number) => demoTime >= time;
   const promptProgress = Math.min(Math.max((demoTime - 0.7) / 2.8, 0), 1);
-  const promptText = "Login keeps breaking after token refresh. Can you figure it out and fix whatever is wrong?";
+  const promptText = "Work through today's claims queue and draft the denial letters.";
   const typedPrompt = promptText.slice(0, Math.max(1, Math.round(promptText.length * promptProgress)));
   useEffect(() => {
     if (demoPaused) return undefined;
@@ -339,27 +480,59 @@ function DemoSection() {
     return () => clearInterval(interval);
   }, [demoDuration, demoPaused, demoRunId]);
 
+  const routedSteps: Array<[string, string, string, string]> = [
+    ["triage claim #4411", "claims-intake model", "$0.02", "text-emerald-200"],
+    ["verify coverage", "claims-intake model", "$0.03", "text-emerald-200"],
+    ["summarize history", "claims-intake model", "$0.02", "text-emerald-200"],
+    ["draft denial letter · low confidence", "Muse Spark Open", "$0.38", "text-[#67e8f9]"]
+  ];
+
+  const logRows: Array<[string, string, string, string]> = [
+    ["triage claim #4411", "allowed", "claims-intake model · $0.02", "text-emerald-200"],
+    ["draft denial letter", "routed up", "Muse Spark Open · $0.38", "text-[#67e8f9]"],
+    ["export_csv", "blocked · deny list", "no model call · $0.00", "text-red-200"],
+    ["issue_payment $740", "approved by K. Patel", "from Slack · $0.01", "text-amber-200"]
+  ];
+
   return (
-    <Section id="demo" eyebrow="Demo" title="Agent Sidecar inside a Codex workspace">
-      <div className="mt-10 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
+    <Section
+      id="demo"
+      eyebrow="A run, end to end"
+      title="One prompt, end to end"
+      sub="The user types a prompt. The router picks a model per step, the governance model watches every call, the log keeps it all."
+    >
+      <div className="mt-8 grid gap-3 lg:grid-cols-3">
+        {runSteps.map(([title, body], index) => (
+          <div
+            key={title}
+            className="grid grid-cols-[42px_1fr] items-start gap-3 rounded-xl border border-white/10 bg-[#050509] p-4"
+          >
+            <span className="grid size-8 place-items-center rounded-lg bg-white/[0.04] font-mono text-xs text-neutral-400">
+              {index + 1}
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-white">{title}</p>
+              <p className="mt-1 text-sm leading-6 text-neutral-300">{body}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#22d3ee]/10">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
           <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-red-400/80" />
               <span className="size-2 rounded-full bg-amber-300/80" />
               <span className="size-2 rounded-full bg-emerald-300/80" />
-              <span className="ml-3 font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">agent-sidecar-demo</span>
+              <span className="ml-3 font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">claims desk</span>
             </div>
             <span className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-xs text-[#22d3ee]">
-              Sidecar task intake active
+              Sidecar supervising
             </span>
           </div>
 
-          <div
-            className={`demo-stage-bg relative p-4 sm:p-6 ${
-              demoPaused ? "demo-video-paused" : ""
-            }`}
-          >
+          <div className={`demo-stage-bg relative p-4 sm:p-6 ${demoPaused ? "demo-video-paused" : ""}`}>
             <div
               role="button"
               tabIndex={0}
@@ -373,322 +546,134 @@ function DemoSection() {
               }}
               className="demo-video-frame relative block w-full cursor-pointer overflow-hidden rounded-2xl border border-white/10 bg-[#07070b]/90 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[#22d3ee]/70"
             >
-              <div className={`${sceneClass(0, 5)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-6xl">
-                  <PhaseHeading title="Codex coding session" body="Agent cost accrues while the task is still unresolved." />
-                <div className="mt-4 grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[minmax(0,1fr)_320px]">
-                  <section className="min-w-0 bg-[#0b0b12]">
-                    <div className="flex items-center gap-1 border-b border-white/10 bg-[#050509] px-3 pt-3">
-                      <div className="rounded-t-lg border border-b-0 border-white/10 bg-[#0b0b12] px-4 py-2 font-mono text-xs text-neutral-200">
-                        session.ts
-                      </div>
+              <div className={`${sceneClass(0, 6)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+                <div className="w-full max-w-4xl">
+                  <PhaseHeading
+                    title="Prompt"
+                    body="The user types what they always type. Same chat, same tools."
+                  />
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30">
+                    <div className="border-b border-white/10 bg-[#050509] px-4 py-3">
+                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">claims assistant</p>
                     </div>
                     <div className="p-5">
-                      <p className="mb-4 font-mono text-xs text-neutral-500">src/auth/session.ts</p>
-                      <div className="max-h-[430px] overflow-hidden rounded-xl border border-white/10 bg-[#050509] p-4 font-mono text-[13px] leading-6">
-                        {preEditCodeLines.map(([lineNumber, code, color]) => (
-                          <p key={`${lineNumber}-${code}`} className={`grid grid-cols-[42px_1fr] gap-4 ${color}`}>
-                            <span className="select-none text-right text-neutral-600">{lineNumber}</span>
-                            <span className="truncate">{code}</span>
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-                  <aside className="border-t border-white/10 bg-[#08080d] p-4 lg:border-l lg:border-t-0">
-                    <div className="mb-4 flex items-center justify-between">
-                      <div>
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Codex</p>
-                        <h3 className="mt-1 text-lg font-semibold">Working task</h3>
-                      </div>
-                      <span className="rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.06] px-3 py-1 font-mono text-[11px] text-[#22d3ee]">
-                        reading files
-                      </span>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-                      <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Agent prompt</p>
-                      <div className="mt-3 rounded-xl border border-white/10 bg-[#050509] p-3 text-sm leading-6 text-neutral-100">
+                      <div className="rounded-xl border border-white/10 bg-[#050509] p-4 text-sm leading-6 text-neutral-100">
                         <span>{typedPrompt}</span>
                         <span className="ml-0.5 inline-block h-4 w-1 translate-y-0.5 bg-[#22d3ee]" />
                       </div>
-                    </div>
-                    <div className="mt-3 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-xs text-neutral-300">
-                      <p className={`${showAt(1.2) ? "opacity-100" : "opacity-0"} transition`}>read src/auth/session.ts</p>
-                      <p className={`${showAt(2.1) ? "opacity-100" : "opacity-0"} transition`}>inspect tests/auth-refresh.test.ts</p>
-                      <p className={`${showAt(3.0) ? "opacity-100" : "opacity-0"} transition text-amber-200`}>plan narrow token persistence fix</p>
-                    </div>
-                  </aside>
-                </div>
-                </div>
-              </div>
-
-              <div className={`${sceneClass(5, 9)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-5xl">
-                  <PhaseHeading title="Coding-specific waste" body="Bloated prompts. Repeated context. Hidden spend." />
-                  <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_0.8fr]">
-                    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30">
-                      <div className="border-b border-white/10 bg-[#050509] px-4 py-3">
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Codex loop</p>
-                      </div>
-                      <div className="grid gap-2 p-5 font-mono text-sm">
-                        {[
-                          ["read src/auth/session.ts", "text-neutral-300"],
-                          ["read src/auth/session.ts again", "text-amber-200"],
-                          ["attach full chat history", "text-amber-200"],
-                          ["route simple edit to expensive model", "text-red-200"]
-                        ].map(([line, color], index) => (
-                          <p
-                            key={line}
-                            className={`${color} transition duration-300 ${
-                              showAt(5.4 + index * 0.65) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                            }`}
-                          >
-                            $ {line}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-red-300/20 bg-red-300/[0.045] p-5">
-                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-red-200">Waste detected</p>
-                      <div className="mt-4 grid gap-3">
-                        {["costly repeated context", "3 duplicated file reads", "model route: overpowered"].map((item, index) => (
-                          <div
-                            key={item}
-                            className={`rounded-xl border border-white/10 bg-black/25 p-3 text-sm text-neutral-200 transition duration-300 ${
-                              showAt(6.1 + index * 0.65) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                            }`}
-                          >
-                            {item}
-                          </div>
-                        ))}
+                      <div className="mt-3 grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-4 font-mono text-xs text-neutral-300">
+                        <p className={`${showAt(3.6) ? "opacity-100" : "opacity-0"} transition`}>12 claims in queue</p>
+                        <p className={`${showAt(4.4) ? "opacity-100" : "opacity-0"} transition`}>2 flagged for denial letters</p>
+                        <p className={`${showAt(5.2) ? "opacity-100" : "opacity-0"} transition text-[#67e8f9]`}>
+                          sidecar: run plan built, 14 steps
+                        </p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <div className={`${sceneClass(9, 14)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-5xl">
-                  <PhaseHeading title="Prompt Refiner" body="Prompt Refiner improves the task path before more cost accrues." />
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                    <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar</p>
-                        <h3 className="mt-2 text-2xl font-semibold">Bloated prompt becomes a focused coding task</h3>
-                      </div>
-                      <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                        lower task cost
-                      </span>
-                    </div>
-                    <div className="grid gap-4 p-5 lg:grid-cols-[0.9fr_1.1fr]">
-                      <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Before</p>
-                        <div className="mt-3 grid gap-2">
-                          {messyPromptLines.map((line, index) => (
-                            <p
-                              key={line}
-                              className={`rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-neutral-300 transition duration-300 ${
-                                showAt(9.4 + index * 0.35) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                              }`}
-                            >
-                              {line}
-                            </p>
-                          ))}
-                        </div>
-                        <p className="mt-4 font-mono text-xs text-red-200">high-cost prompt context</p>
-                      </div>
-                      <div className="rounded-2xl border border-[#22d3ee]/25 bg-[#22d3ee]/[0.045] p-4">
-                        <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">Refined prompt</p>
-                        <div className="mt-3 grid gap-2">
-                          {optimizedPromptLines.map((line, index) => (
-                            <p
-                              key={line}
-                              className={`rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm leading-6 text-neutral-200 transition duration-300 ${
-                                showAt(10.8 + index * 0.45) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                              }`}
-                            >
-                              {line}
-                            </p>
-                          ))}
-                        </div>
-                        <p className="mt-4 font-mono text-xs text-emerald-200">focused task contract</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`${sceneClass(14, 19)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+              <div className={`${sceneClass(6, 12)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
                 <div className="w-full max-w-4xl">
-                  <PhaseHeading title="Steering applied to coding" body="Refine prompts. Reuse memory. Route smarter." />
-                <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                  <div className="flex flex-col gap-3 border-b border-white/10 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Agent Sidecar runtime</p>
-                      <h3 className="mt-2 text-2xl font-semibold">Next Codex step gets a cleaner route</h3>
+                  <PhaseHeading
+                    title="Route"
+                    body="Routine steps stay on the workflow's own model at cents each. Low-confidence steps go to Muse Spark Open."
+                  />
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
+                    <div className="border-b border-white/10 px-5 py-3">
+                      <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">router</p>
                     </div>
-                    <span className="w-fit rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-xs text-emerald-200">
-                      steering active
-                    </span>
-                  </div>
-                  <div className="grid gap-3 p-5 sm:grid-cols-2">
-                    {capabilityEvents.map(([label, body], index) => (
-                      <div
-                        key={label}
-                        className={`rounded-2xl border border-white/10 bg-white/[0.035] p-4 transition duration-300 ${
-                          showAt(14.5 + index * 0.75) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div>
-                            <p className="font-mono text-xs uppercase tracking-[0.14em] text-[#22d3ee]">{label}</p>
-                            <p className="mt-2 text-sm leading-6 text-neutral-300">{body}</p>
-                          </div>
-                          <span className="mt-1 grid size-6 shrink-0 place-items-center rounded-full bg-emerald-300/12 text-xs text-emerald-200">
-                            OK
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                </div>
-              </div>
-
-              <div className={`${sceneClass(16.6, 19)} absolute inset-0 place-items-end p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-5xl">
-                <div className="grid overflow-hidden rounded-2xl border border-white/10 bg-[#08080d] shadow-2xl shadow-black/30 lg:grid-cols-[230px_1fr]">
-                  <aside className="hidden border-r border-white/10 bg-[#090910] p-4 lg:block">
-                    <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Explorer</p>
-                    <div className="mt-5 grid gap-2">
-                      {files.map((file) => (
+                    <div className="grid gap-2 p-5">
+                      {routedSteps.map(([step, model, cost, color], index) => (
                         <div
-                          key={file}
-                          className={`rounded-lg px-3 py-2 font-mono text-xs ${
-                            file === "src/auth/session.ts" ? "bg-[#22d3ee]/[0.08] text-[#22d3ee]" : "text-neutral-400"
+                          key={step}
+                          className={`grid grid-cols-[1fr_auto] items-center gap-3 rounded-xl border border-white/10 bg-black/25 px-4 py-3 transition duration-300 sm:grid-cols-[1fr_200px_60px] ${
+                            showAt(6.6 + index * 0.9) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
                           }`}
                         >
-                          {file}
+                          <span className="font-mono text-xs text-neutral-200">{step}</span>
+                          <span className={`hidden font-mono text-xs sm:block ${color}`}>{model}</span>
+                          <span className="text-right font-mono text-xs text-neutral-300">{cost}</span>
                         </div>
                       ))}
                     </div>
-                  </aside>
-                  <section className="min-w-0 bg-[#0b0b12]">
-                    <div className="flex items-center justify-between border-b border-white/10 bg-[#050509] px-4 py-3">
-                      <span className="font-mono text-xs text-neutral-500">src/auth/session.ts</span>
-                      <span className="rounded-full border border-emerald-300/20 bg-emerald-300/[0.06] px-3 py-1 font-mono text-[11px] text-emerald-200">
-                        narrow edit
-                      </span>
-                    </div>
-                    <div className="p-5">
-                      <div className="rounded-xl border border-white/10 bg-[#050509] p-4 font-mono text-sm leading-7">
-                        {codeLines.map(([lineNumber, code, color]) => (
-                          <p
-                            key={`${lineNumber}-${code}`}
-                            className={`grid grid-cols-[42px_1fr] gap-4 ${color}`}
-                          >
-                            <span className="select-none text-right text-neutral-600">{lineNumber}</span>
-                            <span className="truncate">{code}</span>
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
+                  </div>
                 </div>
+              </div>
+
+              <div className={`${sceneClass(12, 18)} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
+                <div className="w-full max-w-4xl">
+                  <PhaseHeading
+                    title="Govern"
+                    body="The governance model allows, blocks, or pauses every call against your rules."
+                  />
+                  <div className="mt-4 grid gap-3">
+                    <div
+                      className={`rounded-2xl border border-red-300/20 bg-red-300/[0.05] p-4 transition duration-300 ${
+                        showAt(12.6) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                      }`}
+                    >
+                      <p className="font-mono text-xs uppercase tracking-[0.16em] text-red-200">blocked</p>
+                      <p className="mt-2 font-mono text-sm text-neutral-100">export_csv</p>
+                      <p className="mt-1 text-sm leading-6 text-neutral-300">
+                        On the deny list for claims-intake. The call never runs; the run continues.
+                      </p>
+                    </div>
+                    <div
+                      className={`rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4 transition duration-300 ${
+                        showAt(14.2) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                      }`}
+                    >
+                      <p className="font-mono text-xs uppercase tracking-[0.16em] text-amber-200">paused for approval</p>
+                      <p className="mt-2 font-mono text-sm text-neutral-100">issue_payment &middot; $740</p>
+                      <p className="mt-1 text-sm leading-6 text-neutral-300">
+                        Over the $500 approval line. A person is notified in Slack.
+                      </p>
+                      <p
+                        className={`mt-3 w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-3 py-1 font-mono text-xs text-emerald-200 transition duration-300 ${
+                          showAt(16.2) ? "opacity-100" : "opacity-0"
+                        }`}
+                      >
+                        approved from Slack
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className={`${finalSceneClass} absolute inset-0 place-items-center p-5 transition-opacity duration-300`}>
-                <div className="w-full max-w-6xl">
-                  <PhaseHeading
-                    title="Dashboard and coding outcome"
-                    body="Lower spend. Same engineering output."
-                  />
+                <div className="w-full max-w-5xl">
+                  <PhaseHeading title="Logged" body="The run ends. Every decision is in the log." />
                   <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#050509] shadow-2xl shadow-black/30">
-                    <div className="grid min-h-[430px] lg:grid-cols-[200px_1fr]">
-                      <aside className="hidden border-r border-white/10 bg-[#07070b] p-4 lg:block">
-                        <div className="flex items-center gap-3">
-                          <span className="relative grid size-10 place-items-center rounded-xl border border-white/20 bg-white/[0.04]">
-                            <Bot size={20} />
-                            <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-[#22d3ee]" />
-                          </span>
-                          <div>
-                            <p className="text-sm font-semibold">Agent Sidecar</p>
-                            <p className="font-mono text-xs text-neutral-500">Acme workspace</p>
-                          </div>
+                    <div className="grid gap-2 p-5">
+                      {logRows.map(([step, outcome, detail, color], index) => (
+                        <div
+                          key={step}
+                          className={`grid gap-1 rounded-xl border border-white/10 bg-black/25 px-4 py-3 transition duration-300 sm:grid-cols-[1fr_190px_210px] sm:items-center ${
+                            showAt(18.6 + index * 0.6) ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+                          }`}
+                        >
+                          <span className="font-mono text-xs text-neutral-200">{step}</span>
+                          <span className={`font-mono text-xs ${color}`}>{outcome}</span>
+                          <span className="font-mono text-xs text-neutral-500 sm:text-right">{detail}</span>
                         </div>
-                        <nav className="mt-6 grid gap-2 text-sm">
-                          {["Traces", "Decisions", "Policies", "Lessons", "Analytics"].map((item, index) => (
-                            <div
-                              key={item}
-                              className={`rounded-xl px-3 py-2.5 ${
-                                index === 0 ? "border border-[#22d3ee]/30 bg-[#22d3ee]/[0.08] text-white" : "text-neutral-500"
-                              }`}
-                            >
-                              {item}
-                            </div>
-                          ))}
-                        </nav>
-                      </aside>
-                      <section className="demo-dashboard-bg min-w-0 p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="font-mono text-xs uppercase tracking-[0.25em] text-[#22d3ee]">Live runs</p>
-                            <h3 className="mt-2 text-2xl font-semibold">Runtime control plane</h3>
-                          </div>
-                          <span className="w-fit rounded-full border border-emerald-300/25 bg-emerald-300/[0.08] px-4 py-2 font-mono text-xs text-emerald-200">
-                            daemon connected
-                          </span>
-                        </div>
-
-                        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                          {[
-                            ["Cost/task", "-50%"],
-                            ["Quality", "validated"],
-                            ["Scope", "unchanged"]
-                          ].map(([label, value]) => (
-                            <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-                              <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">{label}</p>
-                              <p className="mt-3 text-3xl font-semibold">{value}</p>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-3 rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.055] p-3">
-                          <div className="grid gap-3 sm:grid-cols-[210px_1fr_170px] sm:items-center">
-                            <div>
-                              <p className="font-mono text-xs uppercase tracking-[0.18em] text-emerald-200">Validated cost reduction</p>
-                              <p className="mt-2 text-4xl font-semibold text-emerald-100">$4,820</p>
-                            </div>
-                            <p className="text-sm leading-7 text-neutral-300">
-                              Prompt Refiner removed repeated context, memory avoided duplicate file reads, and routing kept simple edits off the strongest model.
-                            </p>
-                            <div className="rounded-xl border border-emerald-300/20 bg-black/20 p-3">
-                              <p className="font-mono text-xs uppercase tracking-[0.14em] text-emerald-200">This successful run</p>
-                              <p className="mt-2 text-2xl font-semibold text-emerald-100">$1.43</p>
-                              <p className="mt-1 font-mono text-[11px] text-neutral-500">$2.84 to $1.41</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                          {[
-                            ["prompt contract", "original and optimized prompt hashes recorded"],
-                            ["route steering", "simple session fix kept off the strongest model"],
-                            ["quality gate", "savings counted after auth tests pass"]
-                          ].map(([label, copy]) => (
-                            <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
-                              <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{label}</p>
-                              <p className="mt-3 text-sm leading-6 text-neutral-300">{copy}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </section>
+                      ))}
+                    </div>
+                    <div
+                      className={`grid gap-2 border-t border-white/10 bg-emerald-300/[0.05] px-5 py-4 transition duration-300 sm:grid-cols-[1fr_auto] sm:items-center ${
+                        showAt(21.4) ? "opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-neutral-400">
+                        Run total &middot; vs $2.10 if every step had gone to Muse Spark Open
+                      </p>
+                      <p className="font-mono text-xl font-semibold text-emerald-300">$1.03</p>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+
             <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/30 p-4 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2">
                 <button
@@ -727,23 +712,16 @@ function DemoSection() {
           </div>
         </div>
       </div>
-    </Section>
-  );
-}
+      <MockupCaption />
 
-function PrivacySection() {
-  return (
-    <section id="privacy" className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
-      <div className="mx-auto max-w-6xl">
-        <div className="max-w-3xl">
-          <Badge>Privacy boundary</Badge>
-          <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">What Teams Can Read, What Stays Private</h2>
-        </div>
+      <div className="mt-6 rounded-2xl border border-[#22d3ee]/20 bg-[#22d3ee]/[0.05] p-5">
+        <p className="text-sm leading-6 text-neutral-200">
+          Humans only when needed. The governance model and your hard rules decide when a person
+          must step in. People are notified when something needs intervention, not asked to
+          approve everything.
+        </p>
       </div>
-      <div className="mt-10">
-        <PrivacyComparisonCard />
-      </div>
-    </section>
+    </Section>
   );
 }
 
@@ -756,133 +734,262 @@ function PhaseHeading({ title, body }: { title: string; body: string }) {
   );
 }
 
-function HeroComparisonCard() {
-  const baselineSteps = [
-    "Reads session.ts again",
-    "Explores stale callback path",
-    "Routes simple edit to strongest model",
-    "Needs follow-up validation"
+/* 8. The dashboard */
+
+const dashboardFeatures: Array<[string, string]> = [
+  [
+    "Cost and routing",
+    "Spend against the all-frontier default, and how much of each workflow its own model now carries."
+  ],
+  [
+    "Approvals",
+    "Paused actions wait here or in Slack. One click; the decision and who made it go in the log."
+  ],
+  [
+    "Decision log",
+    "Every call: who, what, which rule, which model, cost. One button exports it for the auditor."
+  ]
+];
+
+function DashboardSection() {
+  return (
+    <Section
+      id="dashboard"
+      eyebrow="Dashboard"
+      title="Everything, on one screen"
+      sub="What the platform team and the auditor see: seats, spend vs default, routing, approvals, and every decision logged."
+    >
+      <div className="mt-8 grid gap-4 lg:grid-cols-3">
+        {dashboardFeatures.map(([title, body]) => (
+          <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+            <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{title}</p>
+            <p className="mt-3 text-sm leading-6 text-neutral-300">{body}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-8">
+        <DashboardMockup />
+        <MockupCaption />
+      </div>
+    </Section>
+  );
+}
+
+function DashboardMockup() {
+  const nav = ["Overview", "Routing", "Approvals", "Decision log", "Settings"];
+  const statTiles: Array<[string, string]> = [
+    ["seats", "180"],
+    ["cost vs default", "-51%"],
+    ["steps on workflow models", "71%"],
+    ["calls checked", "4,812"],
+    ["blocked / repaired", "17 / 41"],
+    ["approvals waiting", "3"]
   ];
-  const sidecarSteps = [
-    "Refines into a task contract",
-    "Routes narrow edit to cheaper model",
-    "Counts result only after tests pass"
+  const spendDays: Array<[number, number]> = [
+    [78, 44],
+    [84, 46],
+    [72, 38],
+    [90, 47],
+    [82, 40],
+    [66, 31],
+    [74, 35]
+  ];
+  const routingRows: Array<[string, number]> = [
+    ["claims-intake", 71],
+    ["prior-auth", 54],
+    ["deploy-helper", 38]
+  ];
+  const logRows: Array<[string, string, string, string]> = [
+    ["j.alvarez", "draft_letter", "claims-intake · $0.02", "allowed"],
+    ["agent:prior-auth", "export_csv", "deny list · $0.00", "blocked"],
+    ["k.patel", "issue_payment $740", "approval rule · $0.01", "approved"]
   ];
 
   return (
-    <div
-      role="img"
-      aria-label="Animated prompt-to-cost flow showing a coding-agent prompt entering Agent Sidecar, model steering steps, and final lower cost per successful task."
-      className="reason-hero-card relative mx-auto min-w-0 max-w-full overflow-hidden border border-white/10 p-3 text-left shadow-2xl shadow-[#7c5cff]/10 sm:max-w-6xl sm:p-4"
-    >
-      <div className="reason-grid-bg absolute inset-0" />
-      <div className="relative grid min-w-0 gap-3 sm:gap-4">
-        <div className="grid min-w-0 gap-3 lg:grid-cols-[0.82fr_1.18fr] lg:items-stretch">
-          <div className="reason-copy-panel flex min-h-[340px] min-w-0 flex-col justify-center border border-white/10 bg-[#0b0b12]/90 p-5 sm:p-7">
-            <h3 className="max-w-md text-3xl font-semibold leading-[1.04] tracking-normal text-white sm:text-5xl">
-              Provable cost savings for coding agents.
-            </h3>
+    <div className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.035] p-3 shadow-2xl shadow-[#7c5cff]/10">
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#050509]">
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="size-2 rounded-full bg-red-400/80" />
+            <span className="size-2 rounded-full bg-amber-300/80" />
+            <span className="size-2 rounded-full bg-emerald-300/80" />
           </div>
+          <span className="font-mono text-xs text-neutral-500">Agent Sidecar console</span>
+        </div>
 
-          <div className="reason-terminal min-h-[430px] min-w-0 overflow-hidden border border-white/12 bg-[#08080d] text-white shadow-[0_24px_70px_rgba(34,211,238,0.08)]">
-            <div className="border-b border-white/10 p-3">
-              <div className="flex min-h-9 min-w-0 items-center overflow-hidden border border-white/12 bg-black/35 px-3 font-mono text-xs text-neutral-100">
-                <span className="mr-2 shrink-0 text-[#67e8f9]">Prompt:</span>
-                <span className="reason-prompt-feed">fix auth refresh; preserve unrelated session behavior</span>
-                <span className="reason-cursor ml-1 inline-block h-4 w-1 bg-[#22d3ee]" />
+        <div className="dashboard-preview-bg grid min-h-[520px] md:grid-cols-[190px_1fr]">
+          <aside className="border-b border-white/10 p-4 md:border-b-0 md:border-r">
+            <div className="flex items-center gap-3">
+              <span className="relative grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04]">
+                <span className="font-mono text-xs text-[#22d3ee]">AS</span>
+              </span>
+              <div>
+                <p className="text-sm font-semibold">Agent Sidecar</p>
+                <p className="font-mono text-[11px] text-neutral-500">platform team</p>
               </div>
             </div>
-            <div className="grid border-b border-white/10 bg-[#11111a] font-mono text-[10px] uppercase tracking-[0.16em] sm:grid-cols-2">
-              <div className="flex items-center justify-between border-b border-white/10 px-3 py-3 sm:border-b-0 sm:border-r">
-                <span className="text-neutral-500">Without sidecar</span>
-                <span className="reason-cost-bad text-lg font-semibold text-red-300">$2.84</span>
+            <div className="mt-7 grid gap-2">
+              {nav.map((item, index) => (
+                <div
+                  key={item}
+                  className={`rounded-xl px-3 py-2 text-sm ${
+                    index === 0 ? "border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] text-white" : "text-neutral-500"
+                  }`}
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <div className="p-4 sm:p-5">
+            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {statTiles.map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-neutral-500">{label}</p>
+                  <p className="mt-2 text-lg font-semibold">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">
+                  spend vs default, by day
+                </p>
+                <div className="mt-4 flex h-28 items-end gap-2">
+                  {spendDays.map(([defaultH, actualH], index) => (
+                    <div key={index} className="flex flex-1 items-end justify-center gap-1">
+                      <span className="w-2.5 rounded-t bg-white/15" style={{ height: `${defaultH}%` }} />
+                      <span className="w-2.5 rounded-t bg-[#22d3ee]" style={{ height: `${actualH}%` }} />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex gap-4 font-mono text-[10px] text-neutral-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-sm bg-white/15" /> all-frontier default
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-sm bg-[#22d3ee]" /> with Sidecar
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center justify-between px-3 py-3">
-                <span className="text-neutral-500">+ Agent Sidecar</span>
-                <span className="reason-cost-good text-lg font-semibold text-emerald-300">$1.41</span>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">
+                  routing by workflow &middot; share on own model
+                </p>
+                <div className="mt-4 grid gap-3">
+                  {routingRows.map(([workflow, pct]) => (
+                    <div key={workflow} className="grid grid-cols-[110px_1fr_38px] items-center gap-3">
+                      <span className="font-mono text-[11px] text-neutral-300">{workflow}</span>
+                      <span className="block h-2 overflow-hidden rounded-full bg-white/10">
+                        <span className="block h-full rounded-full bg-[#22d3ee]" style={{ width: `${pct}%` }} />
+                      </span>
+                      <span className="text-right font-mono text-[11px] text-neutral-300">{pct}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.05] p-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-amber-200">approvals queue</p>
+                  <div className="mt-2 flex items-center justify-between gap-3">
+                    <span className="font-mono text-xs text-neutral-200">issue_payment &middot; $740 &middot; claims-intake</span>
+                    <span className="rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 font-mono text-[10px] text-neutral-200">
+                      Approve
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="grid min-h-[290px] sm:grid-cols-2">
-              <div className="grid content-start gap-3 border-b border-white/10 p-4 sm:border-b-0 sm:border-r">
-                {baselineSteps.map((step, index) => (
-                  <HeroCostStep key={step} tone="bad" index={index} label={step} />
+
+            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-neutral-500">decision log</p>
+                <span className="rounded-lg border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] px-3 py-1.5 font-mono text-[10px] text-[#9be8f4]">
+                  Export for auditor
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {logRows.map(([who, what, detail, status]) => (
+                  <div
+                    key={`${who}-${what}`}
+                    className="grid gap-1 rounded-xl border border-white/10 bg-black/25 px-3 py-2.5 font-mono text-[11px] sm:grid-cols-[120px_1fr_170px_80px] sm:items-center"
+                  >
+                    <span className="text-neutral-400">{who}</span>
+                    <span className="text-neutral-200">{what}</span>
+                    <span className="text-neutral-500">{detail}</span>
+                    <span
+                      className={
+                        status === "blocked"
+                          ? "text-red-200"
+                          : status === "approved"
+                            ? "text-amber-200"
+                            : "text-emerald-200"
+                      }
+                    >
+                      {status}
+                    </span>
+                  </div>
                 ))}
               </div>
-              <div className="grid content-start gap-3 p-4">
-                {sidecarSteps.map((step, index) => (
-                  <HeroCostStep key={step} tone="good" index={index} label={step} />
-                ))}
-              </div>
-            </div>
-            <div className="reason-terminal-result grid gap-2 border-t border-white/10 bg-[#050509] px-4 py-3 text-white sm:grid-cols-[1fr_auto] sm:items-center">
-              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-neutral-400">Final cost delta after validation</p>
-              <p className="font-mono text-xl font-semibold text-emerald-300">-$1.43 per successful task</p>
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );
 }
 
-function HeroCostStep({ tone, index, label }: { tone: "bad" | "good"; index: number; label: string }) {
-  const toneClass = tone === "good" ? "border-emerald-300/20 bg-emerald-300/[0.06] text-emerald-100" : "border-red-300/20 bg-red-300/[0.06] text-red-100";
-  const markerClass = tone === "good" ? "bg-emerald-300" : "bg-red-300";
+/* 9. Privacy */
 
-  return (
-    <div
-      className={`reason-cost-step grid grid-cols-[22px_1fr] items-center gap-3 border px-3 py-2 font-mono text-xs ${toneClass}`}
-      style={{ "--delay": `${1.25 + index * 0.95}s` } as CSSProperties}
-    >
-      <span className={`size-2.5 ${markerClass}`} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function PrivacyComparisonCard() {
-  const readableItems = [
-    ["Run timeline", "Tool calls, timestamps, exit states, and validation status"],
-    ["Cost evidence", "Token estimates, model usage, validated traces, and task-cost calculations"],
-    ["Policy outcomes", "Allowed actions, blocked waste, and reason codes for audit"]
+function PrivacySection() {
+  const staysItems = [
+    ["Prompts", "Every prompt and completion stays inside your cloud account"],
+    ["Data and keys", "Customer data, credentials, and API keys never transit to us"],
+    ["Tool calls", "Agent tool calls run and are checked inside your environment"],
+    ["All models", "Every model, including Muse Spark Open, runs on your compute"],
+    ["Fine-tuned weights", "Workflow models trained on your traffic stay yours, in your account"],
+    ["Logs", "The decision log is stored in your cloud, exported only by you"]
   ] as const;
-  const privateItems = [
-    ["Source contents", "Repository files stay on the developer machine unless explicitly shared"],
-    ["Secrets", "Environment variables, credentials, and protected paths are never exposed"],
-    ["Raw prompts", "Sensitive task text can remain local while metadata rolls up for teams"]
+  const reachesItems = [
+    ["Usage counts", "Seat and usage counts for billing. Nothing else. We never host a model."]
   ] as const;
 
   return (
-    <div className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur">
-      <div className="card-radial-overlay absolute inset-0" />
-      <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/90 p-5">
-        <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-neutral-500">Local-first telemetry boundary</p>
-            <h3 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight">Enterprise visibility without opening the whole workspace</h3>
-          </div>
-          <div className="w-fit rounded-full border border-[#22d3ee]/25 bg-[#22d3ee]/[0.08] px-3 py-1 font-mono text-xs text-[#9be8f4]">
-            coded access map
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <VisibilityPanel
-            title="Accessible / readable"
-            tone="emerald"
-            summary="Safe operational telemetry for engineering leaders, platform teams, and finance reviewers."
-            items={readableItems}
-          />
-          <VisibilityPanel
-            title="Kept private"
-            tone="red"
-            summary="Sensitive code, credentials, and raw workspace context remain local by default."
-            items={privateItems}
-          />
+    <section id="privacy" className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
+      <div className="mx-auto max-w-6xl">
+        <div className="max-w-3xl">
+          <Badge>Privacy boundary</Badge>
+          <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">
+            Nothing leaves your environment
+          </h2>
+          <p className="mt-4 text-base leading-7 text-neutral-300 sm:text-lg">
+            Prompts, data, keys, tool calls, and every model, including the fine-tuned weights,
+            stay in your cloud account. Only usage counts reach us. We never host a model.
+          </p>
         </div>
       </div>
-    </div>
+      <div className="mt-10">
+        <div className="relative mx-auto w-full max-w-6xl overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.035] p-4 text-left text-white shadow-2xl shadow-[#7c5cff]/10 backdrop-blur">
+          <div className="card-radial-overlay absolute inset-0" />
+          <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-[#07070b]/90 p-5">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <VisibilityPanel
+                title="Stays in your cloud"
+                tone="emerald"
+                summary="Everything the agents see, do, and learn stays in your account."
+                items={staysItems}
+              />
+              <VisibilityPanel
+                title="Reaches Agent Sidecar"
+                tone="cyan"
+                summary="Usage counts only."
+                items={reachesItems}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -893,15 +1000,15 @@ function VisibilityPanel({
   items
 }: {
   title: string;
-  tone: "emerald" | "red";
+  tone: "emerald" | "cyan";
   summary: string;
   items: readonly (readonly [string, string])[];
 }) {
-  const isReadable = tone === "emerald";
-  const panel = isReadable ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-red-400/30 bg-red-400/[0.075]";
-  const label = isReadable ? "bg-emerald-300 text-[#03170b]" : "bg-red-400 text-[#210505]";
-  const dot = isReadable ? "bg-emerald-300 shadow-emerald-300/30" : "bg-red-400 shadow-red-400/30";
-  const text = isReadable ? "text-emerald-100" : "text-red-100";
+  const isEmerald = tone === "emerald";
+  const panel = isEmerald ? "border-emerald-300/30 bg-emerald-300/[0.075]" : "border-[#22d3ee]/30 bg-[#22d3ee]/[0.075]";
+  const label = isEmerald ? "bg-emerald-300 text-[#03170b]" : "bg-[#22d3ee] text-[#032026]";
+  const dot = isEmerald ? "bg-emerald-300 shadow-emerald-300/30" : "bg-[#22d3ee] shadow-[#22d3ee]/30";
+  const text = isEmerald ? "text-emerald-100" : "text-[#c3f2fb]";
 
   return (
     <article className={`flex min-h-full flex-col rounded-xl border p-4 ${panel}`}>
@@ -924,32 +1031,242 @@ function VisibilityPanel({
   );
 }
 
-function Section({ id, eyebrow, title, children }: { id: string; eyebrow: string; title: string; children: ReactNode }) {
+/* 10. What it costs to run */
+
+const costCards: Array<[string, string]> = [
+  [
+    "Small models",
+    "Most steps run on 1–8B open models. They're cheap to run and more than enough for sorting, checking, and routine work; Muse Spark Open is reserved for the hard few percent."
+  ],
+  [
+    "Your existing compute",
+    "Configured on what you already run: Bedrock, SageMaker, Vertex Model Garden, Azure Foundry, or your own GPUs. Muse Spark Open is hosted there too. No data leaving, no bill from us for inference."
+  ],
+  [
+    "Near zero",
+    "What Sidecar adds is a small supervisor service and log storage. On capacity you've already paid for, the added cost is close to nothing, and the model work it removes is far larger."
+  ]
+];
+
+function CostToRunSection() {
   return (
-    <section id={id} className="mx-auto max-w-7xl px-5 py-16 sm:px-7 lg:px-10">
-      <div className="max-w-3xl">
-        <Badge>{eyebrow}</Badge>
-        <h2 className="mt-5 text-3xl font-semibold leading-tight sm:text-5xl">{title}</h2>
+    <Section
+      id="cost-to-run"
+      eyebrow="Running cost"
+      title="Near-zero added cost on your own cloud"
+      sub="Small models, configured to run on your existing compute. Nothing new to buy, nothing hosted by us."
+    >
+      <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        {costCards.map(([title, body]) => (
+          <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">
+            <p className="text-xl font-semibold text-white">{title}</p>
+            <p className="mt-3 text-sm leading-6 text-neutral-300">{body}</p>
+          </div>
+        ))}
       </div>
-      {children}
+      <p className="mt-8 text-base leading-7 text-neutral-300">
+        It runs on your cloud, on small models, at near-zero added cost.
+      </p>
+    </Section>
+  );
+}
+
+/* 11. Compare */
+
+const compareColumns = [
+  "Understudy Labs (YC S26)",
+  "ReasonBlocks (YC S26)",
+  "Routers (OpenRouter, LiteLLM)",
+  "Agent Sidecar"
+] as const;
+
+const compareRows: Array<[string, boolean, boolean, boolean, boolean]> = [
+  ["Small models trained on your own workflows", true, false, false, true],
+  ["Works across vendors and frameworks", true, true, true, true],
+  ["Savings shown per request vs the default model", true, true, false, true],
+  ["Steers and repairs a failing run", false, true, false, true],
+  ["Runs inside the customer's cloud", true, false, false, true],
+  ["Hard rules on tools, data, budgets, approvals", false, false, false, true],
+  ["A governance model watching every tool call", false, false, false, true]
+];
+
+function CompareSection() {
+  return (
+    <Section
+      id="compare"
+      eyebrow="Compare"
+      title="Others cut the bill. Nobody adds governance"
+      sub="Understudy and ReasonBlocks cut the bill. Routers pick a model. None of them govern what the agent may do."
+    >
+      <div className="mt-10 overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.035]">
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-4 font-mono text-xs font-normal uppercase tracking-[0.14em] text-neutral-500">
+                Capability
+              </th>
+              {compareColumns.map((column) => (
+                <th
+                  key={column}
+                  className={`px-4 py-4 text-xs font-semibold ${
+                    column === "Agent Sidecar" ? "text-[#22d3ee]" : "text-neutral-300"
+                  }`}
+                >
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {compareRows.map(([capability, ...values]) => (
+              <tr key={capability} className="border-b border-white/5 last:border-b-0">
+                <td className="px-4 py-3.5 text-sm leading-6 text-neutral-200">{capability}</td>
+                {values.map((value, index) => (
+                  <td
+                    key={`${capability}-${compareColumns[index]}`}
+                    className={`px-4 py-3.5 ${index === values.length - 1 ? "bg-[#22d3ee]/[0.04]" : ""}`}
+                  >
+                    {value ? (
+                      <Check size={16} className="text-emerald-300" aria-label="Yes" />
+                    ) : (
+                      <Minus size={16} className="text-neutral-600" aria-label="No" />
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
+  );
+}
+
+/* 12. Pricing */
+
+const pricingFlow: Array<[string, string]> = [
+  ["Install", "A setup call with our team; Sidecar goes in front of your models and tools."],
+  ["Subscribe", "Per seat, month to month or annual paid up front."],
+  ["Expand", "Every new person or agent workflow is one more seat."]
+];
+
+const whyThisPrice: Array<[string, string]> = [
+  [
+    "51% lower model cost on SWE-bench Lite",
+    "At $100/mo of agent spend, about $50 saved for $19, paid back in two weeks."
+  ],
+  [
+    "Governance comes with the seat",
+    "Rules, approvals, and the audit log, the part compliance needs before anything ships. Not a second product to buy."
+  ],
+  [
+    "Usage allowance included",
+    "Each seat includes a usage allowance; heavy workloads step up a tier."
+  ]
+];
+
+function PricingSection() {
+  return (
+    <Section
+      id="pricing"
+      eyebrow="Pricing"
+      title="Per-seat subscriptions"
+      sub="A seat is one person using AI agents or models, or one production agent workflow. Monthly or annual."
+    >
+      <div className="mt-10 grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+        {pricingFlow.map(([title, body], index) => (
+          <div key={title} className="contents">
+            {index > 0 ? (
+              <div className="grid place-items-center font-mono text-lg text-neutral-500">
+                <span className="hidden lg:block">&rarr;</span>
+                <span className="lg:hidden">&darr;</span>
+              </div>
+            ) : null}
+            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+              <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">{title}</p>
+              <p className="mt-3 text-sm leading-6 text-neutral-300">{body}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-[28px] border border-[#22d3ee]/25 bg-[#22d3ee]/[0.05] p-7">
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-[#22d3ee]">Enterprise</p>
+          <p className="mt-4 text-5xl font-semibold">
+            $19
+            <span className="ml-2 text-base font-normal text-neutral-400">per seat / month</span>
+          </p>
+          <p className="mt-3 text-sm leading-6 text-neutral-300">
+            Anyone using agents or models, plus production agents.
+          </p>
+          <div className="mt-5 grid gap-2.5">
+            {["Rules, budgets, approvals", "Repair", "Audit export", "SSO", "In-cloud install"].map((item) => (
+              <p key={item} className="flex items-center gap-2.5 text-sm text-neutral-200">
+                <Check size={15} className="shrink-0 text-emerald-300" />
+                {item}
+              </p>
+            ))}
+          </div>
+          <p className="mt-5 text-xs leading-5 text-neutral-500">
+            Monthly or annual. Matches Copilot Business.
+          </p>
+          <div className="mt-6">
+            <CtaButtons />
+          </div>
+        </div>
+        <div className="grid content-start gap-3">
+          <p className="font-mono text-xs uppercase tracking-[0.16em] text-neutral-500">Why this price</p>
+          {whyThisPrice.map(([title, body]) => (
+            <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+              <p className="text-sm font-semibold text-white">{title}</p>
+              <p className="mt-2 text-sm leading-6 text-neutral-300">{body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* 13. Who it's for */
+
+function WhoItsForSection() {
+  return (
+    <Section id="who-its-for" eyebrow="Who it's for" title="Built for regulated enterprises">
+      <div className="mt-10 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">
+          <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">The company</p>
+          <p className="mt-3 text-sm leading-7 text-neutral-300">
+            Large enterprises, healthcare and financial services first, with cloud infrastructure
+            already in place (AWS, Azure, or GCP) and AI agents acting on real systems: claims,
+            prior auth, customer data, internal tools.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-6">
+          <p className="font-mono text-xs uppercase tracking-[0.16em] text-[#22d3ee]">The buyer</p>
+          <p className="mt-3 text-sm leading-7 text-neutral-300">
+            The platform or security leader who owns agent rollout; the gatekeeper is compliance,
+            who needs an audit trail before anything ships.
+          </p>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+/* 14. Closing call to action */
+
+function ClosingSection() {
+  return (
+    <section className="mx-auto max-w-7xl px-5 py-20 text-center sm:px-7 lg:px-10">
+      <h2 className="mx-auto max-w-3xl text-3xl font-semibold leading-tight sm:text-4xl">
+        Sidecar is a platform that provides governance and cost controls for your team&apos;s AI
+        agents.
+      </h2>
+      <div className="mt-8 flex justify-center">
+        <CtaButtons center />
+      </div>
     </section>
-  );
-}
-
-function Badge({ children }: { children: ReactNode }) {
-  return (
-    <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-neutral-200">
-      <Code2 size={12} className="text-[#22d3ee]" />
-      {children}
-    </span>
-  );
-}
-
-function LogoMark() {
-  return (
-    <span className="relative grid size-9 place-items-center rounded-xl border border-white/10 bg-white/[0.04]">
-      <Bot size={19} />
-      <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[#22d3ee]" />
-    </span>
   );
 }
