@@ -227,6 +227,19 @@ a {
   }
 }
 
+/* Reduced motion: fast-forward every entrance/count-up animation to its final
+   frame so no content is left hidden at its 0% state, and stop infinite loops. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-delay: 0ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .reason-prompt-feed {
   animation: reason-prompt-feed 2.8s ease-in-out both;
   display: inline-block;
